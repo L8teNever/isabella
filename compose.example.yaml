@@ -1,0 +1,7 @@
+services:
+  isabella:
+    image: ghcr.io/l8tenever/isabella:latest
+    container_name: isabella
+    restart: unless-stopped
+    ports:
+      - "8081:80"          # fuer die Brille HTTPS davor (z. B. Cloudflare-Tunnel)

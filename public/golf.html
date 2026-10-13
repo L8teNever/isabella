@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1a1424">
+  <title>Isabella – Minigolf</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">{ "imports": { "three": "/vendor/three.module.min.js" } }</script>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <section id="gstart" class="start">
+    <div class="card">
+      <nav class="games"><a href="/">🎳 Bowling</a><a class="on" href="/golf.html">⛳ Minigolf</a></nav>
+      <h1>Isabella</h1>
+      <p class="sub">Minigolf in deinem Raum – eigene Bahnen bauen, reihum spielen</p>
+      <div class="psetup">
+        <div class="ptitle">Wer spielt? <small>reihum mit einem Gerät</small></div>
+        <div id="gplayers"></div>
+        <button id="gp-add" class="btn ghost small">+ Spieler</button>
+      </div>
+      <div class="buttons">
+        <button id="g-ar" class="btn main" hidden>In Mixed Reality spielen</button>
+        <button id="g-vr" class="btn" hidden>In VR spielen</button>
+        <button id="g-screen" class="btn ghost">Am Bildschirm testen</button>
+      </div>
+      <p id="ghint" class="hint"></p>
+      <ul class="how">
+        <li><b>Raum:</b> Boden, Wände und Möbel aus der Quest-Raumeinrichtung zählen mit – die Kugel rollt auf dem Tisch und prallt an Wänden ab. Außerhalb des gescannten Bodens ist die Kugel „aus“ (+1 Schlag).</li>
+        <li><b>Bauen:</b> in der Leiste ein Element wählen (Start, Loch, Rampe, Looping, Boost, Wand, Bumper, Sand) und auf Boden oder Tisch zielen. Elemente greifen = verschieben, Controller-Stick dreht. „Zufall“ baut eine Bahn vor dir, „Karte ▸“ wechselt zwischen gespeicherten Karten.</li>
+        <li><b>Spielen:</b> Controller oder Hand nach unten halten – das ist der Schläger. Durch die Kugel schwingen; je schneller, desto weiter. Handy/Bildschirm: wischen.</li>
+        <li><b>Mehrere Spieler:</b> jeder spielt ein Loch, dann der Nächste; Tafel zeigt die Schläge je Loch.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div id="goverlay" class="overlay" hidden>
+    <div class="bar">
+      <button id="go-mode" class="pill">Spielen</button>
+      <button id="go-random" class="pill">Zufall</button>
+      <button id="go-exit" class="pill">Beenden</button>
+    </div>
+  </div>
+
+  <div id="ghud" class="hud" hidden>
+    <span id="gscore"></span>
+    <button id="gh-new" class="pill">Neue Runde</button>
+    <span class="tip">Mit der Maus wischen zum Schlagen</span>
+  </div>
+
+  <script type="module" src="/golf.js"></script>
+</body>
+</html>
