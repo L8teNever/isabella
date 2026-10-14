@@ -124,6 +124,25 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     const tri = g(8) + g(16), str = g(6) + g(12) + g(18);
     triplet.push(Math.round((tri / 2 / ((tri / 2 + str / 3) || 1)) * 100) / 100);
   }
+  // Gehaltene Klaenge (fuer Orbit-Rails): Melodie da und die Toene bleiben ueber die Beats gleich
+  // (stabile Harmonie statt staendig neuer Toene). Drums duerfen dabei weiterlaufen.
+  const sustain: number[] = [], pitchRaw: number[] = [];
+  for (let k = 0; k < beats.length - 1; k++) {
+    const change = Math.max(bf.chromaChange[k] ?? 0, bf.chromaChange[k + 1] ?? 0);
+    const steady = 1 - Math.min(1, change * 4);
+    sustain.push(Math.round(clamp01(Math.sqrt(melN[k]) * steady) * 100) / 100);
+    // Tonhoehe: Schwerpunkt der melodischen Frames, logarithmisch
+    const a = frame(beats[k]), e = Math.max(a + 1, frame(beats[k + 1]));
+    let num = 0, den = 0;
+    for (let i = a; i < e; i++) { const w = f.melodic[i] + 1e-3; num += Math.log2(Math.max(50, f.centroid[i])) * w; den += w; }
+    pitchRaw.push(den ? num / den : 10);
+  }
+  // Tonhoehe auf 0..1 normieren (5.–95. Perzentil des Songs) und ueber 3 Beats glaetten
+  const pl = percentile(pitchRaw, 0.05), ph = percentile(pitchRaw, 0.95);
+  const pitch = pitchRaw.map((_, k) => {
+    const w = [pitchRaw[k - 1], pitchRaw[k], pitchRaw[k + 1]].filter((v) => v !== undefined) as number[];
+    return Math.round(clamp01((w.reduce((s, v) => s + v, 0) / w.length - pl) / (ph - pl || 1)) * 100) / 100;
+  });
   // Energiekurve ~10/s
   const ec: number[] = [];
   const step = Math.max(1, Math.round(0.1 / f.dt));
@@ -137,7 +156,7 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     version: ANALYSIS_VERSION, duration, sampleRate: sr, bpm, bpmConfidence: Math.round(tempo.confidence * 100) / 100,
     beats: beats.map((t) => Math.round(t * 10000) / 10000), downbeatOffset: meter.offset, beatsPerBar: bpb,
     bars: bars.map((t) => Math.round(t * 10000) / 10000), barEnergy, melody: melN.map((v) => Math.round(v * 100) / 100),
-    onsets, grid, triplet, sections, energyCurve: ec, took: Date.now() - t0,
+    onsets, grid, triplet, sustain, pitch, sections, energyCurve: ec, took: Date.now() - t0,
   };
 }
 

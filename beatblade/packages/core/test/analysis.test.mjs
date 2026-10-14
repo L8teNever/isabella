@@ -47,3 +47,19 @@ test('Mapping: deterministisch, ohne Parity-Fehler/Ueberkreuzungen, Dichte steig
     for (const n of m1.notes) assert.ok(Math.abs(n.b * 24 - Math.round(n.b * 24)) < 1e-3, 'Note nicht quantisiert');
   }
 });
+
+// Schutz: Schnitt-Level duerfen sich durch Orbit (Analyse-Erweiterung, gemeinsame Generator-Teile) nicht aendern.
+// Bei einer gewollten Aenderung am Schnitt-Generator: MAPPING_VERSION erhoehen und Fingerabdruecke neu erzeugen.
+test('Schnitt-Level unverändert (Fingerabdruck)', async () => {
+  const { createHash } = await import('node:crypto');
+  const { readFileSync } = await import('node:fs');
+  const snap = JSON.parse(readFileSync(new URL('./schnitt-snapshot.json', import.meta.url)));
+  for (const bpm of [128, 96]) {
+    const a = analyze(synthSong({ bpm, seconds: 60, seed: 3 }));
+    for (const d of DIFFICULTIES) {
+      const m = generate(a, d, 7);
+      const h = createHash('sha256').update(JSON.stringify({ n: m.notes, b: m.bombs, o: m.obstacles, l: m.lights })).digest('hex').slice(0, 16);
+      assert.equal(h, snap[`${bpm}/${d}`], `${bpm} BPM ${d}: Schnitt-Level hat sich verändert`);
+    }
+  }
+});

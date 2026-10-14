@@ -55,6 +55,10 @@ export interface SongAnalysis {
   grid: { step: number; bands: Record<Band, number[]> };
   /** Triolen-Neigung pro Beat 0..1 (1 = eher Triolen als 16tel) */
   triplet: number[];
+  /** pro Beat: wie stark ein Klang gehalten wird (0..1; Melodie/Pad ohne neue Anschlaege) – fuer Orbit-Rails. Fehlt bei alten Analysen. */
+  sustain?: number[];
+  /** pro Beat: Tonhoehe/Helligkeit des melodischen Anteils (0 tief .. 1 hoch) – Form der Orbit-Rails. Fehlt bei alten Analysen. */
+  pitch?: number[];
   sections: Section[];
   /** Energiekurve fuer Anzeige, ~10 Werte pro Sekunde */
   energyCurve: number[];
