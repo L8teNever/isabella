@@ -70,6 +70,26 @@ export class AudioPlayer {
     o.connect(g).connect(this.gain); o.start(at); o.stop(at + 0.07);
   }
 
+  /** Combo-Meilenstein: kurzer aufsteigender Akkord */
+  chime(level = 1) {
+    const t = this.ctx.currentTime, base = 523.25 * (1 + level * 0.5);
+    [1, 1.25, 1.5, 2].forEach((m, i) => {
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = base * m;
+      const at = t + i * 0.06;
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.18, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.35);
+      o.connect(g).connect(this.gain); o.start(at); o.stop(at + 0.4);
+    });
+  }
+
+  /** Combo gerissen: tiefer, kurzer Ton nach unten */
+  comboBreak() {
+    const t = this.ctx.currentTime, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.3);
+    g.gain.setValueAtTime(0.15, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g).connect(this.gain); o.start(t); o.stop(t + 0.4);
+  }
+
   /** kurzer Schnitt-Sound */
   slice(intensity = 1) {
     const t = this.ctx.currentTime, len = 0.08;

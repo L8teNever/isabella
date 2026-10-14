@@ -41,14 +41,22 @@ export class Saber {
     const idx: number[] = []; for (let i = 0; i < TRAIL - 1; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     g.setIndex(idx);
     this.trail = new THREE.Mesh(g, new THREE.ShaderMaterial({
-      uniforms: { color: { value: new THREE.Color(this.color) } },
+      uniforms: { color: { value: new THREE.Color(this.color) }, boost: { value: 1 } },
       vertexShader: 'attribute float alpha; varying float vA; void main(){ vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-      fragmentShader: 'uniform vec3 color; varying float vA; void main(){ gl_FragColor = vec4(color, vA * 0.35); }',
+      fragmentShader: 'uniform vec3 color; uniform float boost; varying float vA; void main(){ gl_FragColor = vec4(color, min(1.0, vA * 0.35 * boost)); }',
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
     }));
     this.trail.frustumCulled = false;
     scene.add(this.group, this.trail);
     this.group.visible = false; this.trail.visible = false;
+  }
+
+  /** Combo-Effekt: Klinge leuchtet staerker, Spur wird heller (level 0..1) */
+  setBoost(level: number) {
+    const g = this.glow;
+    g.scale.set(1 + level * 1.2, 1, 1 + level * 1.2);
+    (g.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.4 * level;
+    (this.trail.material as THREE.ShaderMaterial).uniforms.boost.value = 1 + level * 1.6;
   }
 
   setColor(c: number) { this.color = c; (this.glow.material as THREE.MeshBasicMaterial).color.setHex(c); (this.trail.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); }

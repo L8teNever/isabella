@@ -27,6 +27,8 @@ export class Environment {
   private colA = new THREE.Color(PALETTE[0][0]); private colB = new THREE.Color(PALETTE[0][1]);
   private target = [new THREE.Color(PALETTE[0][0]), new THREE.Color(PALETTE[0][1])];
   private evIdx = 0;
+  /** Combo-Effekt 0..1: mehr Helligkeit und Tempo der Lichtshow */
+  boost = 0;
   hemi: THREE.HemisphereLight;
 
   constructor(scene: THREE.Scene, public mr: boolean) {
@@ -76,6 +78,9 @@ export class Environment {
     scene.add(this.group);
   }
 
+  /** kurzer Licht-Stoss (Combo-Meilenstein) */
+  pulse(strength = 1) { this.burst = Math.max(this.burst, (settings.comfort ? 0.3 : 1) * strength); }
+
   reset() { this.evIdx = 0; this.flash = 0; this.burst = 0; this.off = 0; }
 
   /** Licht-Events bis Songzeit t abarbeiten und Effekte animieren */
@@ -92,9 +97,9 @@ export class Environment {
     }
     this.flash = Math.max(0, this.flash - dt * 5); this.burst = Math.max(0, this.burst - dt * 1.2); this.off = Math.max(0, this.off - dt * 3);
     this.colA.lerp(this.target[0], Math.min(1, dt * 3)); this.colB.lerp(this.target[1], Math.min(1, dt * 3));
-    const glow = Math.max(0.1, (0.45 + this.flash * 0.55 + this.burst * 0.6) * (1 - this.off * 0.85)) * k;
+    const glow = Math.max(0.1, (0.45 + this.flash * 0.55 + this.burst * 0.6 + this.boost * 0.5) * (1 - this.off * 0.85)) * k;
     for (const m of this.strips) { m.color.copy(this.colA).multiplyScalar(glow * 1.3); }
-    this.laserAngle += dt * this.laserSpeed;
+    this.laserAngle += dt * this.laserSpeed * (1 + this.boost * (calm ? 0.3 : 1.2));
     this.lasers.forEach((g, i) => { g.children.forEach((h, j) => { h.rotation.z = (i ? 1 : -1) * (0.3 + Math.sin(this.laserAngle * (1 + j * 0.3) + j) * 0.5); }); });
     for (const m of this.laserMats) { m.color.copy(this.colB).multiplyScalar(glow * 1.5); m.opacity = 0.35 + 0.4 * glow; }
     this.ringMat.color.copy(this.colA).multiplyScalar(glow);

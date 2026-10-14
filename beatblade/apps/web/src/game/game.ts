@@ -7,6 +7,7 @@ import { NoteView } from './notes';
 import { Slicer } from './slicer';
 import { Saber, FollowThrough } from './sabers';
 import { ScoreKeeper } from './score';
+import { comboLevel } from './combo';
 import { settings } from '../settings';
 
 interface NoteState { n: Note; done: boolean; }
@@ -180,7 +181,7 @@ export class Game {
     s.done = true;
     const normal = new THREE.Vector3().crossVectors(sb.dir, vel.clone().normalize()).normalize();
     if (normal.lengthSq() < 0.5) normal.set(1, 0, 0);
-    this.slicer.cut(c, n.d, this.colors[n.c], normal, new THREE.Vector3(0, 0, this.speed), okColor && okDir ? 20 : 6);
+    this.slicer.cut(c, n.d, this.colors[n.c], normal, new THREE.Vector3(0, 0, this.speed), okColor && okDir ? 16 + Math.round(comboLevel(this.score.combo) * 50) : 6);
     if (!okColor || !okDir) {
       this.score.miss(true, okColor ? 'dir' : 'color');
       this.ev.haptic(sb.hand, 0.3, 40);

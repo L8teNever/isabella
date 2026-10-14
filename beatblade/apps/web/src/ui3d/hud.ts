@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { rr } from './panel';
 import { starString, type ScoreKeeper } from '../game/score';
+import { comboColor, comboLevel } from '../game/combo';
 
 class Label extends THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
   canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; ctx: CanvasRenderingContext2D;
@@ -20,6 +21,9 @@ export class Hud {
   private right = new Label(0.7, 0.45);
   private bar = new Label(1.6, 0.08, 800);
   private center = new Label(1.0, 0.5);
+  /** Combo-Einblendung (Meilenstein / gerissen) */
+  private pop = new Label(1.6, 0.4, 1024);
+  private popT = 0; private popDur = 1;
   fps = new Label(0.24, 0.08, 256);
   vignette: THREE.Mesh;
   private last = '';
@@ -30,7 +34,8 @@ export class Hud {
     this.right.position.set(1.75, 1.2, -3.2); this.right.rotation.y = -0.35;
     this.bar.position.set(0, 0.12, -2.4); this.bar.rotation.x = -0.9;
     this.center.position.set(0, 1.5, -3);
-    this.group.add(this.left, this.right, this.bar, this.center);
+    this.pop.position.set(0, 2.05, -3.2); this.pop.visible = false;
+    this.group.add(this.left, this.right, this.bar, this.center, this.pop);
     this.group.visible = false; scene.add(this.group);
     this.fps.position.set(-0.22, -0.16, -0.6); this.fps.visible = false; camera.add(this.fps);
     // Vignette: Kugel um den Kopf, rot, nur sichtbar in Waenden
@@ -38,18 +43,29 @@ export class Hud {
     this.vignette.renderOrder = 99; camera.add(this.vignette);
   }
 
-  show(on: boolean) { this.group.visible = on; if (!on) { this.vignette.visible = false; this.message(''); } }
+  show(on: boolean) { this.group.visible = on; if (!on) { this.vignette.visible = false; this.message(''); this.pop.visible = false; } }
 
   update(s: ScoreKeeper, dt: number, inWall: boolean) {
     this.t += dt;
     const key = `${s.score}|${s.combo}|${s.mult}|${Math.round(s.rating * 10)}|${s.hits}|${s.misses + s.badCuts}`;
     const v = this.vignette.material as THREE.MeshBasicMaterial;
     v.opacity += ((inWall ? 0.45 : 0) - v.opacity) * Math.min(1, dt * 10); this.vignette.visible = v.opacity > 0.01;
+    // Einblendung: schnell gross werden, kurz stehen, ausblenden
+    if (this.pop.visible) {
+      this.popT += dt; const p = this.popT / this.popDur;
+      const sc = p < 0.15 ? 0.6 + (p / 0.15) * 0.5 : 1.1 - Math.min(0.1, (p - 0.15) * 0.3);
+      this.pop.scale.setScalar(sc); this.pop.material.opacity = p > 0.7 ? Math.max(0, 1 - (p - 0.7) / 0.3) : 1;
+      if (p >= 1) this.pop.visible = false;
+    }
     if (key === this.last || this.t < 0.08) return;
     this.t = 0; this.last = key;
     let c = this.left.ctx, W = this.left.canvas.width, H = this.left.canvas.height;
-    c.clearRect(0, 0, W, H); c.textAlign = 'center'; c.fillStyle = '#fff';
-    c.font = '900 120px system-ui'; c.fillText(String(s.combo), W / 2, H * 0.48);
+    c.clearRect(0, 0, W, H); c.textAlign = 'center';
+    // Combo-Zahl waechst und wechselt die Farbe mit der Serie
+    const lv = comboLevel(s.combo);
+    c.shadowColor = comboColor(s.combo); c.shadowBlur = 30 * lv;
+    c.fillStyle = comboColor(s.combo); c.font = `900 ${Math.round(110 + 40 * lv)}px system-ui`; c.fillText(String(s.combo), W / 2, H * 0.5);
+    c.shadowBlur = 0;
     c.font = '600 34px system-ui'; c.fillStyle = '#b8b0d6'; c.fillText('COMBO', W / 2, H * 0.64);
     c.font = '900 64px system-ui'; c.fillStyle = s.mult >= 8 ? '#ffd23c' : '#3db8ff'; c.fillText(`×${s.mult}`, W / 2, H * 0.92);
     this.left.tex.needsUpdate = true;
@@ -66,6 +82,15 @@ export class Hud {
     c.fillStyle = s.rating >= 90 ? '#4be3a0' : s.rating >= 50 ? '#ffffff' : '#ff4d4d';
     rr(c, 2, 2, Math.max(H, ((W - 4) * s.rating) / 100), H - 4, (H - 4) / 2); c.fill();
     this.bar.tex.needsUpdate = true;
+  }
+
+  /** Combo-Einblendung oben (z. B. "25er COMBO!" oder "Combo vorbei") */
+  popup(text: string, color: string, sec = 1.4) {
+    const c = this.pop.ctx, W = this.pop.canvas.width, H = this.pop.canvas.height;
+    c.clearRect(0, 0, W, H); c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.shadowColor = color; c.shadowBlur = 40; c.fillStyle = color; c.font = '900 150px system-ui';
+    c.fillText(text, W / 2, H / 2, W - 40); c.shadowBlur = 0;
+    this.pop.tex.needsUpdate = true; this.pop.visible = true; this.popT = 0; this.popDur = sec;
   }
 
   /** grosse Mitteilung (Countdown, "Fail"), leer = ausblenden */

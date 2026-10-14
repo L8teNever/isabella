@@ -15,6 +15,7 @@ import { HIT_Z, laneX, rowY, lookahead } from './game/layout';
 import { cutVector, Cut } from '@beatblade/core';
 import { Menus } from './ui3d/menus';
 import { Hud } from './ui3d/hud';
+import { COMBO_MILESTONES, COMBO_BREAK_MIN, comboLevel, comboColor } from './game/combo';
 
 type State = 'menu' | 'loading' | 'playing' | 'paused' | 'resuming' | 'results' | 'calibrating' | 'floor';
 type XRMode = 'vr' | 'ar' | 'desktop';
@@ -64,6 +65,7 @@ const hud = new Hud(root, camera);
 let state: State = 'menu';
 let current: { song: Song; d: Difficulty; seed: number } | null = null;
 let resumeAt = 0;
+let lastCombo = 0;
 
 const game = new Game(root, view, slicer, sabers, {
   haptic: (hand, v, ms) => pulse(hand, v, ms),
@@ -151,6 +153,7 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     menus.loading('Level laden …', 0.9);
     const bm = prepareMap(await loadBeatmap(song, d, seed));
     game.start(bm);
+    lastCombo = 0;
     env?.reset();
     menus.hide(); hud.show(true); hud.message('');
     // Vorlauf: Noten der ersten Sekunden sind schon unterwegs, bevor die Musik einsetzt
@@ -326,6 +329,24 @@ renderer.setAnimationLoop((_t, frame) => {
     if (performance.now() >= resumeAt) { hud.message(''); audio.resumeFrom(0); state = 'playing'; }
   }
   if (state === 'playing' || state === 'resuming') hud.update(game.score, dt, game.inWall);
+  // Combo-Effekte: Staerke waechst mit der Serie, Meilensteine feiern, Fehler beendet sie sofort
+  if (state === 'playing') {
+    const c = game.score.combo;
+    if (c < lastCombo && lastCombo >= COMBO_BREAK_MIN) { hud.popup('Combo vorbei', '#ff4d6d', 1.1); audio.comboBreak(); }
+    const m = COMBO_MILESTONES.find((x) => lastCombo < x && c >= x);
+    if (m) {
+      hud.popup(`${m}er COMBO!`, comboColor(c), 1.6);
+      audio.chime(comboLevel(c));
+      pulse(0, 0.8, 120); pulse(1, 0.8, 120);
+      env?.pulse(0.5 + comboLevel(c) * 0.5);
+      const col = new THREE.Color(comboColor(c)).getHex();
+      for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; slicer.burst(headLocal.clone().add(new THREE.Vector3(Math.cos(a) * 0.9, -0.3 + (k % 2) * 0.5, -0.8 + Math.sin(a) * 0.4)), col, 25); }
+    }
+    lastCombo = c;
+    const lvl = comboLevel(c);
+    for (const s of sabers) s.setBoost(lvl);
+    if (env) env.boost = lvl;
+  } else if (state !== 'paused' && state !== 'resuming') { for (const s of sabers) s.setBoost(0); if (env) env.boost = 0; }
   slicer.update(dt);
   env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? game.map?.lights ?? [] : []);
   // Schwerter im Menue ausblenden (Laser), im Spiel zeigen
