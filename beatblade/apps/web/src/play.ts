@@ -3,6 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
+import { mrSafeBlending } from './game/mrblend';
 import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
@@ -58,6 +59,7 @@ scene.add(root);
 
 const audio = new AudioPlayer();
 let mode: XRMode = 'desktop';
+let mrFixT = 1;
 let env: Environment | null = null;
 const view = new NoteView(root, false);
 const slicer = new Slicer(root, view.cubeGeo, view.arrows.geometry);
@@ -394,6 +396,8 @@ renderer.setAnimationLoop((_t, frame) => {
     if (env) env.boost = lvl;
   } else if (state !== 'paused' && state !== 'resuming') { for (const s of sabers) s.setBoost(0); if (env) env.boost = 0; }
   slicer.update(dt);
+  // MR: neue Leucht-Materialien (Map-Wechsel, Skins, Funken) regelmaessig passthrough-tauglich machen
+  if (mode === 'ar' && (mrFixT += dt) > 0.5) { mrFixT = 0; mrSafeBlending(scene); }
   env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? game.map?.lights ?? [] : []);
   // Schwerter im Menue ausblenden (Laser), im Spiel zeigen
   if (xr) for (const s of sabers) { s.group.visible = playingLike && s.active; s.trail.visible = s.group.visible; }

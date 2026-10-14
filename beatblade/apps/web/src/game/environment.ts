@@ -77,8 +77,13 @@ export class Environment {
         const line = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 6).rotateX(-Math.PI / 2), this.floorMat);
         line.position.set(x, 0.006, -3.5); g.add(line);
       }
-      return;
+      // MR: die Map-Deko (Schnee, Baeume, Kuerbisse, Mond ...) erscheint im echten Raum;
+      // Himmel, Nebel, Boden und Bahn bleiben weg, damit das Zimmer sichtbar bleibt
+      scene.background = null; scene.fog = null;
     }
+    const mr = this.mr;
+    /** Himmel + Nebel (nur VR) */
+    const skyFog = (bg: number, fog: number, near: number, far: number) => { if (mr) return; scene.background = new THREE.Color(bg); scene.fog = new THREE.Fog(fog, near, far); };
     const additive = (color: number, opacity = 0.9) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false });
     const runwayStrips = (xs: number[], len = 100) => {
       for (const x of xs) {
@@ -118,8 +123,8 @@ export class Environment {
         (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
       });
     };
-    const ground = (color: number, w = 120, d = 140) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); m.position.z = -d / 2 + 10; g.add(m); return m; };
-    const runway = (color: number) => { const r = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); r.position.set(0, 0.002, -48); g.add(r); };
+    const ground = (color: number, w = 120, d = 140) => { if (mr) return null; const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); m.position.z = -d / 2 + 10; g.add(m); return m; };
+    const runway = (color: number) => { if (mr) return; const r = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); r.position.set(0, 0.002, -48); g.add(r); };
     const sprite = (draw: (c: CanvasRenderingContext2D) => void, w: number, h: number, size = 256) => {
       const cv = document.createElement('canvas'); cv.width = size; cv.height = size; draw(cv.getContext('2d')!);
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
@@ -131,7 +136,7 @@ export class Environment {
 
     if (this.style === 'halloween') {
       // Halloween: Vollmond, kahle Baeume, Grabsteine, leuchtende Kuerbisse am Rand, gruenlicher Nebel, Glutfunken
-      scene.background = new THREE.Color(0x0a0614); scene.fog = new THREE.Fog(0x120a1c, 14, 80);
+      skyFog(0x0a0614, 0x120a1c, 14, 80);
       ground(0x0c0a10); runway(0x150d1c); runwayStrips([-1.3, 1.3]);
       const moon = sprite((c) => { const gr = c.createRadialGradient(128, 128, 60, 128, 128, 128); gr.addColorStop(0, '#fff6d8'); gr.addColorStop(0.45, '#ffe7a0'); gr.addColorStop(0.5, 'rgba(255,220,140,0.35)'); gr.addColorStop(1, 'rgba(255,200,120,0)'); c.fillStyle = gr; c.fillRect(0, 0, 256, 256);
         c.fillStyle = 'rgba(200,180,120,0.35)'; for (const [x, y, r] of [[105, 110, 14], [150, 140, 10], [125, 160, 7]]) { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); } }, 34, 34);
@@ -156,7 +161,7 @@ export class Environment {
       lasers(9, 2, 30);
     } else if (this.style === 'christmas') {
       // Weihnachten: Schnee faellt, verschneiter Boden, Tannen mit Lichterketten, Sternenhimmel
-      scene.background = new THREE.Color(0x0a1426); scene.fog = new THREE.Fog(0x16233a, 16, 90);
+      skyFog(0x0a1426, 0x16233a, 16, 90);
       ground(0x7d8ca3); runway(0x1b2840); runwayStrips([-1.3, 1.3]);
       const n = 600, sp = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(110); if (v.y < 5) v.y = 5 + Math.random() * 40; sp.set([v.x, v.y, v.z], i * 3); }
@@ -176,7 +181,7 @@ export class Environment {
       particles(700, [-25, 25, 0, 14, -90, 4], 0xffffff, 0.07, -1.1, 0.5);
     } else if (this.style === 'underwater') {
       // Unterwasser: blaues Licht, Lichtstrahlen von oben, aufsteigende Blasen, Tang, Korallen
-      scene.background = new THREE.Color(0x02223a); scene.fog = new THREE.Fog(0x033a5c, 6, 60);
+      skyFog(0x02223a, 0x033a5c, 6, 60);
       ground(0x0a3a4a); runway(0x0c2c3c); runwayStrips([-1.3, 1.3]);
       for (let i = 0; i < 9; i++) {
         const mat = additive(0x9fe8ff, 0.08); const ray = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 40), mat);
@@ -193,7 +198,7 @@ export class Environment {
       for (let i = 0; i < 6; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(5 + i * 0.5, 0.04, 6, 64), this.ringMat); r.position.set(0, 3.5, -24 - i * 7); this.rings.push(r); g.add(r); }
     } else if (this.style === 'neon-city') {
       // Neon-Stadt: Hochhaeuser mit leuchtenden Fenstern links und rechts, Neon-Bänder, Laser
-      scene.background = new THREE.Color(0x05030c); scene.fog = new THREE.Fog(0x0a0618, 18, 100);
+      skyFog(0x05030c, 0x0a0618, 18, 100);
       ground(0x07060c); runway(0x0f0c1c); runwayStrips([-1.3, 1.3, -3.2, 3.2]);
       const win = document.createElement('canvas'); win.width = 64; win.height = 128;
       const wc = win.getContext('2d')!; wc.fillStyle = '#0a0a14'; wc.fillRect(0, 0, 64, 128);
@@ -209,7 +214,7 @@ export class Environment {
       for (let i = 0; i < 8; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(5 + i * 0.3, 0.05, 4, 4), this.ringMat); r.rotation.z = Math.PI / 4; r.position.set(0, 4, -22 - i * 6); this.rings.push(r); g.add(r); }
     } else if (this.style === 'volcano') {
       // Vulkan: roter Himmel, gluehender Vulkan, Lava-Fluss neben der Bahn, aufsteigende Glut, dunkle Felsen
-      scene.background = new THREE.Color(0x1a0504); scene.fog = new THREE.Fog(0x2a0806, 15, 90);
+      skyFog(0x1a0504, 0x2a0806, 15, 90);
       ground(0x140806); runway(0x1c0c0a); runwayStrips([-1.3, 1.3]);
       const cone = new THREE.Mesh(new THREE.ConeGeometry(30, 28, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x0e0605, fog: false }));
       cone.position.set(-10, 13, -110); g.add(cone);
@@ -225,7 +230,7 @@ export class Environment {
       lasers(10, 2, 30);
     } else if (this.style === 'space') {
       // Weltraum: Sternenfeld, Planet mit Ring, schwebende Glas-Bahn, Orbit-Ringe
-      scene.background = new THREE.Color(0x020109); scene.fog = new THREE.Fog(0x020109, 30, 140);
+      skyFog(0x020109, 0x020109, 30, 140);
       const n = 1800, pos = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) {
         const v = new THREE.Vector3().randomDirection().multiplyScalar(80 + Math.random() * 60);
@@ -239,7 +244,7 @@ export class Environment {
       const pr = new THREE.Mesh(new THREE.RingGeometry(18, 25, 64).rotateX(-Math.PI / 2.4), additive(0x7a4dff, 0.35));
       pr.position.copy(planet.position); g.add(pr); this.strips.push(pr.material as THREE.MeshBasicMaterial);
       const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0b0a1c, transparent: true, opacity: 0.85 }));
-      glass.position.set(0, 0.002, -48); g.add(glass);
+      glass.position.set(0, 0.002, -48); if (!mr) g.add(glass);
       runwayStrips([-1.3, 1.3]);
       for (let i = 0; i < 7; i++) {
         const r = new THREE.Mesh(new THREE.TorusGeometry(7 + i * 0.6, 0.04, 6, 80), this.ringMat);
@@ -248,14 +253,14 @@ export class Environment {
       lasers(12, 2, 60);
     } else if (this.style === 'synthwave') {
       // Synthwave: Sonnenuntergang mit gestreifter Sonne, Neon-Gitterboden, Berg-Silhouetten
-      scene.background = new THREE.Color(0x12051f); scene.fog = new THREE.Fog(0x12051f, 25, 110);
+      skyFog(0x12051f, 0x12051f, 25, 110);
       const sky = document.createElement('canvas'); sky.width = 4; sky.height = 256;
       const sc = sky.getContext('2d')!, sgd = sc.createLinearGradient(0, 0, 0, 256);
       sgd.addColorStop(0, '#0b0320'); sgd.addColorStop(0.55, '#3a0b4a'); sgd.addColorStop(0.85, '#c2366e'); sgd.addColorStop(1, '#ff9a4a');
       sc.fillStyle = sgd; sc.fillRect(0, 0, 4, 256);
       const skyTex = new THREE.CanvasTexture(sky); skyTex.colorSpace = THREE.SRGBColorSpace;
       const skyM = new THREE.Mesh(new THREE.PlaneGeometry(400, 90), new THREE.MeshBasicMaterial({ map: skyTex, fog: false, depthWrite: false }));
-      skyM.position.set(0, 35, -120); g.add(skyM);
+      skyM.position.set(0, 35, -120); if (!mr) g.add(skyM);
       const sun = document.createElement('canvas'); sun.width = sun.height = 256;
       const uc = sun.getContext('2d')!, ug = uc.createLinearGradient(0, 0, 0, 256);
       ug.addColorStop(0, '#ffe36e'); ug.addColorStop(1, '#ff3d8a');
@@ -284,17 +289,16 @@ export class Environment {
       const gridMat = new THREE.LineBasicMaterial({ color: 0xff3d8a, transparent: true, opacity: 0.55 });
       g.add(new THREE.LineSegments(lg, gridMat)); this.strips.push(gridMat as unknown as THREE.MeshBasicMaterial);
       const run = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x0d0617 }));
-      run.position.set(0, 0.002, -48); g.add(run);
+      run.position.set(0, 0.002, -48); if (!mr) g.add(run);
       runwayStrips([-1.3, 1.3]);
       lasers(9, 3, 30);
     } else {
       // Neon-Laufsteg (bisher)
-      scene.background = new THREE.Color(0x05040a);
-      scene.fog = new THREE.Fog(0x05040a, 12, 70);
+      skyFog(0x05040a, 0x05040a, 12, 70);
       const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 120).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x07060d }));
-      floor.position.z = -40; g.add(floor);
+      floor.position.z = -40; if (!mr) g.add(floor);
       const run = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x100d1c }));
-      run.position.set(0, 0.002, -48); g.add(run);
+      run.position.set(0, 0.002, -48); if (!mr) g.add(run);
       runwayStrips([-1.3, 1.3, -3.2, 3.2]);
       lasers(7, 4);
       for (let i = 0; i < 9; i++) {

@@ -141,7 +141,7 @@ export class Slicer {
     const pos = this.points.geometry.attributes.position as THREE.BufferAttribute, col = this.points.geometry.attributes.color as THREE.BufferAttribute;
     for (let i = 0; i < SPARKS; i++) {
       const s = this.sparks[i];
-      if (s.life > 0) { s.life -= dt; s.vel.y -= 4 * dt; s.pos.addScaledVector(s.vel, dt); }
+      if (s.life > 0) { s.life -= dt; s.vel.y -= 4 * dt; s.pos.addScaledVector(s.vel, dt); if (s.life <= 0) s.pos.set(0, -100, 0); }   // abgelaufen: weg aus dem Bild
       const k = Math.max(0, Math.min(1, s.life * 2.5));
       pos.setXYZ(i, s.pos.x, s.pos.y, s.pos.z);
       col.setXYZ(i, s.color.r * k, s.color.g * k, s.color.b * k);
