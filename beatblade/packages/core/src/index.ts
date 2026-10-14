@@ -7,3 +7,6 @@ export { validate, countProblems } from './mapping/validate.js';
 export { cutVector, swingOf } from './mapping/parity.js';
 export { SECTION_PALETTE } from './mapping/lights.js';
 export { Rng, hash, beatToTime } from './mapping/util.js';
+export { generateOrbit, orbitStats } from './mapping/orbit/generator.js';
+export { checkOrbit, orbitPlayability, railAt, handPath, wallSpan } from './mapping/orbit/validate.js';
+export { ORBIT, ORBIT_DIFFICULTY, ORBIT_SECTION_DENSITY } from './mapping/orbit/tuning.js';

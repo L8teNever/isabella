@@ -193,3 +193,67 @@ export interface Highscore {
   modifiers: string;
   createdAt: number;
 }
+
+// ---------- Orbit-Modus (Kugeln beruehren, Rails folgen) ----------
+
+/** normal = eine Hand (Farbe), gold = beide Haende zusammen, green = eine Hand nach Wahl */
+export type OrbitKind = 'normal' | 'gold' | 'green';
+
+export interface OrbitNote {
+  /** Beat (gebrochen) und Sekunden */
+  b: number;
+  t: number;
+  /** Position in Metern auf der Trefferflaeche: x quer (0 = Mitte), y Hoehe fuer 1,75 m Spielergroesse */
+  x: number;
+  y: number;
+  /** Hand: 0 = links, 1 = rechts; bei gold beide (Wert = 0), bei green die vorgeschlagene */
+  hand: 0 | 1;
+  kind: OrbitKind;
+  /** liegt auf einer Rail (Index in rails) – Start- oder Zwischen-Note */
+  rail?: number;
+}
+
+export interface OrbitRailPoint { t: number; x: number; y: number }
+
+export interface OrbitRail {
+  hand: 0 | 1;
+  kind: 'normal' | 'gold';
+  /** Stuetzpunkte in Zeitreihenfolge (das Spiel legt eine glatte Kurve hindurch) */
+  points: OrbitRailPoint[];
+  t0: number;
+  t1: number;
+}
+
+export interface OrbitStats {
+  notes: number;
+  rails: number;
+  /** Sekunden auf Rails (beide Haende zusammengezaehlt) */
+  railSeconds: number;
+  nps: number;
+  peakNps: number;
+  gold: number;
+  green: number;
+  obstacles: number;
+  /** schnellste Handbewegung (m/s) zwischen zwei Noten derselben Hand */
+  maxHandSpeed: number;
+  /** 0..100 */
+  playability: number;
+  issues: Record<string, number>;
+}
+
+export interface OrbitMap {
+  mode: 'orbit';
+  version: number;
+  analysisVersion: number;
+  difficulty: Difficulty;
+  seed: number;
+  bpm: number;
+  /** Fluggeschwindigkeit der Noten (m/s) */
+  speed: number;
+  beats: number[];
+  notes: OrbitNote[];
+  rails: OrbitRail[];
+  obstacles: Obstacle[];
+  lights: LightEvent[];
+  stats: OrbitStats;
+}
