@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { api, contentUrl, type ContentItem, type ContentList } from './api';
 import { builtinBlock, blockFromModel, type BlockSkin } from './game/blockskins';
+import { buildSaberVisual, saberFromModel, type SaberVisual } from './game/sabervisuals';
+import { SABER_LEN } from './game/layout';
 import { COLORS } from './game/layout';
 import { settings } from './settings';
 
@@ -74,4 +76,21 @@ export function loadBlockSkin(): Promise<BlockSkin> {
     skinCache.set(key, p);
   }
   return p;
+}
+
+// ---------- Schwerter ----------
+export function saberSkins(): ContentItem[] { return content?.sabers?.length ? content.sabers : []; }
+export function currentSaber(): ContentItem | undefined {
+  const list = saberSkins();
+  return list.find((b) => b.id === settings.saberSkin) ?? list[0];
+}
+export const saberName = () => currentSaber()?.name ?? 'Lichtschwert';
+
+/** Aussehen fuer ein Schwert bauen (pro Hand eigenes Objekt). Klingenlaenge nur optisch, Treffer-Zone bleibt. */
+export async function buildSaber(color: number): Promise<SaberVisual> {
+  const it = currentSaber();
+  const style = typeof it?.data.style === 'string' ? it.data.style : 'classic';
+  const len = typeof it?.data.bladeLength === 'number' ? Math.max(0.5, Math.min(1.4, it.data.bladeLength)) : SABER_LEN;
+  if (it?.model) { const v = await saberFromModel(contentUrl(it.model), len, color); if (v) return v; }
+  return buildSaberVisual(style, len, color);
 }

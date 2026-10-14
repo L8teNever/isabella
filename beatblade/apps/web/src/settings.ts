@@ -24,6 +24,8 @@ export interface Settings {
   colorSet: string; colorLeft: string | null; colorRight: string | null;
   /** Block-Skin (Ordnername in content/blocks) */
   blockSkin: string;
+  /** Schwert (Ordnername in content/sabers) */
+  saberSkin: string;
   floorOffset: number;        // MR: Bodenkorrektur (m)
 }
 
@@ -31,7 +33,7 @@ const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', floorOffset: 0,
+  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', saberSkin: 'lichtschwert', floorOffset: 0,
 };
 
 const SETTINGS_V = 2;

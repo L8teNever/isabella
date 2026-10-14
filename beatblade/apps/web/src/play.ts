@@ -3,7 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
-import { loadLook, loadBlockSkin } from './look';
+import { loadLook, loadBlockSkin, buildSaber, currentSaber } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
@@ -143,7 +143,13 @@ addEventListener('keydown', (e) => {
 let autoplay = true;
 
 /** Block-Skin auf Bloecke und geschnittene Haelften anwenden */
-function applyLook() { loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); }); }
+let saberKey = '';
+function applyLook() {
+  loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
+  // Schwert nur neu bauen, wenn ein anderes gewaehlt wurde
+  const key = currentSaber()?.id ?? '';
+  if (key !== saberKey) { saberKey = key; for (const sb of sabers) buildSaber(sb.color).then((v) => { if ((currentSaber()?.id ?? '') === key) sb.setVisual(v); }); }
+}
 
 // ---------- Ablauf ----------
 async function startSong(song: Song, d: Difficulty, seed: number) {

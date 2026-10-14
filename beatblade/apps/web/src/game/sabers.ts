@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { COLORS, SABER_LEN } from './layout';
 import { settings } from '../settings';
 import { GLOW, glowMaterial } from './glow';
+import { buildSaberVisual, type SaberVisual } from './sabervisuals';
 
 export interface SaberSample { t: number; hilt: THREE.Vector3; tip: THREE.Vector3; dir: THREE.Vector3 }
 
@@ -11,11 +12,12 @@ const TRAIL = 14;
 
 export class Saber {
   group = new THREE.Group();
-  blade: THREE.Mesh;
-  glow: THREE.Mesh;
+  /** Aussehen (austauschbar) – Treffer-Logik bleibt hier und ist vom Aussehen unabhaengig */
+  visual: SaberVisual;
   trail: THREE.Mesh;
-  /** weiche Leucht-Huelle um die Klinge und Lichtfleck am Boden */
-  halo: THREE.Mesh; pool: THREE.Mesh;
+  /** Lichtfleck am Boden */
+  pool: THREE.Mesh;
+  private boostLevel = 0;
   private trailPos: Float32Array;
   private trailPts: { hilt: THREE.Vector3; tip: THREE.Vector3 }[] = [];
   history: SaberSample[] = [];
@@ -27,23 +29,8 @@ export class Saber {
 
   constructor(public hand: 0 | 1, scene: THREE.Object3D) {
     this.color = hand === 0 ? COLORS.left : COLORS.right;
-    const hiltM = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.2, 12), new THREE.MeshStandardMaterial({ color: 0x22202c, metalness: 0.6, roughness: 0.35 }));
-    hiltM.rotation.x = Math.PI / 2; hiltM.position.z = 0.04;
-    this.blade = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.012, SABER_LEN, 10), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    this.blade.rotation.x = Math.PI / 2; this.blade.position.z = -SABER_LEN / 2 - 0.06;
-    this.glow = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, SABER_LEN, 12, 1, true),
-      new THREE.MeshBasicMaterial({ color: this.color, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
-    this.glow.rotation.x = Math.PI / 2; this.glow.position.z = this.blade.position.z;
-    // weiche Huelle: in der Mitte hell, zum Rand hin ausblendend (Fresnel umgekehrt)
-    this.halo = new THREE.Mesh(new THREE.CylinderGeometry(GLOW.saberHalo, GLOW.saberHalo, SABER_LEN + 0.06, 16, 1, true),
-      new THREE.ShaderMaterial({
-        uniforms: { color: { value: new THREE.Color(this.color) }, strength: { value: GLOW.saberHaloStrength } },
-        vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
-        fragmentShader: 'uniform vec3 color; uniform float strength; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(abs(dot(vN, vV)), 2.5); gl_FragColor = vec4(color, f * strength); }',
-        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      }));
-    this.halo.rotation.x = Math.PI / 2; this.halo.position.z = this.blade.position.z;
-    this.group.add(hiltM, this.blade, this.glow, this.halo);
+    this.visual = buildSaberVisual('classic', SABER_LEN, this.color);
+    this.group.add(this.visual.group);
     this.pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), glowMaterial(GLOW.saberPoolStrength, this.color));
     this.pool.renderOrder = 1; this.pool.visible = false; scene.add(this.pool);
     // Leuchtspur (Band aus den letzten Positionen)
@@ -67,15 +54,19 @@ export class Saber {
 
   /** Combo-Effekt: Klinge leuchtet staerker, Spur wird heller (level 0..1) */
   setBoost(level: number) {
-    const g = this.glow;
-    g.scale.set(1 + level * 1.2, 1, 1 + level * 1.2);
-    (g.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.4 * level;
+    this.boostLevel = level;
+    this.visual.boost(level);
     (this.trail.material as THREE.ShaderMaterial).uniforms.boost.value = 1 + level * 1.6;
-    (this.halo.material as THREE.ShaderMaterial).uniforms.strength.value = GLOW.saberHaloStrength * (1 + level * 0.8);
   }
 
-  setColor(c: number) { this.color = c; (this.glow.material as THREE.MeshBasicMaterial).color.setHex(c);
-    (this.halo.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); (this.pool.material as THREE.MeshBasicMaterial).color.setHex(c); (this.trail.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); }
+  /** Aussehen wechseln (Stil oder fertiges Modell-Visual); Farbe und Combo-Leuchten bleiben */
+  setVisual(v: SaberVisual) {
+    this.group.remove(this.visual.group);
+    this.visual = v; this.group.add(v.group);
+    v.tint(this.color); v.boost(this.boostLevel); v.halo.visible = settings.glow;
+  }
+
+  setColor(c: number) { this.color = c; this.visual.tint(c); (this.pool.material as THREE.MeshBasicMaterial).color.setHex(c); (this.trail.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); }
 
   /**
    * Pose setzen. pos = Griff-Position, quat = Orientierung (Klinge entlang -Z), beides in Spielfeld-Koordinaten.
@@ -92,7 +83,7 @@ export class Saber {
     this.tip.copy(this.hilt).addScaledVector(this.dir, SABER_LEN);
     if (!this.history.length) { this.prevHilt.copy(this.hilt); this.prevTip.copy(this.tip); }
     // Lichtfleck unter der Klingenmitte, je naeher am Boden desto heller
-    this.halo.visible = settings.glow; this.pool.visible = settings.glow;
+    this.visual.halo.visible = settings.glow; this.pool.visible = settings.glow;
     if (settings.glow) {
       const mx = (this.hilt.x + this.tip.x) / 2, my = (this.hilt.y + this.tip.y) / 2, mz = (this.hilt.z + this.tip.z) / 2;
       this.pool.position.set(mx, 0.013, mz); this.pool.scale.setScalar(GLOW.saberPoolSize);
