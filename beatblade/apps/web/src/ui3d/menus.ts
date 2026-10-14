@@ -126,6 +126,7 @@ export class Menus {
           ...diffs.map((d) => ({ type: 'button', id: `d:${d}`, label: DIFFICULTY_LABEL[d], on: this.diff === d, h: 70 }) as Item),
           { type: 'gap', h: 4 },
           { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht' : 'egal'}`, on: settings.arrows === 'egal', h: 64 },
+          { type: 'button', id: 'm:missMute', label: `Verfehlt = stumm ${settings.missMute ? '✓' : ''}`, on: settings.missMute, h: 64 },
           { type: 'button', id: 'm:fastNotes', label: `Schneller ${settings.fastNotes ? '✓' : ''}`, on: settings.fastNotes, h: 64 },
           { type: 'button', id: 'm:noWalls', label: `Keine Wände ${settings.noWalls ? '✓' : ''}`, on: settings.noWalls, h: 64 },
           { type: 'button', id: 'm:noBombs', label: `Keine Bomben ${settings.noBombs ? '✓' : ''}`, on: settings.noBombs, h: 64 },
@@ -149,7 +150,7 @@ export class Menus {
           ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
           ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
           { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, on: settings.arrows === 'egal', span: 4, h: 70 },
-          tog('leftHanded', 'Linkshänder'), tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
+          tog('missMute', 'Verfehlt = stumm'), tog('leftHanded', 'Linkshänder'), tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
           { type: 'button', id: 'name', label: `Name: ${settings.name}`, span: 2, h: 70 },
           ...(this.act.isMR() ? [{ type: 'button', id: 'floor', label: 'Boden setzen', span: 2, h: 70 } as Item, { type: 'button', id: 'dir', label: 'Richtung setzen', span: 2, h: 70 } as Item]
             : [{ type: 'button', id: 'dir', label: 'Spielfeld zentrieren', span: 4, h: 70 } as Item]),
@@ -234,7 +235,7 @@ export class Menus {
     } else if (s === 'detail' && this.sel) {
       if (id.startsWith('d:')) { this.diff = id.slice(2) as Difficulty; settings.difficulty = this.diff; saveSettings(); this.loadScores(); this.refresh(); }
       else if (id === 'arrows') { settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht'; saveSettings(); this.refresh(); }
-      else if (id.startsWith('m:')) { const k = id.slice(2) as 'fastNotes' | 'noWalls' | 'noBombs'; settings[k] = !settings[k]; saveSettings(); this.refresh(); }
+      else if (id.startsWith('m:')) { const k = id.slice(2) as 'fastNotes' | 'noWalls' | 'noBombs' | 'missMute'; settings[k] = !settings[k]; saveSettings(); this.refresh(); }
       else if (id === 'seed') { this.seed = Math.floor(Math.random() * 999999) + 1; this.refresh(); }
       else if (id === 'play') this.act.play(this.sel, this.diff, this.seed ?? this.sel.seed);
     } else if (s === 'settings') {
@@ -248,7 +249,7 @@ export class Menus {
       };
       const m = id.match(/^(\w+)([+-])$/);
       if (m) step(m[1], m[2] === '+' ? 1 : -1);
-      else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps'; settings[k] = !settings[k]; }
+      else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps' | 'missMute'; settings[k] = !settings[k]; }
       else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
       else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
       else if (id === 'floor') this.act.setFloor();

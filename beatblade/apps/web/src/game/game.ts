@@ -10,19 +10,26 @@ import { ScoreKeeper } from './score';
 import { comboLevel } from './combo';
 import { settings } from '../settings';
 
-interface NoteState { n: Note; done: boolean; }
+interface NoteState { n: Note; done: boolean; muted?: boolean; }
 interface BombState { b: Bomb; done: boolean; }
 
 export interface GameEvents {
   haptic(hand: 0 | 1, intensity: number, ms: number): void;
   slice(intensity: number): void;
   finished(): void;
+  /** Planungs-Vorlauf der Audio-Ausgabe (s) – so frueh muss ein Aussetzer feststehen */
+  audioLead(): number;
+  /** Musik an Songzeit t aussetzen / Aussetzer zuruecknehmen */
+  muteAt(t: number): void;
+  unmute(): void;
 }
 
 const HIT_R = 0.4;            // Treffer-Radius um die Notenmitte (grosszuegig, wie in Rhythmus-Spielen ueblich)
 const BOMB_R = 0.2;
 const MIN_SPEED = 0.7;        // m/s Spitzengeschwindigkeit fuer einen gueltigen Schnitt
 const ANGLE_TOL = 70;         // Grad
+const MUTE_DECIDE = 0.03;     // Verfehlt = stumm: so viel (s) vor dem Planungs-Zeitpunkt wird entschieden
+const MUTE_SPAN = 0.16;       // Noten innerhalb dieses Abstands teilen sich einen Aussetzer
 
 /** Modifikatoren und Linkshaender-Spiegelung anwenden */
 export function prepareMap(bm: Beatmap): Beatmap {
@@ -91,6 +98,8 @@ export class Game {
       if (s.done) continue;
       const z = this.z(n.t, t);
       if (!paused && z > HIT_Z + 0.65) { s.done = true; this.score.miss(); continue; }   // vorbeigeflogen
+      // Verfehlt = stumm: noch nicht getroffen, kurz bevor die Musik diese Stelle spielt -> Aussetzer einplanen
+      if (!paused && settings.missMute && !s.muted && dtn <= this.ev.audioLead() + MUTE_DECIDE) { s.muted = true; this.ev.muteAt(n.t); }
       // Einflug: aus dem Boden hochspringen und aufdrehen (erste 40 % der Vorlaufzeit)
       const p = Math.min(1, Math.max(0, 1 - dtn / this.look) / 0.4), e = 1 - (1 - p) ** 3;
       const y = rowY(n.y) * e + (1 - e) * 0.1;
@@ -186,7 +195,13 @@ export class Game {
     if (!okColor || !okDir) {
       this.score.miss(true, okColor ? 'dir' : 'color');
       this.ev.haptic(sb.hand, 0.3, 40);
+      if (settings.missMute && !s.muted) { s.muted = true; this.ev.muteAt(n.t); }
       return;
+    }
+    // doch noch getroffen: geplanten Aussetzer zuruecknehmen (ausser eine Nachbarnote bleibt verfehlt)
+    if (s.muted) {
+      s.muted = false;
+      if (!this.notes.some((o) => o.muted && Math.abs(o.n.t - n.t) < MUTE_SPAN)) this.ev.unmute();
     }
     const mult = this.score.hit();
     const pre = Math.min(70, (sb.preSwingAngle() / 100) * 70);

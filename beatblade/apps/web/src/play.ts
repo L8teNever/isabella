@@ -71,6 +71,9 @@ const game = new Game(root, view, slicer, sabers, {
   haptic: (hand, v, ms) => pulse(hand, v, ms),
   slice: (v) => audio.slice(v),
   finished: () => finish(),
+  audioLead: () => audio.lead(),
+  muteAt: (t) => audio.muteAt(t),
+  unmute: () => audio.unmute(),
 });
 
 const menus = new Menus(root, {

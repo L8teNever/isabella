@@ -66,6 +66,11 @@ sie an (max. 100 %), verpasste Blöcke, Fehlschläge (falsche Richtung/Farbe), B
 senken sie. Am Ende: Prozent + Sterne (5 ★ = 100 %, 4 ★ ab 90 %, 3 ★ ab 75 %, 2 ★ ab 50 %, 1 ★ ab 25 %).
 Alle Werte als Konstanten oben in `apps/web/src/game/score.ts`. Highscores werden nach Prozent sortiert.
 
+**Pfeile: Pflicht/egal** – bei *Pflicht* zählt eine falsche Schlagrichtung als Fehler, bei *egal* jeder saubere
+Schnitt. **Verfehlt = stumm** (Standard aus) – an jedem verfehlten Block setzt die Musik kurz aus (Werte oben in
+`apps/web/src/audio/player.ts`). Weil der Song als fertige Mischung vorliegt, verstummt kurz alles, nicht nur ein
+einzelnes Instrument.
+
 ## Architektur
 
 ```
