@@ -3,6 +3,7 @@
 // Pause und Ergebnis. Bedienung per Laserpointer, Trigger/Pinch = Klick.
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
+import { BUILD_INFO } from '../version';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
 import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
@@ -96,6 +97,7 @@ export class Menus {
           { type: 'button', id: 'settings', label: 'Einstellungen' }, { type: 'button', id: 'qr', label: 'Upload vom Handy' },
           { type: 'button', id: 'credits', label: 'Credits' }, { type: 'button', id: 'calib', label: 'Latenz kalibrieren' },
           ...(this.act.inXR() ? [{ type: 'button', id: 'exit', label: 'Beenden', main: true } as Item] : []),
+          { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8', span: 2 } as Item,
         ] as Item[] };
       case 'songs': {
         const list = this.visibleSongs(), pages = Math.max(1, Math.ceil(list.length / PER_PAGE));

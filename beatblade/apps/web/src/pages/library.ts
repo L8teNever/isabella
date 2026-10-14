@@ -2,12 +2,14 @@
 import '../style.css';
 import { DIFFICULTY_LABEL, type Song } from '@beatblade/core';
 import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE } from '../api';
+import { BUILD_INFO } from '../version';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
 let songs = new Map<string, Song>();
 const dlg = $<HTMLDialogElement>('dlg');
+$('build').textContent = BUILD_INFO;
 
 // ---------- Start / Login ----------
 async function boot() {
