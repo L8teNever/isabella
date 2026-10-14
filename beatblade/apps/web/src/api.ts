@@ -35,7 +35,14 @@ export const api = {
   /** YouTube-Link an den Server geben; Fortschritt kommt per SSE 'yt' */
   youtube: (url: string) => j<{ job: string }>('/youtube', json('POST', { url })),
   /** SoundCloud-Suche: Treffer mit Track-Link, Titel, Artist, Laenge, Cover */
-  scSearch: (q: string) => j<{ url: string; title: string; artist: string; duration: number; cover: string | null }[]>(`/soundcloud/search?q=${encodeURIComponent(q)}`),
+  scSearch: (q: string) => j<ScItem[]>(`/soundcloud/search?q=${encodeURIComponent(q)}`),
+  /** eigenes SoundCloud-Profil (gespeichert auf dem Server, gilt fuer Handy und Brille) */
+  scProfile: () => j<{ profile: string | null }>('/soundcloud/profile'),
+  scProfileSet: (profile: string) => j<{ profile: string }>('/soundcloud/profile', json('POST', { profile })),
+  /** Likes / Tracks des Profils oder eine Playlist (Link) */
+  scList: (what: string) => j<{ url: string; items: ScItem[] }>(`/soundcloud/list?what=${encodeURIComponent(what)}`),
+  /** Cover ueber den eigenen Server (fuer VR-Tafeln) */
+  scCover: (u: string) => `${API}/soundcloud/cover?u=${encodeURIComponent(u)}`,
   ytCookies: () => j<{ present: boolean; updatedAt?: number }>('/youtube/cookies'),
   ytCookiesSet: (text: string) => j<{ ok: boolean }>('/youtube/cookies', json('POST', { text })),
   ytCookiesDel: () => j<{ ok: boolean }>('/youtube/cookies', { method: 'DELETE' }),
@@ -77,6 +84,9 @@ export const api = {
 };
 
 /** Live-Updates: song (neu/geaendert) und deleted */
+/** Treffer aus SoundCloud (Suche, Likes, Playlist) */
+export interface ScItem { url: string; title: string; artist: string; duration: number; cover: string | null; tooLong?: boolean }
+
 /** Status eines YouTube-Downloads (SSE-Ereignis 'yt') */
 export interface YtStatus { job: string; state: 'warten' | 'laden' | 'umwandeln' | 'import' | 'fertig' | 'fehler'; percent?: number; message?: string; song?: Song; duplicate?: boolean; title?: string }
 

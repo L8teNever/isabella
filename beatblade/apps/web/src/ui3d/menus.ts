@@ -7,7 +7,7 @@ import { BUILD_INFO } from '../version';
 import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName, content } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
-import { api, contentUrl, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
+import { api, contentUrl, STATUS_LABEL, playable, fmtTime, type Credit, type ScItem, type YtStatus } from '../api';
 import { settings, saveSettings } from '../settings';
 import { starString, starsFor, type ScoreKeeper } from '../game/score';
 
@@ -21,7 +21,7 @@ export interface MenuActions {
   applySettings(): void;
 }
 
-type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick';
+type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick' | 'sc';
 type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'walls';
 const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen', walls: 'Wände wählen' };
 const PICK_PER_PAGE = 9;
@@ -31,7 +31,8 @@ const PER_PAGE = 6;
 type Tab = 'spiel' | 'aussehen' | 'audio' | 'komfort' | 'mehr';
 const TABS: [Tab, string][] = [['spiel', 'Spiel'], ['aussehen', 'Aussehen'], ['audio', 'Audio'], ['komfort', 'Komfort'], ['mehr', 'Mehr']];
 /** Bildschirme, bei denen die Lobby (Bestenliste links, Einstellungen rechts) mit angezeigt wird */
-const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate', 'pick'];
+const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate', 'pick', 'sc'];
+const SC_PER_PAGE = 5;
 
 export class Menus {
   /** Mitte: Song-Auswahl, Song-Detail mit Starten, Pause, Ergebnis */
@@ -44,6 +45,13 @@ export class Menus {
   private pickKind: PickKind = 'maps';
   private pickPage = 0;
   private thumbs = new Map<string, HTMLImageElement>();
+  // SoundCloud in VR: Treffer, Seite, Hinweis, Status je Song-Link, Download-Job -> Link
+  private scItems: ScItem[] = [];
+  private scPage = 0;
+  private scInfo = 'Suche nach Songs oder öffne deine Likes.';
+  private scState = new Map<string, string>();
+  private scJobs = new Map<string, string>();
+  private scCovers = new Map<string, HTMLImageElement>();
   screen: Screen = 'songs';
   songs: Song[] = [];
   private page = 0;
@@ -145,6 +153,51 @@ export class Menus {
     const list = k === 'blocks' ? blockSkins() : saberSkins();
     const cur = k === 'blocks' ? currentBlock()?.id : currentSaber()?.id;
     return list.map((b) => ({ id: b.id, name: b.name, desc: b.description, img: this.thumb(b.preview), on: b.id === cur }));
+  }
+
+  // ---------- SoundCloud direkt in VR ----------
+  private scCover(u: string | null): HTMLImageElement | null {
+    if (!u) return null;
+    let img = this.scCovers.get(u);
+    if (!img) { img = new Image(); img.onload = () => this.refresh(); img.src = api.scCover(u); this.scCovers.set(u, img); }
+    return img.complete && img.naturalWidth ? img : null;
+  }
+  private inLibrary(url: string) { return this.songs.some((s) => s.source === url); }
+  private scShow(items: ScItem[], info: string) { this.scItems = items; this.scPage = 0; this.scInfo = info; this.refresh(); }
+  private scSearch(q: string) {
+    if (!q.trim()) return;
+    this.scShow([], `Suche „${q}“ …`);
+    api.scSearch(q).then((l) => this.scShow(l, l.length ? `${l.length} Treffer für „${q}“` : `Nichts gefunden für „${q}“.`)).catch((e) => this.scShow([], (e as Error).message));
+  }
+  private scList(what: 'likes' | 'tracks') {
+    const label = what === 'likes' ? 'Deine Likes' : 'Deine Tracks';
+    this.scShow([], `${label} werden geladen …`);
+    api.scList(what).then((r) => this.scShow(r.items, r.items.length ? `${label}: ${r.items.length} Songs` : `${label}: keine Songs gefunden.`)).catch((e) => this.scShow([], (e as Error).message));
+  }
+  /** eigenes Profil fehlt: per Tastatur eintragen, dann Liste laden */
+  private scMine(what: 'likes' | 'tracks') {
+    api.scProfile().then((p) => {
+      if (p.profile) return this.scList(what);
+      this.keyboard('Dein SoundCloud-Profilname', '', (v) => { api.scProfileSet(v).then(() => this.scList(what)).catch((e) => this.scShow([], (e as Error).message)); });
+    }).catch(() => this.scList(what));
+  }
+  private scAdd(it: ScItem) {
+    if (this.scState.has(it.url) || this.inLibrary(it.url)) return;
+    this.scState.set(it.url, 'Wird geladen …'); this.refresh();
+    api.youtube(it.url).then((r) => this.scJobs.set(r.job, it.url)).catch((e) => { this.scState.set(it.url, (e as Error).message); this.refresh(); });
+  }
+  /** Fortschritt eines Downloads (SSE 'yt') */
+  ytUpdate(s: YtStatus) {
+    const url = this.scJobs.get(s.job); if (!url) return;
+    const txt: Record<YtStatus['state'], string> = { warten: 'Wartet …', laden: `Lädt ${s.percent ?? 0} %`, umwandeln: 'Wandelt um …', import: 'Wird übernommen …', fertig: s.duplicate ? 'Schon vorhanden' : 'Wird analysiert …', fehler: s.message ?? 'Fehler' };
+    this.scState.set(url, txt[s.state]);
+    if (s.state === 'fertig' || s.state === 'fehler') this.scJobs.delete(s.job);
+    if (this.screen === 'sc') this.refresh();
+  }
+  private scStatus(url: string): string {
+    const song = this.songs.find((x) => x.source === url);
+    if (song) return playable(song) ? 'In der Bibliothek ✓' : `${STATUS_LABEL[song.status]} ${Math.round(song.progress * 100)} %`;
+    return this.scState.get(url) ?? (this.scItems.find((i) => i.url === url)?.tooLong ? 'zu lang' : '');
   }
 
   /** Auswahl-Menue oeffnen (mit Vorschaubildern) */
@@ -287,6 +340,7 @@ export class Menus {
           { type: 'button', id: 'f:uploaded', label: 'Hochgeladen', on: this.filter === 'uploaded', h: 64 },
           { type: 'button', id: 'sort', label: `Sortierung: ${{ new: 'Neu', title: 'Titel', bpm: 'BPM' }[this.sort]}`, h: 64 },
           { type: 'button', id: 'search', label: this.search ? `Suche: ${this.search}` : '🔍 Suchen', h: 64, span: 2 },
+          { type: 'button', id: 'scopen', label: '＋ Songs hinzufügen (SoundCloud)', h: 64, span: 3, main: false, color: '#ff7a1a' },
         ];
         for (const s of list.slice(this.page * PER_PAGE, (this.page + 1) * PER_PAGE)) {
           const ok = playable(s);
@@ -330,6 +384,25 @@ export class Menus {
         const cur = cards.find((c) => c.on);
         return { title: PICK_TITLE[this.pickKind], subtitle: cur ? `${cur.name}: ${cur.desc}` : 'Antippen zum Auswählen', cols: 3, items };
       }
+      case 'sc': {
+        const pages = Math.max(1, Math.ceil(this.scItems.length / SC_PER_PAGE));
+        this.scPage = Math.min(this.scPage, pages - 1);
+        const items: Item[] = [
+          { type: 'button', id: 'scsearch', label: '🔍 Suchen', h: 72 },
+          { type: 'button', id: 'sclikes', label: '♥ Meine Likes', h: 72 },
+          { type: 'button', id: 'sctracks', label: 'Meine Tracks', h: 72 },
+          { type: 'text', text: this.scInfo, align: 'center', size: 26, color: '#b8b0d6', span: 3 },
+        ];
+        for (const it of this.scItems.slice(this.scPage * SC_PER_PAGE, (this.scPage + 1) * SC_PER_PAGE)) {
+          const st = this.scStatus(it.url), busy = !!st;
+          items.push({ type: 'button', id: `sca:${it.url}`, label: `${busy ? '' : '＋ '}${it.title}`, sub: `${it.artist}${it.duration ? ` · ${fmtTime(it.duration)}` : ''}${st ? ` · ${st}` : ''}`, img: this.scCover(it.cover), disabled: busy, span: 3, h: 108 });
+        }
+        const addable = this.scItems.filter((i) => !this.scStatus(i.url));
+        if (this.scItems.length) items.push({ type: 'button', id: 'scprev', label: '◀', disabled: this.scPage === 0 }, { type: 'text', text: `${this.scPage + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'scnext', label: '▶', disabled: this.scPage >= pages - 1 });
+        if (addable.length > 1) items.push({ type: 'button', id: 'scall', label: `Alle ${addable.length} hinzufügen`, span: 3, h: 70 });
+        items.push({ type: 'button', id: 'back', label: 'Zurück', main: true });
+        return { title: 'Songs hinzufügen', subtitle: 'SoundCloud · fertige Songs erscheinen automatisch in der Liste', cols: 3, items };
+      }
       case 'credits':
         if (!this.credits.length) api.credits().then((c) => { this.credits = c; this.refresh(); }).catch(() => {});
         return { title: 'Credits', cols: 1, items: [
@@ -352,7 +425,7 @@ export class Menus {
       }
       case 'keyboard': {
         const k = this.kb!;
-        const keys = 'QWERTZUIOPASDFGHJKLYXCVBNM0123456789'.split('');
+        const keys = 'QWERTZUIOPASDFGHJKLYXCVBNM0123456789_'.split('');
         return { title: k.title, subtitle: `${k.value}▏`, cols: 10, items: [
           ...keys.map((ch) => ({ type: 'button', id: `k:${ch}`, label: ch, h: 66 }) as Item),
           { type: 'button', id: 'k: ', label: 'Leer', span: 3, h: 66 }, { type: 'button', id: 'k:-', label: '-', h: 66 },
@@ -390,6 +463,16 @@ export class Menus {
     if (id.startsWith('L:')) return;
     const s = this.screen;
     if (id === 'back') return this.back();
+    if (s === 'sc') {
+      if (id === 'scsearch') return this.keyboard('SoundCloud suchen', '', (v) => this.scSearch(v));
+      if (id === 'sclikes') return this.scMine('likes');
+      if (id === 'sctracks') return this.scMine('tracks');
+      if (id === 'scprev') { this.scPage = Math.max(0, this.scPage - 1); return this.refresh(); }
+      if (id === 'scnext') { this.scPage++; return this.refresh(); }
+      if (id === 'scall') { for (const it of this.scItems) if (!this.scStatus(it.url)) this.scAdd(it); return; }
+      if (id.startsWith('sca:')) { const it = this.scItems.find((x) => x.url === id.slice(4)); if (it) this.scAdd(it); }
+      return;
+    }
     if (s === 'pick') {
       if (id === 'pkprev') { this.pickPage = Math.max(0, this.pickPage - 1); return this.refresh(); }
       if (id === 'pknext') { this.pickPage++; return this.refresh(); }
@@ -404,6 +487,7 @@ export class Menus {
       return;
     }
     if (s === 'songs') {
+      if (id === 'scopen') return this.go('sc');
       if (id.startsWith('f:')) { this.filter = id.slice(2) as typeof this.filter; this.page = 0; this.refresh(); }
       else if (id === 'sort') { this.sort = this.sort === 'new' ? 'title' : this.sort === 'title' ? 'bpm' : 'new'; this.refresh(); }
       else if (id === 'search') this.keyboard('Suche', this.search, (v) => { this.search = v.trim(); this.page = 0; });

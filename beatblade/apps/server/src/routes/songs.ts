@@ -7,7 +7,7 @@ import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
 import { config } from '../config.js';
-import { queueYoutube, cookiesFile, searchSoundcloud } from '../youtube.js';
+import { queueYoutube, cookiesFile, searchSoundcloud, getScProfile, setScProfile, scCollectionUrl, listSoundcloud, fetchScCover } from '../youtube.js';
 import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
 import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
 import { importFile } from '../songs-service.js';
@@ -56,6 +56,26 @@ export function songRoutes(app: FastifyInstance, api: string): void {
   app.get<{ Querystring: { q?: string } }>(`${api}/soundcloud/search`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     try { return await searchSoundcloud(String(req.query.q ?? '')); }
     catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  });
+
+  // eigenes SoundCloud-Profil (einmal eintragen, dann Likes/Tracks auch in VR)
+  app.get(`${api}/soundcloud/profile`, async () => ({ profile: getScProfile() }));
+  app.post<{ Body: { profile?: string } }>(`${api}/soundcloud/profile`, async (req, reply) => {
+    const p = setScProfile(String(req.body?.profile ?? ''));
+    return p ? { profile: p } : reply.code(400).send({ error: 'Kein gültiger Profilname oder Profil-Link (soundcloud.com/<name>).' });
+  });
+  // Likes, Tracks oder Playlist auflisten: what = 'likes' | 'tracks' | Link
+  app.get<{ Querystring: { what?: string } }>(`${api}/soundcloud/list`, { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const url = scCollectionUrl(String(req.query.what ?? 'likes').slice(0, 300), getScProfile());
+    if (!url) return reply.code(400).send({ error: getScProfile() ? 'Kein gültiger SoundCloud-Profil- oder Playlist-Link.' : 'Bitte zuerst dein SoundCloud-Profil eintragen.' });
+    try { return { url, items: await listSoundcloud(url) }; }
+    catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  });
+  // Cover-Bild durchreichen (nur i*.sndcdn.com)
+  app.get<{ Querystring: { u?: string } }>(`${api}/soundcloud/cover`, async (req, reply) => {
+    const c = await fetchScCover(String(req.query.u ?? '')).catch(() => null);
+    if (!c) return reply.code(404).send({ error: 'Kein Bild' });
+    return reply.type(c.type).header('Cache-Control', 'public, max-age=86400').send(c.data);
   });
 
   // YouTube-Cookies hinterlegen (gegen die Bot-Pruefung); Datei liegt nur im Daten-Volume, wird nie ausgeliefert

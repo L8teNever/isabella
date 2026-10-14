@@ -39,8 +39,70 @@ function parseSource(url: string): { kind: 'youtube' | 'soundcloud'; url: string
   return sc ? { kind: 'soundcloud', url: sc } : null;
 }
 
+// ---------- SoundCloud: eigenes Profil, Likes, Tracks, Playlists ----------
+const SC_USER_RE = /^[A-Za-z0-9_-]{2,60}$/;
+/** gespeichertes Profil (einmal am Handy eintragen, dann auch in VR nutzbar) */
+const profileFile = () => path.join(config.dataDir, 'soundcloud.json');
+export function getScProfile(): string | null {
+  try { const p = JSON.parse(fs.readFileSync(profileFile(), 'utf8')).profile; return typeof p === 'string' && SC_USER_RE.test(p) ? p : null; } catch { return null; }
+}
+/** Profilname oder Profil-Link -> Name; null = ungueltig */
+export function setScProfile(input: string): string | null {
+  const m = /^(?:https?:\/\/(?:www\.|m\.)?soundcloud\.com\/)?([A-Za-z0-9_-]{2,60})\/?(?:[?#].*)?$/.exec(input.trim());
+  if (!m) return null;
+  const name = m[1].toLowerCase();
+  fs.writeFileSync(profileFile(), JSON.stringify({ profile: name }));
+  return name;
+}
+/**
+ * Sammlung pruefen: 'likes' | 'tracks' | Playlist-Link (soundcloud.com/<user>/sets/<name>) | Profil-Link (-> Likes).
+ * Liefert die kanonische URL oder null.
+ */
+export function scCollectionUrl(what: string, profile: string | null): string | null {
+  const w = what.trim();
+  if ((w === 'likes' || w === 'tracks') && profile) return `https://soundcloud.com/${profile}/${w}`;
+  const set = /^https?:\/\/(?:www\.|m\.)?soundcloud\.com\/([A-Za-z0-9_-]+)\/sets\/([A-Za-z0-9_-]+)\/?(?:[?#].*)?$/.exec(w);
+  if (set) return `https://soundcloud.com/${set[1]}/sets/${set[2]}`;
+  const tab = /^https?:\/\/(?:www\.|m\.)?soundcloud\.com\/([A-Za-z0-9_-]+)(?:\/(likes|tracks))?\/?(?:[?#].*)?$/.exec(w);
+  if (tab) return `https://soundcloud.com/${tab[1]}/${tab[2] ?? 'likes'}`;
+  return null;
+}
+/** Titel und Link aller Tracks einer Sammlung (schnell, ohne jeden Track einzeln zu laden: kein Cover/keine Laenge) */
+export function listSoundcloud(url: string): Promise<ScResult[]> {
+  const hit = searchCache.get(url);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return Promise.resolve(hit.list);
+  return new Promise((resolve, reject) => {
+    execFile(config.ytdlp, ['--no-warnings', '--flat-playlist', '-J', '--playlist-end', '300', url], { timeout: 120000, maxBuffer: 32 * 1024 * 1024 }, (err, out) => {
+      if (err) return reject(new Error(/404|not found|Unable to download/i.test(String(err.message)) ? 'Nicht gefunden – stimmt der Profilname? Sind die Likes öffentlich?' : 'SoundCloud-Liste konnte nicht geladen werden.'));
+      try {
+        const entries = (JSON.parse(out).entries ?? []) as Record<string, unknown>[];
+        const list: ScResult[] = [];
+        for (const e of entries) {
+          const u = soundcloudUrl(String(e.webpage_url ?? e.url ?? ''));
+          if (!u) continue;
+          const user = u.split('/')[3] ?? '';
+          list.push({ url: u, title: String(e.title ?? u.split('/')[4] ?? ''), artist: String(e.uploader ?? user.replace(/[-_]+/g, ' ')), duration: Number(e.duration ?? 0), cover: null });
+        }
+        searchCache.set(url, { at: Date.now(), list });
+        resolve(list);
+      } catch { reject(new Error('SoundCloud-Liste: unerwartete Antwort.')); }
+    });
+  });
+}
+
+/** Cover-Bild von SoundCloud durchreichen (fuer VR: Bilder fremder Server darf die Brille nicht auf Tafeln zeichnen) */
+const COVER_RE = /^https:\/\/i\d*\.sndcdn\.com\/[A-Za-z0-9_\-/.]+\.(jpg|jpeg|png)$/;
+export async function fetchScCover(u: string): Promise<{ type: string; data: Buffer } | null> {
+  if (!COVER_RE.test(u)) return null;
+  const r = await fetch(u, { signal: AbortSignal.timeout(10000) });
+  if (!r.ok) return null;
+  const data = Buffer.from(await r.arrayBuffer());
+  if (data.length > 2 * 1024 * 1024) return null;
+  return { type: r.headers.get('content-type')?.startsWith('image/') ? r.headers.get('content-type')! : 'image/jpeg', data };
+}
+
 // ---------- SoundCloud-Suche ----------
-export interface ScResult { url: string; title: string; artist: string; duration: number; cover: string | null }
+export interface ScResult { url: string; title: string; artist: string; duration: number; cover: string | null; tooLong?: boolean }
 const searchCache = new Map<string, { at: number; list: ScResult[] }>();
 export function searchSoundcloud(query: string): Promise<ScResult[]> {
   const q = query.replace(/\s+/g, ' ').trim().slice(0, 100);
@@ -58,7 +120,8 @@ export function searchSoundcloud(query: string): Promise<ScResult[]> {
           if (!url) continue;
           const thumbs = (e.thumbnails as { id?: string; url?: string }[] | undefined) ?? [];
           const cover = thumbs.find((t) => t.id === 't300x300')?.url ?? thumbs.find((t) => t.id === 'large')?.url ?? null;
-          list.push({ url, title: String(e.title ?? ''), artist: String(e.uploader ?? ''), duration: Number(e.duration ?? 0), cover: cover && /^https:\/\/[a-z0-9.-]*sndcdn\.com\//.test(cover) ? cover : null });
+          const duration = Number(e.duration ?? 0);
+          list.push({ url, title: String(e.title ?? ''), artist: String(e.uploader ?? ''), duration, cover: cover && /^https:\/\/[a-z0-9.-]*sndcdn\.com\//.test(cover) ? cover : null, tooLong: duration > config.ytMaxMinutes * 60 });
         }
         searchCache.set(q.toLowerCase(), { at: Date.now(), list });
         if (searchCache.size > 200) searchCache.delete(searchCache.keys().next().value!);
@@ -157,6 +220,7 @@ function run(job: string, kind: 'youtube' | 'soundcloud', url: string): Promise<
         if (line.startsWith('META ')) { const [title, uploader, track, artist] = line.slice(5).split('\t'); meta = { title, uploader, track, artist }; send({ job, state: 'laden', percent: 0, title }); }
         else if (line.startsWith('PROG ')) { const pct = Math.round(parseFloat(line.slice(5))); if (!Number.isNaN(pct) && pct !== lastPct) { lastPct = pct; send({ job, state: 'laden', percent: pct, title: meta.title }); } }
         else if (line.startsWith('FILE ')) file = line.slice(5);
+        else if (line) { err += `\n${line}`; if (err.length > 20000) err = err.slice(-10000); }   // z. B. 'does not pass filter' landet auf stdout
       }
     });
     p.stderr.on('data', (c: Buffer) => { err += c.toString(); if (err.length > 20000) err = err.slice(-10000); if (/ExtractAudio|Destination/.test(c.toString())) send({ job, state: 'umwandeln', title: meta.title }); });

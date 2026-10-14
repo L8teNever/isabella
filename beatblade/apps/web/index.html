@@ -59,7 +59,23 @@
           <input type="search" id="sc-q" placeholder="Song, Artist oder Genre …" required />
           <button class="primary">Suchen</button>
         </form>
+        <div class="sc-mine">
+          <p class="hint">Deine eigenen Songs: <span id="sc-profile-state">kein Profil eingetragen</span></p>
+          <form id="sc-profile-form" class="yt">
+            <input id="sc-profile" placeholder="Dein SoundCloud-Profil (Name oder Link)" />
+            <button type="submit">Speichern</button>
+          </form>
+          <div class="yt">
+            <button id="sc-likes" type="button">♥ Meine Likes</button>
+            <button id="sc-tracks" type="button">Meine Tracks</button>
+          </div>
+          <form id="sc-list-form" class="yt">
+            <input id="sc-list" placeholder="Playlist-Link (soundcloud.com/…/sets/…)" />
+            <button type="submit">Playlist anzeigen</button>
+          </form>
+        </div>
         <p id="sc-info" class="hint"></p>
+        <button id="sc-all" class="primary" type="button" hidden>Alle hinzufügen</button>
         <div id="sc-results" class="sc-results"></div>
       </div>
 

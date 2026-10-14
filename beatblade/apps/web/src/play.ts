@@ -310,6 +310,7 @@ $('b-desk').addEventListener('click', () => { setup('desktop'); camera.position.
     song: (s) => { const old = menus.songs.find((x) => x.id === s.id); if (old && old.updatedAt !== s.updatedAt) pruneSong(s.id, s.updatedAt); menus.upsertSong(s); },
     deleted: (id) => menus.removeSong(id),
     open: async () => menus.setSongs(await api.songs().catch(() => menus.songs)),
+    yt: (s) => menus.ytUpdate(s),
   });
 })();
 

@@ -49,7 +49,9 @@ etwa einer Minute sind sie spielbar.
   Erkennung per Magic Bytes), Fortschritt pro Datei, danach Live-Status *In Warteschlange → Dekodieren →
   Analysieren → Level generieren → Fertig*. Tags/Cover werden ausgelesen und sind editierbar,
   Duplikate (SHA-256) werden erkannt. **SoundCloud durchsuchen**: Suchbegriff eingeben, Treffer mit Cover, Artist und
-  Länge, *Hinzufügen* lädt den Track (Go+-Tracks gehen nicht). **YouTube- oder SoundCloud-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
+  Länge, *Hinzufügen* lädt den Track (Go+-Tracks gehen nicht). **Eigene Songs:** einmal das SoundCloud-Profil eintragen,
+  dann *Meine Likes* / *Meine Tracks* oder einen Playlist-Link anzeigen und einzeln oder *Alle hinzufügen*.
+  **In VR:** Lobby → *＋ Songs hinzufügen*: Suche per Bildschirm-Tastatur, Likes/Tracks, Fortschritt direkt in der Brille. **YouTube- oder SoundCloud-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
   Vorschaubild als Cover) und importiert sie wie einen Upload; Fortschritt live in der Liste. Downloads laufen
   nacheinander. Nur Inhalte laden, die du nutzen darfst – YouTube erlaubt Downloads laut Nutzungsbedingungen nicht.
   Verlangt YouTube eine Anmeldung („Bot-Prüfung“, typisch bei Servern im Rechenzentrum): unter *YouTube-Cookies*

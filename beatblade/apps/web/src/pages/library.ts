@@ -1,7 +1,7 @@
 // 2D-Seite (mobil zuerst): Upload mit Fortschritt, Bibliothek mit Live-Status, Bearbeiten, Credits.
 import '../style.css';
 import { DIFFICULTY_LABEL, type Song } from '@beatblade/core';
-import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE, type YtStatus } from '../api';
+import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE, type YtStatus, type ScItem } from '../api';
 import { BUILD_INFO } from '../version';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -103,27 +103,62 @@ async function startImport(url: string, label = url): Promise<boolean> {
   try { const r = await api.youtube(url); ytRows.set(r.job, row); return true; }
   catch (err) { const st = row.querySelector<HTMLElement>('.st')!; st.textContent = (err as Error).message; st.style.color = 'var(--err)'; setTimeout(() => row.remove(), 30000); return false; }
 }
+/** Trefferliste anzeigen (Suche, Likes, Tracks oder Playlist) */
+let scShown: ScItem[] = [];
+function showSc(list: ScItem[], text: string) {
+  const info = $('sc-info'), box = $('sc-results');
+  info.textContent = text; box.innerHTML = ''; scShown = list;
+  const have = new Set([...songs.values()].map((s) => s.source).filter(Boolean));
+  const allBtn = $('sc-all'); allBtn.hidden = list.filter((r) => !have.has(r.url) && !r.tooLong).length < 2;
+  for (const r of list) {
+    const el = document.createElement('div'); el.className = 'sc-item';
+    const inLib = have.has(r.url), off = inLib || !!r.tooLong;
+    el.innerHTML = `${r.cover ? `<img src="${esc(r.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="ph">♪</div>'}
+      <div><div class="t">${esc(r.title)}</div><div class="a">${esc(r.artist)}${r.duration ? ` · ${fmtTime(r.duration)}` : ''}</div></div>
+      <button ${off ? 'disabled' : ''}>${inLib ? 'In der Bibliothek ✓' : r.tooLong ? 'Zu lang' : 'Hinzufügen'}</button>`;
+    const btn = el.querySelector('button')!;
+    btn.dataset.url = r.url;
+    btn.addEventListener('click', () => addSc(r, btn));
+    box.appendChild(el);
+  }
+}
+async function addSc(r: ScItem, btn: HTMLButtonElement) {
+  btn.disabled = true; btn.textContent = 'Wird geladen …';
+  if (!(await startImport(r.url, r.title))) { btn.disabled = false; btn.textContent = 'Hinzufügen'; } else btn.textContent = 'Hinzugefügt ✓';
+}
+$('sc-all').addEventListener('click', async () => {
+  $('sc-all').hidden = true;
+  for (const b of [...document.querySelectorAll<HTMLButtonElement>('#sc-results .sc-item button:not([disabled])')]) {
+    const r = scShown.find((x) => x.url === b.dataset.url); if (r) await addSc(r, b);
+  }
+});
 $('sc-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const q = $<HTMLInputElement>('sc-q').value.trim(); if (!q) return;
-  const info = $('sc-info'), box = $('sc-results');
-  info.textContent = 'Suche läuft …'; box.innerHTML = '';
-  try {
-    const list = await api.scSearch(q);
-    info.textContent = list.length ? `${list.length} Treffer – „Hinzufügen“ lädt den Song in die Bibliothek.` : 'Nichts gefunden.';
-    const have = new Set([...songs.values()].map((s) => (s as Song & { source?: string }).source).filter(Boolean));
-    for (const r of list) {
-      const el = document.createElement('div'); el.className = 'sc-item';
-      const inLib = have.has(r.url);
-      el.innerHTML = `${r.cover ? `<img src="${esc(r.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="ph">♪</div>'}
-        <div><div class="t">${esc(r.title)}</div><div class="a">${esc(r.artist)} · ${fmtTime(r.duration)}</div></div>
-        <button ${inLib ? 'disabled' : ''}>${inLib ? 'In der Bibliothek ✓' : 'Hinzufügen'}</button>`;
-      const btn = el.querySelector('button')!;
-      btn.addEventListener('click', async () => { btn.disabled = true; btn.textContent = 'Wird geladen …'; if (!(await startImport(r.url, r.title))) { btn.disabled = false; btn.textContent = 'Hinzufügen'; } else btn.textContent = 'Hinzugefügt ✓'; });
-      box.appendChild(el);
-    }
-  } catch (err) { info.textContent = (err as Error).message; }
+  $('sc-info').textContent = 'Suche läuft …'; $('sc-results').innerHTML = '';
+  try { const list = await api.scSearch(q); showSc(list, list.length ? `${list.length} Treffer – „Hinzufügen“ lädt den Song in die Bibliothek.` : 'Nichts gefunden.'); }
+  catch (err) { $('sc-info').textContent = (err as Error).message; }
 });
+// eigenes Profil, Likes, Tracks, Playlist
+async function scProfileState() {
+  try { const p = (await api.scProfile()).profile; $('sc-profile-state').textContent = p ? `Profil „${p}“` : 'kein Profil eingetragen'; if (p) $<HTMLInputElement>('sc-profile').placeholder = `Profil: ${p} (ändern)`; }
+  catch { /* egal */ }
+}
+$('sc-profile-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const v = $<HTMLInputElement>('sc-profile').value.trim(); if (!v) return;
+  try { await api.scProfileSet(v); $<HTMLInputElement>('sc-profile').value = ''; scProfileState(); }
+  catch (err) { $('sc-profile-state').textContent = (err as Error).message; }
+});
+async function scShowList(what: string, label: string) {
+  $('sc-info').textContent = `${label} werden geladen …`; $('sc-results').innerHTML = ''; $('sc-all').hidden = true;
+  try { const r = await api.scList(what); showSc(r.items, r.items.length ? `${label}: ${r.items.length} Songs` : `${label}: keine Songs gefunden.`); }
+  catch (err) { $('sc-info').textContent = (err as Error).message; }
+}
+$('sc-likes').addEventListener('click', () => scShowList('likes', 'Deine Likes'));
+$('sc-tracks').addEventListener('click', () => scShowList('tracks', 'Deine Tracks'));
+$('sc-list-form').addEventListener('submit', (e) => { e.preventDefault(); const v = $<HTMLInputElement>('sc-list').value.trim(); if (v) scShowList(v, 'Playlist'); });
+scProfileState();
 
 // YouTube-Cookies (gegen die Bot-Pruefung)
 async function cookieState() {
