@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { Cut, cutVector, type Beatmap, type Note, type Bomb, type Obstacle } from '@beatblade/core';
 import { HIT_Z, laneX, rowY, COLORS, lookahead, NOTE_SIZE } from './layout';
 import { NoteView } from './notes';
-import { Slicer } from './slicer';
+import { Slicer, ERROR_COLOR } from './slicer';
 import { Saber, FollowThrough } from './sabers';
 import { ScoreKeeper } from './score';
 import { comboLevel } from './combo';
@@ -54,6 +54,7 @@ export class Game {
   private follows: FollowThrough[] = [];
   private i0 = 0; private b0 = 0;
   inWall = false;
+  private wallFx = 0;
   /** Protokoll aller Schnitte (zur Fehlersuche an den Server) */
   cutLog: Record<string, unknown>[] = [];
   ended = false;
@@ -97,7 +98,7 @@ export class Game {
       if (dtn > this.look) break;
       if (s.done) continue;
       const z = this.z(n.t, t);
-      if (!paused && z > HIT_Z + 0.65) { s.done = true; this.score.miss(); continue; }   // vorbeigeflogen
+      if (!paused && z > HIT_Z + 0.65) { s.done = true; this.score.miss(); this.slicer.error(new THREE.Vector3(laneX(n.x), rowY(n.y), HIT_Z - 0.6), 30); continue; }   // vorbeigeflogen
       // Verfehlt = stumm: noch nicht getroffen, kurz bevor die Musik diese Stelle spielt -> Aussetzer einplanen
       if (!paused && settings.missMute && !s.muted && dtn <= this.ev.audioLead() + MUTE_DECIDE) { s.muted = true; this.ev.muteAt(n.t); }
       // Einflug: aus dem Boden hochspringen und aufdrehen (erste 40 % der Vorlaufzeit)
@@ -129,7 +130,12 @@ export class Game {
     }
     v.end();
     if (paused) return;
-    if (this.inWall) this.score.wall(dt);
+    if (this.inWall) {
+      this.score.wall(dt);
+      // rote Funken vor dem Gesicht, solange man in der Wand steht
+      this.wallFx -= dt;
+      if (this.wallFx <= 0) { this.wallFx = 0.12; this.slicer.burst(new THREE.Vector3(head.x, head.y, head.z - 0.35), ERROR_COLOR, 14); }
+    }
 
     // ---------- Treffer ----------
     for (const saber of this.sabers) if (saber.active) this.collide(saber, t);
@@ -166,7 +172,7 @@ export class Game {
       const c = new THREE.Vector3(laneX(s.b.x), rowY(s.b.y), this.z(s.b.t, t));
       if (pts.some((p) => p.distanceToSquared(c) < BOMB_R * BOMB_R)) {
         s.done = true; this.score.bomb();
-        this.slicer.burst(c, 0x666677, 50);
+        this.slicer.burst(c, 0x666677, 30); this.slicer.error(c, 40);
         this.ev.haptic(sb.hand, 1, 160);
       }
     }
@@ -194,6 +200,7 @@ export class Game {
     this.slicer.cut(c, n.d, this.colors[n.c], normal, new THREE.Vector3(0, 0, this.speed), okColor && okDir ? 16 + Math.round(comboLevel(this.score.combo) * 50) : 6);
     if (!okColor || !okDir) {
       this.score.miss(true, okColor ? 'dir' : 'color');
+      this.slicer.error(c, 36);
       this.ev.haptic(sb.hand, 0.3, 40);
       if (settings.missMute && !s.muted) { s.muted = true; this.ev.muteAt(n.t); }
       return;
@@ -203,6 +210,7 @@ export class Game {
       s.muted = false;
       if (!this.notes.some((o) => o.muted && Math.abs(o.n.t - n.t) < MUTE_SPAN)) this.ev.unmute();
     }
+    this.slicer.good(c, this.colors[n.c]);
     const mult = this.score.hit();
     const pre = Math.min(70, (sb.preSwingAngle() / 100) * 70);
     const acc = 15 * (1 - Math.min(1, dist / (NOTE_SIZE * 0.75)));
