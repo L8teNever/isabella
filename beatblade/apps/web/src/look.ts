@@ -139,6 +139,11 @@ export const orbName = () => currentOrb()?.name ?? 'Leuchtkugel';
 export const orbNoteName = () => currentOrbNote()?.name ?? 'Neon-Kugel';
 /** Stil der Handkugel (eingebaut: glow, ring, crystal) */
 export const orbStyle = () => styleOf(currentOrb(), 'glow');
+/** eigenes Handkugel-Modell (model: datei.glb), sonst null */
+export function orbModel(): { key: string; url: string } | null {
+  const o = currentOrb();
+  return o?.model ? { key: `${o.source}/${o.id}`, url: contentUrl(o.model) } : null;
+}
 
 const orbNoteCache = new Map<string, Promise<OrbNoteSkin>>();
 /** Notenkugel-Skin; override = Skin einer Themen-Map (orbNoteSkin in info.json). Eigenes .glb wird auf Kugelgroesse skaliert. */

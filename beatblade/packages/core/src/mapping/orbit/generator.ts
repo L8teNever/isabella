@@ -100,6 +100,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
   let railUsed = 0;
   const railFree = [-Infinity, -Infinity];   // Beat, ab dem die Hand wieder eine Rail bekommt
   let nextHand: 0 | 1 = rng.chance(0.5) ? 0 : 1;
+  let lastGoldRailBar = -Infinity;
   for (let k = 0; k < nBeats; k++) {
     if ((sus[k] ?? 0) < ORBIT.sustainMin) continue;
     const sec = sectionAtBeat(a, k);
@@ -118,15 +119,21 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     let hand: 0 | 1 | undefined;
     for (const h of [nextHand, (1 - nextHand) as 0 | 1]) if (hand === undefined && k >= railFree[h] && railUsed + (t1 - t0) <= railLimit) hand = h;
     if (!ok || hand === undefined) { k += L - 1; continue; }
+    // Gold-Rail: beide Haende folgen nebeneinander in der Mitte (energiereiche Stellen, selten)
+    const bar = barOfBeat(a, k);
+    const gold = D.goldAccent > 0 && L >= ORBIT.goldRailMinBeats && (a.barEnergy[bar] ?? 0) >= goldE &&
+      bar - lastGoldRailBar >= ORBIT.goldRailGapBars && rng.chance(ORBIT.goldRailChance);
+    if (gold) { hand = 0; lastGoldRailBar = bar; }
     // Verlauf: sanfter Bogen um die Ruheposition, Hoehe folgt der Tonhoehe
     const s = side(hand), dir = rng.chance(0.5) ? 1 : -1, waves = L >= 6 ? 2 : 1;
     const points: { t: number; x: number; y: number }[] = [];
     const n = L * ORBIT.railPointsPerBeat;
     for (let i = 0; i <= n; i++) {
       const b = k + i / ORBIT.railPointsPerBeat, t = beatToTime(beats, b);
-      let x = s * (ORBIT.homeX + D.reachX * 0.55 * dir * Math.sin((Math.PI * waves * i) / n));
+      const wave = dir * Math.sin((Math.PI * waves * i) / n);
+      let x = gold ? D.reachX * 0.45 * wave : s * (ORBIT.homeX + D.reachX * 0.55 * wave);
       let y = ORBIT.centerY + (pitch(b) - 0.5) * 2 * D.reachY * ORBIT.railPitchY;
-      [x, y] = fit(x, y, t, hand);
+      [x, y] = gold ? fit(x, y, t, -1, ORBIT.goldHandOffset) : fit(x, y, t, hand);
       const prev = points[points.length - 1];
       if (prev) {   // Rail nie schneller als die Hand darf
         const d = Math.hypot(x - prev.x, y - prev.y), lim = D.maxHandSpeed * 0.8 * (t - prev.t);
@@ -135,18 +142,20 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
       points.push({ t: r3(t), x: r3(x), y: r3(y) });
     }
     const ri = rails.length;
-    rails.push({ hand, kind: 'normal', points, t0: points[0].t, t1: points[points.length - 1].t });
-    railNotes.push({ b: r3(k), t: points[0].t, x: points[0].x, y: points[0].y, hand, kind: 'normal', rail: ri });
+    const kind = gold ? 'gold' : 'normal';
+    rails.push({ hand, kind, points, t0: points[0].t, t1: points[points.length - 1].t });
+    railNotes.push({ b: r3(k), t: points[0].t, x: points[0].x, y: points[0].y, hand, kind, rail: ri });
     let lastJ = 0;
     const gapBeats = Math.max(ORBIT.railNoteGapBeats, Math.ceil((2 * D.minGap) / Math.max(0.2, (t1 - t0) / L)));
     for (let j = 1; j < L; j++) {
       if (j - lastJ < gapBeats || onsetAt(k + j) < ORBIT.railNoteOnset) continue;
       const t = beatToTime(beats, k + j), p = railAt(rails[ri], t);
-      railNotes.push({ b: k + j, t: r3(t), x: r3(p.x), y: r3(p.y), hand, kind: 'normal', rail: ri });
+      railNotes.push({ b: k + j, t: r3(t), x: r3(p.x), y: r3(p.y), hand, kind, rail: ri });
       lastJ = j;
     }
     railUsed += t1 - t0;
     railFree[hand] = k + L + ORBIT.railRestBeats;
+    if (gold) railFree[1 - hand] = railFree[hand];
     nextHand = (1 - hand) as 0 | 1;
     k += L;
   }
@@ -168,6 +177,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     const rail = railOf(s.t);
     let hand: 0 | 1;
     if (rail) {
+      if (rail.kind === 'gold') continue;                  // beide Haende auf der Gold-Rail
       if (s.t - lastSolo < ORBIT.soloGap) continue;
       hand = (1 - rail.hand) as 0 | 1;
       lastSolo = s.t;
@@ -281,7 +291,8 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
           n.x = r3(x); n.y = r3(y);
         }
       }
-      last = rail ? { t: rail.t1, ...railAt(rail, rail.t1) } : { t: n.t, x: n.kind === 'gold' ? hx : n.x, y: n.y };
+      if (rail) { const e = railAt(rail, rail.t1); last = { t: rail.t1, x: e.x + (rail.kind === 'gold' ? side(hand) * ORBIT.goldHandOffset : 0), y: e.y }; }
+      else last = { t: n.t, x: n.kind === 'gold' ? hx : n.x, y: n.y };
     }
   }
   for (let guard = 0; guard < 400; guard++) {

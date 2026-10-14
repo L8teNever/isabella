@@ -81,11 +81,16 @@ liegen dort frei im Raum (nicht in einem Raster); du berührst sie im Takt mit d
 
 - **Normale Kugeln** (rot/blau): nur mit der Hand ihrer Farbe.
 - **Gold**: groß, in der Mitte – mit **beiden Händen** gleichzeitig berühren (Drop-Starts und starke Akzente).
-- **Grün**: mit **einer beliebigen Hand** – kommt in Läufen in ruhigen, melodischen Passagen.
+  **Gold-Rails** (breite goldene Bahn, ab Normal, selten an energiereichen Stellen): beide Hände links und rechts
+  daneben mitführen; bringen doppelte Rail-Punkte.
+- **Grün**: Läufe in ruhigen, melodischen Passagen – **eine Hand nach Wahl**: die Hand, die die erste grüne Kugel
+  berührt, gilt für den ganzen Lauf (der Ring der restlichen Kugeln zeigt dann ihre Farbe).
 - **Rails**: leuchtende Bahnen auf gehaltenen Klängen (Pads, Gesang); die Hand folgt der Kurve, die Höhe folgt der
   Tonhöhe. Eine Rail zählt, wenn man mindestens **80 %** der Zeit an ihr bleibt; der gespielte Teil verschwindet.
+  Die Rail färbt sich nach dem gehaltenen Anteil: voll in Handfarbe = sauber gefolgt, grau = verloren.
 - **Hindernisse**: dieselben Wände (und Wand-Skins) wie bei Schnitt – ausweichen oder ducken.
-- **Wertung**: Perfekt / Gut / Schlecht nach dem Abstand beim Berühren, Verpasst senkt die Prozent; Prozent und
+- **Wertung**: Perfekt / Gut / Schlecht nach dem Abstand beim Berühren (als Schrift über der Kugel, ebenso
+  *Verpasst* und *Rail ✓ / Rail verloren*; im Komfortmodus nur die Fehler), Verpasst senkt die Prozent; Prozent und
   Sterne wie bei Schnitt. Alle Werte oben in `apps/web/src/game/orbit/orbitscore.ts`, Darstellung in
   `apps/web/src/game/orbit/orbit.ts`.
 - Linkshänder-Spiegelung, Spielergröße, *Schneller*, *Keine Wände*, Pause/Countdown, MR und Autoplay gelten auch hier.
@@ -123,7 +128,7 @@ content/
   maps/<name>/info.json      Maps             style: neon-runway | space | synthwave | halloween | christmas | underwater
                                               | neon-city | volcano; wallSkin: <Wand-Ordner>; optional blockSkin, colorSet
   walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal | ice | mist
-  orbs/<name>/info.json      Orbit-Handkugeln style: glow | ring | crystal
+  orbs/<name>/info.json      Orbit-Handkugeln style: glow | ring | crystal   oder  model: datei.glb
   orbnotes/<name>/info.json  Orbit-Noten      style: neon | crystal | ring | pumpkin | ornament   oder  model: datei.glb
                                               Rail-Aussehen: railWidth (m, 0,008–0,06), railOpacity (0,2–1), railGlow (true/false)
 ```
@@ -150,6 +155,8 @@ Beispiel – eigener Block aus einem 3D-Modell:
   in Orange/Lila, Weihnachten: Geschenke in Rot/Grün); eigene Farben links/rechts gelten weiterhin.
   Mit `orbNoteSkin` bringen sie auch eigene Orbit-Noten mit (Halloween: Kürbisse, Weihnachten: Christbaumkugeln).
 - **Orbit-Noten-Modell:** wie beim Block-Modell, wird auf Kugelgröße skaliert; hell/weiß modellieren.
+- **Handkugel-Modell:** wird zentriert, auf Kugelgröße skaliert, in der Handfarbe getönt und dreht sich langsam;
+  die Treffer-Zone bleibt immer gleich groß. Schlägt das Laden fehl, gilt der eingebaute Stil.
 - **Vorschaubild:** `preview` (z. B. `preview.jpg`, quadratisch, 256×256) erscheint im Auswahl-Menü.
 - Liste aller Inhalte: `GET /beatblade/api/content`.
 

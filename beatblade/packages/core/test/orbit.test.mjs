@@ -62,6 +62,21 @@ test('Orbit: Rails nur auf gehaltenen Klaengen, mit Start-Note, ohne Ueberlappun
   assert.ok(total > 0, 'keine einzige Rail erzeugt');
 });
 
+test('Orbit: Gold-Rails fuer beide Haende, waehrenddessen keine anderen Noten', () => {
+  let gold = 0;
+  for (const a of songs) for (const d of DIFFICULTIES) {
+    const m = generateOrbit(a, d, 7);
+    m.rails.forEach((r, i) => {
+      if (r.kind !== 'gold') return;
+      gold++;
+      assert.notEqual(d, 'easy', 'Gold-Rail auf Leicht');
+      const inside = m.notes.filter((n) => n.t > r.t0 + 0.05 && n.t < r.t1 - 0.05);
+      assert.ok(inside.every((n) => n.rail === i && n.kind === 'gold'), `${d}: fremde Note auf Gold-Rail ${i}`);
+    });
+  }
+  assert.ok(gold > 0, 'keine Gold-Rail erzeugt');
+});
+
 test('Orbit: ohne sustain (alte Analyse) keine Rails, aber spielbar', () => {
   const { sustain, pitch, ...old } = songs[0];
   const m = generateOrbit(old, 'hard', 7);
