@@ -1,4 +1,4 @@
-// Anzeige waehrend des Spiels: Combo/Multiplikator links, Score/Genauigkeit rechts, Energieleiste unten,
+// Anzeige waehrend des Spiels: Combo/Multiplikator links, Genauigkeit/Sterne rechts,
 // FPS (abschaltbar), Countdown, Wand-Vignette.
 import * as THREE from 'three';
 import { rr } from './panel';
@@ -19,7 +19,6 @@ export class Hud {
   group = new THREE.Group();
   private left = new Label(0.7, 0.45);
   private right = new Label(0.7, 0.45);
-  private bar = new Label(1.6, 0.08, 800);
   private center = new Label(1.0, 0.5);
   /** Combo-Einblendung (Meilenstein / gerissen) */
   private pop = new Label(1.6, 0.4, 1024);
@@ -32,10 +31,9 @@ export class Hud {
   constructor(scene: THREE.Object3D, camera: THREE.Camera) {
     this.left.position.set(-1.75, 1.2, -3.2); this.left.rotation.y = 0.35;
     this.right.position.set(1.75, 1.2, -3.2); this.right.rotation.y = -0.35;
-    this.bar.position.set(0, 0.12, -2.4); this.bar.rotation.x = -0.9;
     this.center.position.set(0, 1.5, -3);
     this.pop.position.set(0, 2.05, -3.2); this.pop.visible = false;
-    this.group.add(this.left, this.right, this.bar, this.center, this.pop);
+    this.group.add(this.left, this.right, this.center, this.pop);
     this.group.visible = false; scene.add(this.group);
     this.fps.position.set(-0.22, -0.16, -0.6); this.fps.visible = false; camera.add(this.fps);
     // Vignette: Kugel um den Kopf, rot, nur sichtbar in Waenden
@@ -76,12 +74,6 @@ export class Hud {
     c.font = '600 36px system-ui'; c.fillStyle = '#9fe8c4'; c.fillText(`✓ ${s.hits}`, W * 0.3, H * 0.93);
     c.fillStyle = '#ff9db0'; c.fillText(`✗ ${s.misses + s.badCuts}`, W * 0.7, H * 0.93);
     this.right.tex.needsUpdate = true;
-    c = this.bar.ctx; W = this.bar.canvas.width; H = this.bar.canvas.height;
-    c.clearRect(0, 0, W, H); c.fillStyle = 'rgba(255,255,255,0.15)'; rr(c, 0, 0, W, H, H / 2); c.fill();
-    // Balken = aktuelle Wertung in Prozent
-    c.fillStyle = s.rating >= 90 ? '#4be3a0' : s.rating >= 50 ? '#ffffff' : '#ff4d4d';
-    rr(c, 2, 2, Math.max(H, ((W - 4) * s.rating) / 100), H - 4, (H - 4) / 2); c.fill();
-    this.bar.tex.needsUpdate = true;
   }
 
   /** Combo-Einblendung oben (z. B. "25er COMBO!" oder "Combo vorbei") */

@@ -2,10 +2,13 @@
 import * as THREE from 'three';
 import { Cut, cutVector } from '@beatblade/core';
 import { COLORS, NOTE_SIZE, LANE_W } from './layout';
+import { GLOW, glowMaterial } from './glow';
+import { settings } from '../settings';
 
 const MAX = 160;
 const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
 const Z = new THREE.Vector3(0, 0, 1);
+const col = new THREE.Color(), I = new THREE.Quaternion();
 
 /** Pfeil-Winkel um Z, sodass das Chevron (zeigt nach -Y) in Schnittrichtung zeigt */
 export function cutAngle(d: Cut): number {
@@ -32,6 +35,8 @@ export class NoteView {
   arrows: THREE.InstancedMesh;
   dots: THREE.InstancedMesh;
   bombs: THREE.InstancedMesh;
+  /** Leuchten: Halo hinter dem Block, Leucht-Rand, Lichtfleck am Boden */
+  halos: THREE.InstancedMesh; shells: THREE.InstancedMesh; pools: THREE.InstancedMesh;
   walls: THREE.Mesh[] = [];
   private wallGeo = new THREE.BoxGeometry(1, 1, 1);
   private wallMat: THREE.MeshBasicMaterial;
@@ -60,12 +65,19 @@ export class NoteView {
     for (let i = 0; i < bpos.count; i++) { const v = new THREE.Vector3().fromBufferAttribute(bpos, i); const spike = (i % 3 === 0 ? 1.25 : 1); v.multiplyScalar(spike); bpos.setXYZ(i, v.x, v.y, v.z); }
     bg.computeVertexNormals();
     this.bombs = new THREE.InstancedMesh(bg, new THREE.MeshStandardMaterial({ color: COLORS.bomb, roughness: 0.5, metalness: 0.6, emissive: 0x330a14 }), 64);
-    for (const m of [this.cubes, this.arrows, this.dots, this.bombs]) { m.frustumCulled = false; m.count = 0; root.add(m); }
+    // Leuchten (instanziert: 3 Draw Calls fuer alle Bloecke)
+    const inst = () => new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
+    this.halos = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMaterial(GLOW.haloStrength), MAX); this.halos.instanceColor = inst();
+    this.shells = new THREE.InstancedMesh(roundedBox(NOTE_SIZE, 0.06), new THREE.MeshBasicMaterial({ transparent: true, opacity: GLOW.shellStrength, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }), MAX); this.shells.instanceColor = inst();
+    this.pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), glowMaterial(GLOW.poolStrength), MAX); this.pools.instanceColor = inst();
+    this.halos.renderOrder = 1; this.pools.renderOrder = 1;
+    for (const m of [this.cubes, this.arrows, this.dots, this.bombs, this.halos, this.shells, this.pools]) { m.frustumCulled = false; m.count = 0; root.add(m); }
     this.wallMat = new THREE.MeshBasicMaterial({ color: 0xff5470, transparent: true, opacity: mr ? 0.28 : 0.22, depthWrite: false, side: THREE.DoubleSide });
     this.wallEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8aa0, transparent: true, opacity: 0.9 });
   }
 
-  begin() { this.nCubes = this.nArrows = this.nDots = this.nBombs = this.nWalls = 0; }
+  private nGlow = 0;
+  begin() { this.nCubes = this.nArrows = this.nDots = this.nBombs = this.nWalls = this.nGlow = 0; }
 
   addNote(x: number, y: number, z: number, color: number, d: Cut, scale = 1, spin = 0) {
     if (this.nCubes >= MAX) return;
@@ -76,6 +88,20 @@ export class NoteView {
     this.nCubes++;
     if (d === Cut.Any) { this.dots.setMatrixAt(this.nDots++, m4); }
     else this.arrows.setMatrixAt(this.nArrows++, m4);
+    if (settings.glow) {
+      const i = this.nGlow++;
+      // Leucht-Rand: gleiche Lage, etwas groesser
+      s.setScalar(scale * GLOW.shellScale); this.shells.setMatrixAt(i, m4.compose(p, q, s));
+      // Halo: knapp hinter dem Block, immer aufrecht
+      s.set(NOTE_SIZE * GLOW.haloSize * scale, NOTE_SIZE * GLOW.haloSize * scale, 1); p.set(x, y, z - NOTE_SIZE * 0.6);
+      this.halos.setMatrixAt(i, m4.compose(p, I, s));
+      // Lichtfleck am Boden, schwaecher je hoeher der Block
+      const k = Math.max(0, 1 - y / GLOW.poolFadeHeight) * scale;
+      s.set(GLOW.poolSize * scale, 1, GLOW.poolSize * scale); p.set(x, 0.012, z);
+      this.pools.setMatrixAt(i, m4.compose(p, I, s));
+      col.setHex(color); this.halos.setColorAt(i, col); this.shells.setColorAt(i, col);
+      this.pools.setColorAt(i, col.multiplyScalar(k));
+    }
   }
 
   addBomb(x: number, y: number, z: number, rot: number) {
@@ -101,7 +127,9 @@ export class NoteView {
 
   end() {
     this.cubes.count = this.nCubes; this.arrows.count = this.nArrows; this.dots.count = this.nDots; this.bombs.count = this.nBombs;
-    for (const m of [this.cubes, this.arrows, this.dots, this.bombs]) m.instanceMatrix.needsUpdate = true;
+    this.halos.count = this.shells.count = this.pools.count = this.nGlow;
+    for (const m of [this.cubes, this.arrows, this.dots, this.bombs, this.halos, this.shells, this.pools]) m.instanceMatrix.needsUpdate = true;
+    for (const m of [this.halos, this.shells, this.pools]) if (m.instanceColor) m.instanceColor.needsUpdate = true;
     if (this.cubes.instanceColor) this.cubes.instanceColor.needsUpdate = true;
     for (let i = this.nWalls; i < this.walls.length; i++) this.walls[i].visible = false;
   }

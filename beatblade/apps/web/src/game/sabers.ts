@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { COLORS, SABER_LEN } from './layout';
 import { settings } from '../settings';
+import { GLOW, glowMaterial } from './glow';
 
 export interface SaberSample { t: number; hilt: THREE.Vector3; tip: THREE.Vector3; dir: THREE.Vector3 }
 
@@ -13,6 +14,8 @@ export class Saber {
   blade: THREE.Mesh;
   glow: THREE.Mesh;
   trail: THREE.Mesh;
+  /** weiche Leucht-Huelle um die Klinge und Lichtfleck am Boden */
+  halo: THREE.Mesh; pool: THREE.Mesh;
   private trailPos: Float32Array;
   private trailPts: { hilt: THREE.Vector3; tip: THREE.Vector3 }[] = [];
   history: SaberSample[] = [];
@@ -31,7 +34,18 @@ export class Saber {
     this.glow = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.035, SABER_LEN, 12, 1, true),
       new THREE.MeshBasicMaterial({ color: this.color, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.glow.rotation.x = Math.PI / 2; this.glow.position.z = this.blade.position.z;
-    this.group.add(hiltM, this.blade, this.glow);
+    // weiche Huelle: in der Mitte hell, zum Rand hin ausblendend (Fresnel umgekehrt)
+    this.halo = new THREE.Mesh(new THREE.CylinderGeometry(GLOW.saberHalo, GLOW.saberHalo, SABER_LEN + 0.06, 16, 1, true),
+      new THREE.ShaderMaterial({
+        uniforms: { color: { value: new THREE.Color(this.color) }, strength: { value: GLOW.saberHaloStrength } },
+        vertexShader: 'varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+        fragmentShader: 'uniform vec3 color; uniform float strength; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(abs(dot(vN, vV)), 2.5); gl_FragColor = vec4(color, f * strength); }',
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      }));
+    this.halo.rotation.x = Math.PI / 2; this.halo.position.z = this.blade.position.z;
+    this.group.add(hiltM, this.blade, this.glow, this.halo);
+    this.pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), glowMaterial(GLOW.saberPoolStrength, this.color));
+    this.pool.renderOrder = 1; this.pool.visible = false; scene.add(this.pool);
     // Leuchtspur (Band aus den letzten Positionen)
     this.trailPos = new Float32Array(TRAIL * 2 * 3);
     const g = new THREE.BufferGeometry();
@@ -57,9 +71,11 @@ export class Saber {
     g.scale.set(1 + level * 1.2, 1, 1 + level * 1.2);
     (g.material as THREE.MeshBasicMaterial).opacity = 0.55 + 0.4 * level;
     (this.trail.material as THREE.ShaderMaterial).uniforms.boost.value = 1 + level * 1.6;
+    (this.halo.material as THREE.ShaderMaterial).uniforms.strength.value = GLOW.saberHaloStrength * (1 + level * 0.8);
   }
 
-  setColor(c: number) { this.color = c; (this.glow.material as THREE.MeshBasicMaterial).color.setHex(c); (this.trail.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); }
+  setColor(c: number) { this.color = c; (this.glow.material as THREE.MeshBasicMaterial).color.setHex(c);
+    (this.halo.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); (this.pool.material as THREE.MeshBasicMaterial).color.setHex(c); (this.trail.material as THREE.ShaderMaterial).uniforms.color.value.setHex(c); }
 
   /**
    * Pose setzen. pos = Griff-Position, quat = Orientierung (Klinge entlang -Z), beides in Spielfeld-Koordinaten.
@@ -75,6 +91,13 @@ export class Saber {
     this.hilt.copy(this.group.position).addScaledVector(this.dir, 0.06);
     this.tip.copy(this.hilt).addScaledVector(this.dir, SABER_LEN);
     if (!this.history.length) { this.prevHilt.copy(this.hilt); this.prevTip.copy(this.tip); }
+    // Lichtfleck unter der Klingenmitte, je naeher am Boden desto heller
+    this.halo.visible = settings.glow; this.pool.visible = settings.glow;
+    if (settings.glow) {
+      const mx = (this.hilt.x + this.tip.x) / 2, my = (this.hilt.y + this.tip.y) / 2, mz = (this.hilt.z + this.tip.z) / 2;
+      this.pool.position.set(mx, 0.013, mz); this.pool.scale.setScalar(GLOW.saberPoolSize);
+      (this.pool.material as THREE.MeshBasicMaterial).opacity = GLOW.saberPoolStrength * Math.max(0, 1 - my / GLOW.poolFadeHeight);
+    }
     this.history.push({ t, hilt: this.hilt.clone(), tip: this.tip.clone(), dir: this.dir.clone() });
     while (this.history.length && t - this.history[0].t > 0.6) this.history.shift();
     // Spur aktualisieren
@@ -87,7 +110,7 @@ export class Saber {
     (this.trail.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  hide() { this.active = false; this.group.visible = false; this.trail.visible = false; this.history = []; this.trailPts = []; }
+  hide() { this.active = false; this.group.visible = false; this.trail.visible = false; this.pool.visible = false; this.history = []; this.trailPts = []; }
 
   /** Spitzen-Geschwindigkeit (m/s) ueber die letzten ~30 ms */
   tipVelocity(): THREE.Vector3 {
