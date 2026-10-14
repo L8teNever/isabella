@@ -14,6 +14,8 @@ export interface Settings {
   name: string;
   difficulty: Difficulty;
   fastNotes: boolean; noWalls: boolean; noBombs: boolean;
+  /** Pfeile: 'pflicht' = Schlagrichtung wird geprueft, 'egal' = jeder saubere Schnitt zaehlt */
+  arrows: 'pflicht' | 'egal';
   floorOffset: number;        // MR: Bodenkorrektur (m)
 }
 
@@ -21,7 +23,7 @@ const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  fastNotes: false, noWalls: false, noBombs: false, floorOffset: 0,
+  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', floorOffset: 0,
 };
 
 const SETTINGS_V = 2;
@@ -36,5 +38,5 @@ export const settings: Settings = (() => {
 export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify({ ...settings, v: SETTINGS_V })); } catch { /* privat/voll */ } }
 
 export function modifiersLabel(s: Settings = settings): string {
-  return [s.fastNotes && 'FN', s.noWalls && 'NW', s.noBombs && 'NB'].filter(Boolean).join(',');
+  return [s.arrows === 'egal' && 'PE', s.fastNotes && 'FN', s.noWalls && 'NW', s.noBombs && 'NB'].filter(Boolean).join(',');
 }

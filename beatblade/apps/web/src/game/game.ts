@@ -170,7 +170,8 @@ export class Game {
     const speed = v2.length();
     // Richtung pruefen (Pfeil-Vektor in der Spielfeld-Ebene)
     let okDir = true;
-    if (n.d !== Cut.Any) {
+    // Pfeile 'egal': Richtung wird nicht geprueft, jeder saubere Schnitt (Farbe + Mindesttempo) zaehlt
+    if (n.d !== Cut.Any && settings.arrows === 'pflicht') {
       const [ax, ay] = cutVector(n.d);
       const ang = speed > 0.01 ? (Math.acos(Math.max(-1, Math.min(1, (v2.x * ax + v2.y * ay) / speed))) * 180) / Math.PI : 180;
       okDir = ang <= ANGLE_TOL;
