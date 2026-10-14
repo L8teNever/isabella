@@ -1,0 +1,10 @@
+{
+  "name": "Ring",
+  "description": "Ringe, durch die deine Hand fährt; Rails als dicke Bahn.",
+  "style": "ring",
+  "railWidth": 0.03,
+  "railOpacity": 0.85,
+  "railGlow": false,
+  "order": 2,
+  "preview": "preview.jpg"
+}

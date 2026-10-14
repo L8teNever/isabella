@@ -1,0 +1,7 @@
+{
+  "name": "Leuchtkugel",
+  "description": "Glatte Kugel mit weichem Leuchten in deiner Handfarbe.",
+  "style": "glow",
+  "order": 0,
+  "preview": "preview.jpg"
+}

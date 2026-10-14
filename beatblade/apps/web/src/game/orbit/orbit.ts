@@ -12,15 +12,13 @@ import { GLOW, glowMaterial } from '../glow';
 import { comboLevel } from '../combo';
 import { settings } from '../../settings';
 import { colorPair } from '../../look';
+import { builtinOrbNote, buildHandOrb, DEFAULT_RAIL, NOTE_R, type HandOrbVisual, type OrbNoteSkin, type RailLook } from './orbskins';
 import { GOLD_WINDOW, GRADE_COLOR, RAIL_DIST, TOUCH_DIST, gradeFor, OrbitScore, type Grade } from './orbitscore';
 
 // ---------- Stellschrauben der Darstellung ----------
 /** Ebene, an der die Kugeln "auf dem Beat" sind (m vor dem Spieler) */
 export const ORB_HIT_Z = -0.45;
-export const NOTE_R = 0.1;           // Radius Notenkugel
 export const GOLD_SCALE = 1.45;      // Gold-Kugel groesser
-export const HAND_R = 0.065;         // Radius Handkugel
-export const RAIL_R = 0.022;         // Dicke der Rail-Roehre
 /** Hoehe der Generator-Positionen bezieht sich auf diese Spielergroesse */
 const REF_HEIGHT = 1.75;
 /** Tiefe zaehlt beim Beruehren nur halb (man trifft die Kugel auch etwas vor/hinter der Ebene) */
@@ -76,14 +74,16 @@ export class OrbitGame implements GameMode {
   private paths: [{ t: number; x: number; y: number }[], { t: number; x: number; y: number }[]] = [[], []];
   private group = new THREE.Group();
   private orbs: THREE.InstancedMesh; private halos: THREE.InstancedMesh; private rings: THREE.InstancedMesh;
-  private hands: THREE.Mesh[] = []; private handHalos: THREE.Mesh[] = [];
+  private hands: HandOrbVisual[] = [];
   private railMat: THREE.MeshBasicMaterial[] = [];
+  private railLook: RailLook = DEFAULT_RAIL;
+  private handStyle = '';
   private handPos = [new THREE.Vector3(), new THREE.Vector3()];
   private prevHand = [new THREE.Vector3(), new THREE.Vector3()];
 
   constructor(public root: THREE.Object3D, public view: NoteView, public slicer: Slicer, public sabers: [Saber, Saber], public ev: OrbitEvents) {
-    const sphere = new THREE.IcosahedronGeometry(NOTE_R, 2);
-    this.orbs = new THREE.InstancedMesh(sphere, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.92 }), MAX);
+    const skin = builtinOrbNote('neon');
+    this.orbs = new THREE.InstancedMesh(skin.geo, skin.mat, MAX);
     this.halos = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMaterial(GLOW.haloStrength), MAX);
     this.rings = new THREE.InstancedMesh(new THREE.TorusGeometry(NOTE_R * 1.25, 0.012, 6, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), MAX);
     for (const m of [this.orbs, this.halos, this.rings]) {
@@ -92,16 +92,27 @@ export class OrbitGame implements GameMode {
       this.group.add(m);
     }
     this.halos.renderOrder = 2;
-    for (const h of [0, 1]) {
-      const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(HAND_R, 2), new THREE.MeshBasicMaterial({ color: this.colors[h] }));
-      const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMaterial(0.7, this.colors[h]));
-      halo.scale.setScalar(HAND_R * 6); orb.add(halo); halo.renderOrder = 2;
-      this.hands.push(orb); this.handHalos.push(halo); this.group.add(orb);
-      this.railMat.push(new THREE.MeshBasicMaterial({ color: this.colors[h], transparent: true, opacity: 0.75, depthWrite: false }));
-    }
-    this.railMat.push(new THREE.MeshBasicMaterial({ color: GOLD_COLOR, transparent: true, opacity: 0.8, depthWrite: false }));
+    this.setHandOrb('leuchten');
+    for (const c of [this.colors[0], this.colors[1], GOLD_COLOR]) this.railMat.push(new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: DEFAULT_RAIL.opacity, depthWrite: false }));
     this.group.visible = false;
     root.add(this.group);
+  }
+
+  /** Notenkugel-Skin (Form, Material, Rail-Aussehen) */
+  setNoteSkin(skin: OrbNoteSkin) {
+    this.orbs.geometry = skin.geo; this.orbs.material = skin.mat;
+    const rebuild = skin.rail.width !== this.railLook.width;
+    this.railLook = skin.rail;
+    if (rebuild) for (const rs of this.rails) { rs.mesh.geometry.dispose(); rs.mesh.geometry = this.railGeo(rs.r); }
+    for (const m of this.railMat) { m.opacity = skin.rail.opacity; m.blending = skin.rail.glow ? THREE.AdditiveBlending : THREE.NormalBlending; m.needsUpdate = true; }
+  }
+
+  /** Handkugel-Stil (eingebaut: leuchten, ring, kristall) */
+  setHandOrb(style: string) {
+    if (style === this.handStyle) return;
+    this.handStyle = style;
+    for (const h of this.hands) this.group.remove(h.group);
+    this.hands = [0, 1].map((h) => { const v = buildHandOrb(style, this.colors[h]); this.group.add(v.group); return v; });
   }
 
   start(om: OrbitMap) {
@@ -136,13 +147,17 @@ export class OrbitGame implements GameMode {
 
   /** Rail als Roehre in eigener Zeit-Achse bauen (z = -(t - t0) * speed); bewegt wird das ganze Mesh */
   private buildRail(r: OrbitRail): RailState {
-    const pts = r.points.map((p) => new THREE.Vector3(p.x, p.y, -(p.t - r.t0) * this.speed));
-    const seg = Math.max(8, pts.length * 3);
-    const geo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), seg, RAIL_R, 6, false);
-    const mesh = new THREE.Mesh(geo, this.railMat[r.kind === 'gold' ? 2 : r.hand]);
+    const seg = this.railSegs(r);
+    const mesh = new THREE.Mesh(this.railGeo(r), this.railMat[r.kind === 'gold' ? 2 : r.hand]);
     mesh.visible = false; mesh.frustumCulled = false; mesh.renderOrder = 3;
     this.group.add(mesh);
     return { r, mesh, seg, held: 0, total: 0, done: false, on: [false, false] };
+  }
+
+  private railSegs(r: OrbitRail) { return Math.max(8, r.points.length * 3); }
+  private railGeo(r: OrbitRail): THREE.BufferGeometry {
+    const pts = r.points.map((p) => new THREE.Vector3(p.x, p.y, -(p.t - r.t0) * this.speed));
+    return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), this.railSegs(r), this.railLook.width, 6, false);
   }
 
   get lights(): LightEvent[] { return this.map?.lights ?? []; }
@@ -152,8 +167,7 @@ export class OrbitGame implements GameMode {
     const [l, r] = colorPair(setOverride);
     this.colors = settings.leftHanded ? [r, l] : [l, r];
     for (const h of [0, 1] as const) {
-      (this.hands[h].material as THREE.MeshBasicMaterial).color.setHex(this.colors[h]);
-      (this.handHalos[h].material as THREE.MeshBasicMaterial).color.setHex(this.colors[h]);
+      this.hands[h].tint(this.colors[h]);
       this.railMat[h].color.setHex(this.colors[h]);
       this.sabers[h].setColor(this.colors[h]);
     }
@@ -186,13 +200,14 @@ export class OrbitGame implements GameMode {
       const sb = this.sabers[h];
       this.prevHand[h].copy(this.handPos[h]);
       this.handPos[h].copy(sb.grip);
-      this.hands[h].position.copy(sb.grip);
-      this.hands[h].visible = sb.active;
-      this.handHalos[h].visible = settings.glow;
+      this.hands[h].group.position.copy(sb.grip);
+      this.hands[h].group.visible = sb.active;
+      this.hands[h].halo.visible = settings.glow;
+      this.hands[h].update(dt || 0.016);
       sb.group.visible = false; sb.trail.visible = false; sb.pool.visible = false;
     }
     const lvl = comboLevel(this.score.combo);
-    for (const h of [0, 1]) this.hands[h].scale.setScalar(1 + lvl * 0.25);
+    for (const h of [0, 1]) this.hands[h].boost(lvl);
 
     // ---------- Noten zeichnen und werten ----------
     let n = 0;
@@ -241,7 +256,7 @@ export class OrbitGame implements GameMode {
       const d = Math.hypot(hp.x - p.x, hp.y - p.y, (hp.z - ORB_HIT_Z) * Z_WEIGHT);
       const on = d <= RAIL_DIST;
       rs.total += dt; if (on) rs.held += dt;
-      if (on !== rs.on[0]) { rs.on[0] = on; (rs.mesh.material as THREE.MeshBasicMaterial).opacity = on ? 1 : 0.6; }
+      if (on !== rs.on[0]) { rs.on[0] = on; (rs.mesh.material as THREE.MeshBasicMaterial).opacity = on ? Math.min(1, this.railLook.opacity + 0.25) : this.railLook.opacity; }
       if (on && Math.random() < dt * 20) this.slicer.burst(pv.set(p.x, p.y, ORB_HIT_Z).clone(), r.kind === 'gold' ? GOLD_COLOR : this.colors[r.hand], 3);
       if (on) this.ev.haptic(r.hand, 0.15, 16);
       if (t >= r.t1) {

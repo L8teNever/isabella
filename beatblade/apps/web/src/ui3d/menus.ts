@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
 import { BUILD_INFO } from '../version';
-import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName, content } from '../look';
+import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName, content, orbItems, orbNoteItems, currentOrb, currentOrbNote, orbName, orbNoteName } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
 import { api, contentUrl, STATUS_LABEL, playable, fmtTime, type Credit, type ScItem, type YtStatus } from '../api';
@@ -24,8 +24,8 @@ export interface MenuActions {
 }
 
 type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick' | 'sc';
-type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'walls';
-const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen', walls: 'Wände wählen' };
+type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'walls' | 'orbs' | 'orbnotes';
+const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen', walls: 'Wände wählen', orbs: 'Handkugeln wählen (Orbit)', orbnotes: 'Orbit-Noten wählen' };
 const PICK_PER_PAGE = 9;
 
 const PER_PAGE = 6;
@@ -152,8 +152,8 @@ export class Menus {
       ...mapItems().map((m) => ({ id: m.id, name: m.name, desc: m.description, img: this.thumb(m.preview), on: settings.mapChoice === m.id }))];
     if (k === 'walls') return [{ id: 'auto', name: 'Automatisch', desc: 'Die Wand, die zur Map passt.', img: null, on: settings.wallSkin === 'auto' },
       ...wallItems().map((w) => ({ id: w.id, name: w.name, desc: w.description, img: this.thumb(w.preview), on: settings.wallSkin === w.id }))];
-    const list = k === 'blocks' ? blockSkins() : saberSkins();
-    const cur = k === 'blocks' ? currentBlock()?.id : currentSaber()?.id;
+    const list = k === 'blocks' ? blockSkins() : k === 'orbs' ? orbItems() : k === 'orbnotes' ? orbNoteItems() : saberSkins();
+    const cur = k === 'blocks' ? currentBlock()?.id : k === 'orbs' ? currentOrb()?.id : k === 'orbnotes' ? currentOrbNote()?.id : currentSaber()?.id;
     return list.map((b) => ({ id: b.id, name: b.name, desc: b.description, img: this.thumb(b.preview), on: b.id === cur }));
   }
 
@@ -274,6 +274,7 @@ export class Menus {
       ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
       ...(settings.colorLeft || settings.colorRight ? [full('creset', 'Eigene Farben zurücksetzen')] : []),
       full('sskin', `Schwert: ${saberName()} ›`),
+      half('oskin', `Handkugeln: ${orbName()} ›`), half('onskin', `Orbit-Noten: ${orbNoteName()} ›`),
       half('mapc', `Map: ${mapName()} ›`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ›`),
       tog('glow', 'Leuchten'), { type: 'text', text: '', span: 10 },
       ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
@@ -323,6 +324,8 @@ export class Menus {
     else if (id === 'wallc') return this.openPicker('walls');
     else if (id === 'sskin') return this.openPicker('sabers');
     else if (id === 'bskin') return this.openPicker('blocks');
+    else if (id === 'oskin') return this.openPicker('orbs');
+    else if (id === 'onskin') return this.openPicker('orbnotes');
     else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); this.act.applySettings(); });
     else if (id === 'floor') this.act.setFloor();
     else if (id === 'dir') this.act.setDirection();
@@ -487,6 +490,8 @@ export class Menus {
       else if (k === 'maps') settings.mapChoice = v;
       else if (k === 'walls') settings.wallSkin = v;
       else if (k === 'blocks') settings.blockSkin = v;
+      else if (k === 'orbs') settings.orbSkin = v;
+      else if (k === 'orbnotes') settings.orbNoteSkin = v;
       else settings.saberSkin = v;
       saveSettings(); this.act.applySettings(); this.refresh();
       return;

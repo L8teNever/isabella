@@ -1,0 +1,10 @@
+{
+  "name": "Christbaumkugel",
+  "description": "Glänzende Christbaumkugeln mit Aufhänger, Rails als Lichterkette.",
+  "style": "ornament",
+  "railWidth": 0.016,
+  "railOpacity": 0.85,
+  "railGlow": true,
+  "order": 4,
+  "preview": "preview.jpg"
+}

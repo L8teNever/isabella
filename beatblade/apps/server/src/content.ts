@@ -1,4 +1,4 @@
-// Inhalts-Ordner: Bloecke, Schwerter, Farben, Maps, Wand-Skins.
+// Inhalts-Ordner: Bloecke, Schwerter, Farben, Maps, Wand-Skins, Orbit-Handkugeln (orbs) und Orbit-Noten (orbnotes).
 // Jedes Element ist ein Ordner <kategorie>/<name>/ mit info.json und optional Dateien (Vorschaubild, .glb-Modell ...).
 // Gelesen werden zuerst die mitgelieferten Inhalte (content/), danach <DATA_DIR>/content im Daten-Volume.
 // Gleiche Kategorie + Ordnername ueberschreibt den mitgelieferten Eintrag. Neue Ordner: Server neu starten.
@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
 
-export const CONTENT_KINDS = ['blocks', 'sabers', 'colors', 'maps', 'walls'] as const;
+export const CONTENT_KINDS = ['blocks', 'sabers', 'colors', 'maps', 'walls', 'orbs', 'orbnotes'] as const;
 export type ContentKind = (typeof CONTENT_KINDS)[number];
 
 /** Ordnernamen: klein, Ziffern, - und _ (werden Teil der URL) */

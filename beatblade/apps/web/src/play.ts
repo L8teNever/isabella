@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
 import { mrSafeBlending } from './game/mrblend';
-import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems } from './look';
+import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems, loadOrbNoteSkin, orbStyle } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, loadOrbitMap, pruneSong } from './storage/cache';
@@ -174,9 +174,15 @@ function applyMap() {
   const colorSet = typeof m?.data.colorSet === 'string' ? m.data.colorSet : undefined;
   game.applyColors(colorSet); orbit.applyColors(colorSet);
   loadBlockSkin(blockSkin).then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
+  // Orbit: Themen-Maps bringen eigene Notenkugeln mit (orbNoteSkin)
+  const orbNotes = typeof m?.data.orbNoteSkin === 'string' ? m.data.orbNoteSkin : undefined;
+  loadOrbNoteSkin(orbNotes).then((s) => orbit.setNoteSkin(s));
+  orbit.setHandOrb(orbStyle());
 }
 function applyLook() {
   loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
+  loadOrbNoteSkin().then((s) => orbit.setNoteSkin(s));
+  orbit.setHandOrb(orbStyle());
   // Schwert nur neu bauen, wenn ein anderes gewaehlt wurde
   const key = currentSaber()?.id ?? '';
   if (key !== saberKey) { saberKey = key; for (const sb of sabers) buildSaber(sb.color).then((v) => { if ((currentSaber()?.id ?? '') === key) sb.setVisual(v); }); }

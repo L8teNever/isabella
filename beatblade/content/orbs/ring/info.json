@@ -1,0 +1,7 @@
+{
+  "name": "Ring-Orbit",
+  "description": "Heller Kern, umkreist von zwei drehenden Ringen – je höher die Combo, desto schneller.",
+  "style": "ring",
+  "order": 1,
+  "preview": "preview.jpg"
+}

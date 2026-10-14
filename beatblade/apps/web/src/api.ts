@@ -9,7 +9,7 @@ export interface Credit { title: string; artist: string; license: string; licens
 export interface LogLine { at: number; level: string; msg: string }
 
 /** Inhalte aus content/ (Bloecke, Schwerter, Farben, Maps, Waende) */
-export type ContentKind = 'blocks' | 'sabers' | 'colors' | 'maps' | 'walls';
+export type ContentKind = 'blocks' | 'sabers' | 'colors' | 'maps' | 'walls' | 'orbs' | 'orbnotes';
 export interface ContentItem {
   kind: ContentKind; id: string; name: string; description: string;
   data: Record<string, unknown>; files: Record<string, string>; preview?: string; model?: string;

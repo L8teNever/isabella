@@ -34,7 +34,7 @@ function pixelTexture(): THREE.Texture {
 }
 
 /** Kuerbis-Textur: dunkle Rippen, hell leuchtende geschnitzte Augen ueber dem Pfeil (Mund) */
-function pumpkinTexture(): THREE.Texture {
+export function pumpkinTexture(): THREE.Texture {
   const c = document.createElement('canvas'); c.width = 256; c.height = 128;
   const g = c.getContext('2d')!;
   g.fillStyle = '#8c8c8c'; g.fillRect(0, 0, 256, 128);

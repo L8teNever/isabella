@@ -1,0 +1,10 @@
+{
+  "name": "Kristall",
+  "description": "Facettierte Kristalle, Rails als dünne Leuchtspur.",
+  "style": "crystal",
+  "railWidth": 0.015,
+  "railOpacity": 0.7,
+  "railGlow": true,
+  "order": 1,
+  "preview": "preview.jpg"
+}

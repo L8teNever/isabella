@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import { api, contentUrl, type ContentItem, type ContentList } from './api';
 import { builtinBlock, blockFromModel, type BlockSkin } from './game/blockskins';
 import { buildSaberVisual, saberFromModel, type SaberVisual } from './game/sabervisuals';
-import { SABER_LEN } from './game/layout';
+import { SABER_LEN, NOTE_SIZE } from './game/layout';
+import { builtinOrbNote, railLook, NOTE_R, type OrbNoteSkin } from './game/orbit/orbskins';
 import { COLORS } from './game/layout';
 import { settings } from './settings';
 
@@ -125,3 +126,36 @@ export const wallName = () => (settings.wallSkin === 'auto' ? 'Automatisch (pass
 /** Stil-Namen (eingebaute Darstellungen) */
 export const mapStyle = (m: ContentItem | undefined) => styleOf(m, 'neon-runway');
 export const wallStyle = (w: ContentItem | undefined) => styleOf(w, 'neon-glass');
+
+// ---------- Orbit: Handkugeln und Notenkugeln ----------
+export function orbItems(): ContentItem[] { return contentList?.orbs?.length ? contentList.orbs : []; }
+export function orbNoteItems(): ContentItem[] { return contentList?.orbnotes?.length ? contentList.orbnotes : []; }
+export function currentOrb(): ContentItem | undefined { const l = orbItems(); return l.find((o) => o.id === settings.orbSkin) ?? l[0]; }
+export function currentOrbNote(override?: string): ContentItem | undefined {
+  const l = orbNoteItems();
+  return (override && l.find((o) => o.id === override)) || (l.find((o) => o.id === settings.orbNoteSkin) ?? l[0]);
+}
+export const orbName = () => currentOrb()?.name ?? 'Leuchtkugel';
+export const orbNoteName = () => currentOrbNote()?.name ?? 'Neon-Kugel';
+/** Stil der Handkugel (eingebaut: glow, ring, crystal) */
+export const orbStyle = () => styleOf(currentOrb(), 'glow');
+
+const orbNoteCache = new Map<string, Promise<OrbNoteSkin>>();
+/** Notenkugel-Skin; override = Skin einer Themen-Map (orbNoteSkin in info.json). Eigenes .glb wird auf Kugelgroesse skaliert. */
+export function loadOrbNoteSkin(override?: string): Promise<OrbNoteSkin> {
+  const it = currentOrbNote(override);
+  const key = it ? `${it.source}/${it.id}` : 'builtin';
+  let p = orbNoteCache.get(key);
+  if (!p) {
+    const style = styleOf(it, 'neon'), rail = railLook(it?.data);
+    p = it?.model
+      ? blockFromModel(contentUrl(it.model)).then((s) => {
+        if (!s) return builtinOrbNote(style, rail);
+        const k = (2 * NOTE_R) / NOTE_SIZE; s.geo.scale(k, k, k);
+        return { geo: s.geo, mat: s.mat, rail };
+      })
+      : Promise.resolve(builtinOrbNote(style, rail));
+    orbNoteCache.set(key, p);
+  }
+  return p;
+}

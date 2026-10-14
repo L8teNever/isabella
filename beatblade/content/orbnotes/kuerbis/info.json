@@ -1,0 +1,10 @@
+{
+  "name": "Kürbis",
+  "description": "Kleine geschnitzte Kürbisse, Rails als glühende Ranke.",
+  "style": "pumpkin",
+  "railWidth": 0.02,
+  "railOpacity": 0.8,
+  "railGlow": true,
+  "order": 3,
+  "preview": "preview.jpg"
+}
