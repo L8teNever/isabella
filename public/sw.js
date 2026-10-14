@@ -2,7 +2,7 @@
 const VERSION = '__APP_VERSION__';
 const CACHE = `lara-${VERSION}`;
 const FILES = ['/', '/index.html', '/style.css', '/lara.js', '/bowling.js', '/score.js', '/sound.js',
-  '/golf.html', '/golf.js', '/golf-course.js', '/room-scan.js', '/ui-xr.js',
+  '/golf.html', '/golf.js', '/golf-course.js', '/room-scan.js', '/ui-xr.js', '/lane-fit.js',
   '/vendor/three.module.min.js', '/vendor/cannon-es.js', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (e) => e.waitUntil((async () => {

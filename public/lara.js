@@ -1,24 +1,18 @@
 // Isabella – Bowling in Mixed Reality.
-// Brille (WebXR immersive-ar, Quest): Kegel per Strahl auf den echten Boden stellen, Kugel mit der Hand
-// (Pinch) oder dem Controller (Grifftaste/Abzug) greifen und werfen – die Wurfgeschwindigkeit kommt aus der
-// Handbewegung. Handy (AR): Kegel auf den erkannten Boden tippen, Kugel per Wischen rollen.
+// Brille (WebXR immersive-ar, Quest): die Bahn wird automatisch in den gescannten Raum gelegt (laengste freie
+// Strecke, Moebel werden umgangen), mit Foul-Linie. Die Kugel liegt automatisch in der Hand; geworfen wird
+// mit einem Schwung nach vorn (oder Pinch/Abzug halten und loslassen). Handy (AR): Kegel auf den erkannten Boden tippen, Kugel per Wischen rollen.
 // Ohne AR: VR mit virtueller Halle oder Bildschirm-Vorschau (Maus wischen).
 import * as THREE from 'three';
 import { Lane, BALL_R } from '/bowling.js';
 import { Game, drawBoard, boardHeight, BOARD_W } from '/score.js';
 import { initSound, cheer } from '/sound.js';
 import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
+import { RoomScan } from '/room-scan.js';
+import { findLanes } from '/lane-fit.js';
 
 const $ = (id) => document.getElementById(id);
 const UP = new THREE.Vector3(0, 1, 0);
-const TOOLS = [
-  { id: 'place', label: 'Kegel hier' },
-  { id: 'reset', label: 'Neu aufstellen' },
-  { id: 'new', label: 'Neues Spiel' },
-  { id: 'ball', label: 'Kugel holen' },
-  { id: 'exit', label: 'Beenden' },
-];
-const TW = 1000, TH = 120;
 
 /* ---------- Szene ---------- */
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -44,17 +38,58 @@ const hall = new THREE.Group();
 {
   const g = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x2a2236, roughness: 0.9 }));
   g.receiveShadow = true; hall.add(g);
-  const lane = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 14).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xc89b62, roughness: 0.35 }));
-  lane.position.set(0, 0.001, -6); lane.receiveShadow = true; hall.add(lane);
   hall.add(new THREE.GridHelper(40, 40, 0x5a4a70, 0x3a3048));
 }
 scene.add(hall);
 scene.background = new THREE.Color(0x15111d);
 
 const lane = new Lane(scene);
-// unsichtbare, groessere Kugel: leichter mit dem Strahl zu treffen
-const grabProxy = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshBasicMaterial({ visible: false }));
-lane.ball.add(grabProxy);
+const scan = new RoomScan(scene);
+let lanes = [], laneIdx = 0, searchT = 0, foul = null, isFoul = false;
+const HAND_KEY = 'isabella-hand';
+let bowlHand = 'right';
+try { bowlHand = localStorage.getItem(HAND_KEY) === 'left' ? 'left' : 'right'; } catch {}
+
+// Sichtbare Bahn auf dem Boden: Anlauf, Foul-Linie, Bahn mit Pfeilen bis hinter die Kegel
+const laneVis = new THREE.Group(); laneVis.visible = false; scene.add(laneVis);
+function woodTex() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 1024; const x = c.getContext('2d');
+  for (let i = 0; i < 16; i++) { x.fillStyle = `hsl(${30 + Math.random() * 6},${45 + Math.random() * 10}%,${52 + Math.random() * 10}%)`; x.fillRect(i * 16, 0, 16, 1024); }
+  x.fillStyle = 'rgba(80,40,10,0.25)'; for (let i = 0; i <= 16; i++) x.fillRect(i * 16, 0, 1, 1024);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapT = THREE.RepeatWrapping; return t;
+}
+const laneMat = new THREE.MeshStandardMaterial({ map: woodTex(), roughness: 0.3, transparent: true, opacity: 0.85 });
+const gutterMat = new THREE.MeshStandardMaterial({ color: 0x24202c, roughness: 0.6, transparent: true, opacity: 0.85 });
+const foulMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const arrowMat = new THREE.MeshBasicMaterial({ color: 0x8a3cff });
+function buildLaneVis(f, dir, dist) {
+  for (const m of [...laneVis.children]) { laneVis.remove(m); m.geometry.dispose(); }
+  const len = dist + 0.79 + 0.3;           // Foul-Linie bis hinter das Dreieck
+  const y = lane.floorY + 0.002;
+  const add = (geo, mat, along, side, h = 0) => {
+    const m = new THREE.Mesh(geo, mat); m.receiveShadow = true;
+    m.userData = { along, side, y: y + h };
+    laneVis.add(m); return m;
+  };
+  laneMat.map.repeat.set(1, len / 2);
+  add(new THREE.PlaneGeometry(1.05, len), laneMat, len / 2, 0);
+  for (const sd of [-1, 1]) add(new THREE.PlaneGeometry(0.12, len), gutterMat, len / 2, sd * 0.585);
+  add(new THREE.PlaneGeometry(1.4, 0.035), foulMat, 0, 0, 0.001).userData.foul = true;
+  add(new THREE.PlaneGeometry(1.29, 0.9), gutterMat, -0.45, 0, -0.0005);      // Anlauf
+  const ad = Math.min(4.6, dist * 0.35);
+  for (let k = -3; k <= 3; k++) {
+    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-0.025, -0.05, 0), new THREE.Vector3(0.025, -0.05, 0), new THREE.Vector3(0, 0.05, 0)]);
+    add(g, arrowMat, ad + Math.abs(k) * 0.08, k * 0.13, 0.001);
+  }
+  // in Bahn-Koordinaten (along = Richtung Kegel, side = rechts) legen
+  const yaw = Math.atan2(-dir.x, -dir.z), side = new THREE.Vector3(-dir.z, 0, dir.x);
+  for (const m of laneVis.children) {
+    const { along, side: sd, y: my } = m.userData;
+    m.position.copy(f).addScaledVector(dir, along).addScaledVector(side, sd).setY(my);
+    m.rotation.set(-Math.PI / 2, yaw, 0, 'YXZ');   // flach auf den Boden, Laengsachse zur Bahn
+  }
+  laneVis.visible = true;
+}
 // Mehrere Spieler mit einem Geraet: reihum, jeder spielt einen ganzen Frame
 const PLAYERS_KEY = 'lara-players';
 let names = ['Spieler 1'];
@@ -94,19 +129,13 @@ function drawScore(msg) {
   $('score').textContent = line; $('turn').textContent = `${p.name} ist dran – nach oben wischen zum Rollen`;
 }
 
-// Werkzeugleiste (Brille)
-const tcanvas = document.createElement('canvas'); tcanvas.width = TW; tcanvas.height = TH;
-const ttex = new THREE.CanvasTexture(tcanvas); ttex.colorSpace = THREE.SRGBColorSpace;
-const toolbar = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8 * TH / TW), new THREE.MeshBasicMaterial({ map: ttex, transparent: true, depthTest: false }));
-toolbar.renderOrder = 10; toolbar.visible = false; scene.add(toolbar);
-let toolHover = null, placing = false, note = '';
 // Schritt-Tafel (Einrichtung nacheinander), Uhr-Menue am Handgelenk, kurze Hinweise
 const wizard = new Panel(0.56); scene.add(wizard);
 const toastP = new Panel(0.42); scene.add(toastP);
 const wrist = new WristMenu(scene);
 let step = null, toastT = 0, startStep = null;
-const WRIST_ITEMS = [{ id: 'reset', label: 'Neu aufstellen' }, { id: 'place', label: 'Kegel versetzen' }, { id: 'new', label: 'Neues Spiel' },
-  { id: 'players', label: 'Spieler' }, { id: 'ball', label: 'Kugel holen' }, { id: 'exit', label: 'Beenden' }];
+const WRIST_ITEMS = [{ id: 'reset', label: 'Neu aufstellen' }, { id: 'place', label: 'Bahn ändern' }, { id: 'new', label: 'Neues Spiel' },
+  { id: 'players', label: 'Spieler' }, { id: 'hand', label: 'Andere Hand' }, { id: 'exit', label: 'Beenden', main: true }];
 wrist.setItems(WRIST_ITEMS);
 function toast(msg, sec = 3) {
   if (!renderer.xr.isPresenting || phone) return;
@@ -114,13 +143,15 @@ function toast(msg, sec = 3) {
 }
 function showStep(id) {
   step = id; placing = id === 'place';
+  if (id === 'search') searchT = 0;
   if (phone || !renderer.xr.isPresenting) { wizard.hide(); return; }
   if (id === 'players') wizard.show({ title: 'Wer spielt?', text: names.join(', ') + `\n(Namen änderst du auf der Startseite)`,
     buttons: [{ id: 'minus', label: '– Spieler' }, { id: 'plus', label: '+ Spieler' }, { id: 'next', label: 'Weiter', main: true }], cols: 2 });
-  else if (id === 'place') wizard.show({ title: 'Kegel aufstellen', text: 'Zeig mit dem Strahl auf den Boden, wo der erste Kegel stehen soll, und drück (Daumen + Zeigefinger oder Abzug).',
-    buttons: [{ id: 'back', label: 'Zurück' }] });
-  else if (id === 'confirm') wizard.show({ title: 'Passt das so?', text: 'Das Dreieck zeigt von dir weg. Du kannst die Kegel später über das Uhr-Menü versetzen.',
-    buttons: [{ id: 'go', label: "Los geht's!", main: true }, { id: 'again', label: 'Neu setzen' }] });
+  else if (id === 'search') wizard.show({ title: 'Bahn suchen …', text: 'Ich suche in deinem Raum die längste freie Strecke – Möbel und Wände werden umgangen.', buttons: [{ id: 'manual', label: 'Selbst aufstellen' }] });
+  else if (id === 'place') wizard.show({ title: 'Kegel aufstellen', text: 'Zeig mit dem Strahl auf den Boden, wo der erste Kegel stehen soll, und drück (Daumen + Zeigefinger oder Abzug). Die Foul-Linie kommt kurz vor dich.',
+    buttons: [{ id: 'auto', label: 'Automatisch suchen' }, { id: 'back', label: 'Zurück' }], cols: 2 });
+  else if (id === 'confirm') wizard.show({ title: 'Passt die Bahn?', text: `${lane.headPos.distanceTo(foul || lane.headPos).toFixed(1)} m bis zum ersten Kegel. Stell dich hinter die weiße Foul-Linie – nicht drübertreten!`,
+    buttons: [{ id: 'go', label: "Los geht's!", main: true }, ...(lanes.length > 1 ? [{ id: 'other', label: 'Andere Bahn' }] : []), { id: 'again', label: 'Selbst setzen' }], cols: 2 });
   else { wizard.hide(); }
   if (wizard.visible) wizard.place(renderer.xr.getCamera(), 0.75);
 }
@@ -128,42 +159,31 @@ function stepButton(id) {
   if (step === 'players') {
     if (id === 'minus' && names.length > 1) { names.pop(); savePlayers(); showStep('players'); }
     else if (id === 'plus' && names.length < 8) { names.push(`Spieler ${names.length + 1}`); savePlayers(); showStep('players'); }
-    else if (id === 'next') showStep(lane.placed ? null : 'place');
-  } else if (step === 'place' && id === 'back') showStep('players');
+    else if (id === 'next') showStep(lane.placed ? null : 'search');
+  } else if (step === 'search' && id === 'manual') showStep('place');
+  else if (step === 'place') { if (id === 'back') showStep('players'); else if (id === 'auto') showStep('search'); }
   else if (step === 'confirm') {
-    if (id === 'go') { showStep(null); toast('Kugel greifen: Hand an die leuchtende Kugel, Daumen + Zeigefinger zusammen, schwingen, loslassen.\nMenü: auf dein linkes Handgelenk schauen.', 6); }
+    if (id === 'go') { showStep(null); toast('Die Kugel liegt in deiner Hand: ausholen und nach vorn schwingen – unten loslassen geht von selbst.\nMenü: Handrücken links anschauen oder X/Y drücken.', 7); }
+    else if (id === 'other') { laneIdx = (laneIdx + 1) % lanes.length; useLane(lanes[laneIdx]); showStep('confirm'); }
     else if (id === 'again') showStep('place');
   }
 }
+function useLane(c) { placePins(c.foul.clone().addScaledVector(c.dir, c.dist), c.foul); }
 function savePlayers() { try { localStorage.setItem(PLAYERS_KEY, JSON.stringify(names)); } catch {} newGame(); }
 function wristButton(id) {
-  if (id === 'place') { showStep('place'); return; }
-  if (id === 'players') { showStep('players'); return; }
+  wrist.close();
+  if (id === 'place') { dropBall(); showStep('search'); return; }
+  if (id === 'players') { dropBall(); showStep('players'); return; }
+  if (id === 'hand') { bowlHand = bowlHand === 'right' ? 'left' : 'right'; try { localStorage.setItem(HAND_KEY, bowlHand); } catch {} dropBall(); toast(`Kugel jetzt in der ${bowlHand === 'right' ? 'rechten' : 'linken'} Hand`); return; }
   tool(id);
 }
-function drawToolbar() {
-  if (note) { toast(note); note = ''; }
-  return;
-  const c = tcanvas.getContext('2d'); c.clearRect(0, 0, TW, TH);
-  const w = TW / TOOLS.length;
-  TOOLS.forEach((t, k) => {
-    const on = toolHover === t.id || (t.id === 'place' && placing);
-    c.fillStyle = on ? 'rgba(255,122,182,0.95)' : 'rgba(24,18,34,0.88)';
-    c.beginPath(); c.roundRect ? c.roundRect(k * w + 5, 40, w - 10, 76, 22) : c.rect(k * w + 5, 40, w - 10, 76); c.fill();
-    c.fillStyle = on ? '#2a0f1f' : '#fbe9f2'; c.font = '600 26px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText(t.label, k * w + w / 2, 78);
-  });
-  const s = note || (placing ? 'Auf den Boden zielen und drücken: dort steht der erste Kegel' : 'Kugel greifen (Pinch / Grifftaste) und werfen');
-  c.font = '500 22px system-ui, sans-serif'; c.fillStyle = 'rgba(24,18,34,0.88)';
-  const sw = Math.min(TW - 10, c.measureText(s).width + 30);
-  c.beginPath(); c.roundRect ? c.roundRect((TW - sw) / 2, 2, sw, 32, 16) : c.rect((TW - sw) / 2, 2, sw, 32); c.fill();
-  c.fillStyle = '#fbe9f2'; c.fillText(s, TW / 2, 19);
-  ttex.needsUpdate = true;
-}
+function drawToolbar() { if (note) { toast(note); note = ''; } }
 
 // Ziel-Ring auf dem Boden (Kegel aufstellen)
 const ring = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.16, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xff7ab6, transparent: true, opacity: 0.9, depthTest: false }));
 ring.renderOrder = 9; ring.visible = false; scene.add(ring);
+
+let placing = false, note = '';
 
 /* ---------- Eingaben (Brille) ---------- */
 const raycaster = new THREE.Raycaster();
@@ -184,20 +204,6 @@ const inputs = [0, 1].map((i) => {
 });
 let pending = [], held = null;
 
-// Greifpunkt: Hand = zwischen Daumen und Zeigefinger, Controller = Griff
-function point(inp) {
-  const j = inp.hand.joints;
-  if (j && j['index-finger-tip']?.visible && j['thumb-tip']) {
-    const a = j['index-finger-tip'].getWorldPosition(new THREE.Vector3()), b = j['thumb-tip'].getWorldPosition(new THREE.Vector3());
-    return { pos: a.add(b).multiplyScalar(0.5), hand: true };
-  }
-  if (inp.mode === 'tracked-pointer') {
-    const o = inp.grip.visible ? inp.grip : inp.ray;
-    return { pos: o.getWorldPosition(new THREE.Vector3()), hand: false };
-  }
-  return null;
-}
-
 function setRay(inp) {
   const m = new THREE.Matrix4().extractRotation(inp.ray.matrixWorld);
   raycaster.ray.origin.setFromMatrixPosition(inp.ray.matrixWorld);
@@ -213,16 +219,27 @@ function floorHit(ray) {
 
 function viewerPos() { return new THREE.Vector3().setFromMatrixPosition(renderer.xr.isPresenting ? renderer.xr.getCamera().matrixWorld : camera.matrixWorld); }
 
-// Kann man die Kugel gerade greifen? (Hand/Controller nah dran oder Strahl zielt drauf)
-const GRAB_NEAR = 0.2;                      // Abstand von der Kugeloberflaeche (grosszuegig)
-function grabTarget(inp) {
-  if (!lane.ball.visible || lane.ballState === 'rolling' || lane.ballState === 'scored') return null;
-  const pt = point(inp);
-  if (pt && pt.pos.distanceTo(lane.ball.position) < BALL_R + GRAB_NEAR) return { near: true, pt };
-  setRay(inp);
-  if (raycaster.intersectObject(grabProxy)[0]) return { near: false, pt };
+// Die Kugel liegt automatisch in der Wurfhand (kein Greifen noetig).
+// Hand-Tracking: in der Handflaeche; Controller: unter dem Controller.
+function ballInHand(inp) {
+  const j = inp.hand.joints, palm = j?.['middle-finger-metacarpal'];
+  if (inp.source?.hand) {
+    if (!palm?.visible) return null;
+    const q = palm.getWorldQuaternion(new THREE.Quaternion());
+    const n = new THREE.Vector3(0, -1, 0).applyQuaternion(q);              // Handflaechen-Normale
+    return palm.getWorldPosition(new THREE.Vector3()).addScaledVector(n, BALL_R + 0.012);
+  }
+  if (inp.mode === 'tracked-pointer') {
+    const o = inp.grip.visible ? inp.grip : inp.ray;
+    return o.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, -(BALL_R + 0.035), 0));
+  }
   return null;
 }
+function bowlInput() {
+  const act = inputs.filter((i) => i.mode && i.source);
+  return act.find((i) => i.source.handedness === bowlHand) || (act.length === 1 ? act[0] : null);
+}
+function dropBall() { if (held) { held = null; lane.ballToHome(ballHome()); } }
 
 function press(inp, kind) {
   if (!inp.mode) return;
@@ -230,50 +247,38 @@ function press(inp, kind) {
   for (const [pn, fn] of [[wizard, stepButton], [wrist.panel, wristButton]]) {
     const i = pn.pick(raycaster); if (i >= 0) { fn(pn.idAt(i)); return; }
   }
-  // 1) Kugel greifen hat Vorrang (sonst faengt die Werkzeugleiste den Griff ab)
-  const g = !placing && grabTarget(inp);
-  if (g) {
-    lane.grab();
-    held = { inp, offset: g.near ? lane.ball.position.clone().sub(g.pt.pos).clampLength(0, BALL_R * 0.6) : new THREE.Vector3(0, -0.02, 0) };
-    inp.hist = [];
-    pulse(inp, 0.6, 40);
-    note = ''; drawToolbar();
-    return;
-  }
-  setRay(inp);
-  // 2) Werkzeugleiste
-  if (toolbar.visible) {
-    const h = raycaster.intersectObject(toolbar)[0];
-    if (h) { tool(TOOLS[Math.floor(h.uv.x * TOOLS.length)]?.id); return; }
-  }
-  // 3) Kegel aufstellen
-  if ((placing || !lane.placed) && kind === 'select') {
+  // Kugel in dieser Hand: Pinch/Abzug halten = festhalten, loslassen = werfen
+  if (held?.inp === inp) { held.pinch = true; return; }
+  // Kegel selbst aufstellen
+  if ((placing || (phone && !lane.placed)) && kind === 'select') {
     const p = arHit || floorHit(raycaster.ray);
     if (p) placePins(p);
-    return;
   }
-  // 4) daneben gegriffen: Hinweis
-  if (lane.placed && lane.ballState === 'rest') { note = 'Hand an die Kugel (sie leuchtet) und Daumen + Zeigefinger zusammen'; drawToolbar(); }
+}
+
+// Wurfgeschwindigkeit aus den letzten ~90 ms der Kugelbewegung
+function handVel(h) {
+  if (h.length < 2) return new THREE.Vector3();
+  const last = h[h.length - 1];
+  let first = h[0];
+  for (const s of h) if (last.t - s.t <= 90) { first = s; break; }
+  const dt = (last.t - first.t) / 1000;
+  return dt > 0.01 ? last.p.clone().sub(first.p).divideScalar(dt) : new THREE.Vector3();
 }
 
 function release() {
   if (!held) return;
-  const h = held.inp.hist;
+  const inp = held.inp, v = handVel(held.hist);
+  if (v.length() < 0.5) { held.pinch = false; return; }   // ohne Schwung losgelassen: bleibt in der Hand
   held = null;
-  // Wurfgeschwindigkeit aus den letzten ~90 ms der Handbewegung
-  let v = new THREE.Vector3();
-  if (h.length >= 2) {
-    const last = h[h.length - 1];
-    let first = h[0];
-    for (const s of h) if (last.t - s.t <= 90) { first = s; break; }
-    const dt = (last.t - first.t) / 1000;
-    if (dt > 0.01) v = last.p.clone().sub(first.p).divideScalar(dt);
-  }
-  if (v.length() < 0.4) { lane.ballToHome(); return; }   // nur losgelassen: zurueck zur Rueckgabe
   v.multiplyScalar(1.15);                                 // Wuerfe fuehlen sich sonst zu schwach an
   if (v.y > 0.5) v.y = 0.5;
+  // Foul: Kopf ueber der Foul-Linie beim Loslassen
+  isFoul = false;
+  if (foul && renderer.xr.isPresenting) isFoul = viewerPos().sub(foul).setY(0).dot(lane.dir) > 0.03;
   lane.throw(v, new THREE.Vector3(v.z, 0, -v.x).multiplyScalar(1 / BALL_R * 0.6));   // Vorwaertsdrall (Rollen ohne Rutschen)
-  note = ''; drawToolbar();
+  pulse(inp, 0.8, 60);
+  if (isFoul) drawScore(`${players[cur].name}: Übertreten! Foul`);
 }
 
 function pulse(inp, v, ms) { try { inp.source?.gamepad?.hapticActuators?.[0]?.pulse(v, ms); } catch {} }
@@ -289,11 +294,16 @@ function ballHome() {
   return p.addScaledVector(fwd, 0.4).addScaledVector(right, 0.3).setY(Math.max(lane.floorY + 0.8, p.y - 0.65));   // rechts vor dir, etwa Hüfthöhe
 }
 
-function placePins(p) {
+// p = Kopfkegel; f = Foul-Linie (ohne: kurz vor dem Spieler)
+function placePins(p, f) {
   const v = viewerPos();
-  const dir = p.clone().sub(v).setY(0);
+  const from = f ? f.clone() : v.clone();
+  const dir = p.clone().sub(from).setY(0);
   if (dir.lengthSq() < 0.01) dir.set(0, 0, -1);
-  lane.place(p, dir.normalize());
+  dir.normalize();
+  lane.place(p, dir);
+  foul = f ? f.clone().setY(lane.floorY) : v.clone().addScaledVector(dir, Math.min(0.3, Math.max(0, p.clone().sub(v).setY(0).length() - 1))).setY(lane.floorY);
+  buildLaneVis(foul, dir, p.clone().sub(foul).setY(0).length());
   ring.visible = false; if (!phone && renderer.xr.isPresenting) showStep('confirm'); else showStep(null);
   // Tafel ueber den hinteren Kegeln, zum Spieler gedreht
   board.position.copy(p).addScaledVector(dir, 1.3).setY(lane.floorY + 0.75 + (board.userData.h || 0.4) / 2);
@@ -306,7 +316,7 @@ function placePins(p) {
 
 function tool(id) {
   if (!id) return;
-  if (id === 'place') { if (placing) showStep(null); else showStep('place'); ring.visible = false; }
+  if (id === 'place') { if (placing) showStep(null); else showStep(phone ? 'place' : 'search'); ring.visible = false; }
   else if (id === 'reset') { if (lane.placed) lane.resetPins(); }
   else if (id === 'new') { newGame(); if (lane.placed) lane.resetPins(); }
   else if (id === 'ball') lane.ballToHome(ballHome());
@@ -319,9 +329,10 @@ function scoreRoll() {
   if (players.every((pl) => pl.game.over)) newGame();   // nach Spielende: naechster Wurf startet ein neues Spiel
   const p = players[cur], g = p.game, f0 = g.frame;
   const before = lane.pins.filter((q) => q.active).length;
-  const down = before - lane.standing();
+  const foulRoll = isFoul; isFoul = false;
+  const down = foulRoll ? 0 : before - lane.standing();
   const r = g.add(down);
-  let msg = down === 0 ? `${p.name}: daneben!` : `${p.name}: ${down} Kegel`;
+  let msg = foulRoll ? `${p.name}: Foul – übergetreten, 0 Punkte` : down === 0 ? `${p.name}: daneben!` : `${p.name}: ${down} Kegel`;
   if (r.strike) { msg = `STRIKE, ${p.name}!`; cheer(true); } else if (r.spare) { msg = `Spare, ${p.name}!`; cheer(false); }
   const turnOver = g.frame !== f0 || r.over;
   drawScore(msg);
@@ -338,7 +349,7 @@ function scoreRoll() {
         if (players.length > 1) setTimeout(() => drawScore(''), 2500);
       }
     } else {
-      if (r.reset) lane.resetPins(); else lane.clearDown();
+      if (r.reset) lane.resetPins(); else if (foulRoll && lane.preMask) lane.restorePins(lane.preMask); else lane.clearDown();
       drawScore('');
     }
     lane.ballToHome(ballHome());
@@ -382,37 +393,53 @@ renderer.setAnimationLoop((t, frame) => {
       const r = frame.getHitTestResults(hitSource)[0]?.getPose(ref);
       arHit = r ? new THREE.Vector3(r.transform.position.x, r.transform.position.y, r.transform.position.z) : null;
     }
-    // erkannte Waende (Quest-Raumeinrichtung)
-    if (frame.detectedPlanes && now - (wallsT || 0) > 2000) {
-      wallsT = now;
-      const segs = [];
-      frame.detectedPlanes.forEach((p) => {
-        if (p.orientation !== 'vertical') return;
-        const pose = frame.getPose(p.planeSpace, ref); if (!pose) return;
-        const m = new THREE.Matrix4().fromArray(pose.transform.matrix);
-        const pts = p.polygon.map((q) => new THREE.Vector3(q.x, q.y, q.z).applyMatrix4(m));
-        let a = pts[0], b = pts[0], best = -1;
-        for (const u of pts) for (const w of pts) { const d = (u.x - w.x) ** 2 + (u.z - w.z) ** 2; if (d > best) { best = d; a = u; b = w; } }
-        segs.push([[a.x, a.z], [b.x, b.z]]);
-      });
-      if (segs.length !== wallsN) { wallsN = segs.length; lane.setWalls(segs); }
+    // gescannter Raum (Quest-Raumeinrichtung): Waende fuer die Physik, Moebel fuer die Bahnsuche
+    if (scan.update(frame, ref)) lane.setWalls(scan.walls);
+  }
+  const head = viewerPos();
+  // Bahn automatisch suchen (wartet kurz, bis der Raum-Scan da ist)
+  if (step === 'search' && xr) {
+    searchT += dt;
+    if (scan.scanned && searchT > 0.8 || searchT > 4) {
+      const cam = renderer.xr.getCamera();
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())).setY(0).normalize();
+      lanes = scan.scanned ? findLanes(scan, head, fwd) : []; laneIdx = 0;
+      if (lanes.length) { useLane(lanes[0]); showStep('confirm'); }
+      else {
+        showStep('place');
+        toast(scan.scanned ? 'Im Raum ist keine freie Strecke ab 1,2 m – stell die Kegel selbst auf.'
+          : 'Kein Raum-Scan gefunden. Einmalig in den Quest-Einstellungen „Raumeinrichtung“ machen, dann klappt es automatisch.', 7);
+      }
     }
   }
   // Druecke
   const pend = pending; pending = [];
-  for (const e of pend) { if (e.kind === 'end') { if (held?.inp === e.inp) release(); } else if (!held) press(e.inp, e.kind); }
-  // gehaltene Kugel folgt der Hand, Bewegung fuer den Wurf merken
-  if (held) {
-    const pt = point(held.inp);
-    if (pt) {
-      const p = pt.pos.clone().add(held.offset);
-      lane.hold(p);
-      held.inp.hist.push({ p, t: now });
-      while (held.inp.hist.length > 12) held.inp.hist.shift();
-    }
+  for (const e of pend) { if (e.kind === 'end') { if (held?.inp === e.inp && held.pinch) release(); } else press(e.inp, e.kind); }
+  // Kugel automatisch in die Wurfhand legen
+  const playing = xr && !phone && lane.placed && !step;
+  if (playing && !held && lane.ballState === 'rest') {
+    const inp = bowlInput(), p = inp && ballInHand(inp);
+    if (p) { lane.grab(); held = { inp, hist: [], t0: now, lost: 0, pinch: false }; }
   }
-  // Ziel-Ring beim Aufstellen, Hervorheben der Werkzeugleiste
-  let hover = null;
+  if (held && !playing) dropBall();
+  if (held) {
+    const p = ballInHand(held.inp);
+    if (p) {
+      held.lost = 0;
+      lane.hold(p);
+      held.hist.push({ p, t: now });
+      while (held.hist.length > 12) held.hist.shift();
+      // Wurf von selbst: schneller Schwung nach vorn (Richtung Kegel), Kugel unten, Bogen am Tiefpunkt
+      const v = handVel(held.hist), fwdSpeed = v.x * lane.dir.x + v.z * lane.dir.z;
+      if (!held.pinch && !wrist.visible && now - held.t0 > 600 && fwdSpeed > 1.3 && v.y > -0.6 && p.y < head.y - 0.6) release();
+    } else if ((held.lost += dt) > 0.5) dropBall();     // Hand nicht mehr erkannt: Kugel schwebt neben dir
+  }
+  // Foul-Linie leuchtet rot, wenn du drueber stehst
+  if (foul && laneVis.visible) {
+    const over = xr && head.clone().sub(foul).setY(0).dot(lane.dir) > 0.03;
+    foulMat.color.setHex(over ? 0xff2244 : 0xffffff);
+  }
+  // Ziel-Ring beim Aufstellen, Hervorheben der Tafeln
   if (xr) {
     let ringAt = null;
     for (const inp of inputs) {
@@ -420,15 +447,14 @@ renderer.setAnimationLoop((t, frame) => {
       setRay(inp);
       for (const pn of [wizard, wrist.panel]) pn.setHover(pn.pick(raycaster));
       if (placing && !ringAt) ringAt = floorHit(raycaster.ray);
-      if (inp.line.visible) { const h = raycaster.intersectObjects([wizard, wrist.panel, lane.ball].filter((o) => o.visible))[0]; inp.line.scale.z = h ? h.distance : placing ? 4 : 0.5; }
+      if (inp.line.visible) { const h = raycaster.intersectObjects([wizard, wrist.panel].filter((o) => o.visible))[0]; inp.line.scale.z = h ? h.distance : placing ? 4 : 0.5; }
     }
     if (arHit && placing) ringAt = arHit;
     ring.visible = !!ringAt; if (ringAt) ring.position.copy(ringAt).setY(lane.floorY + 0.005);
-    void hover;
     if (startStep) { showStep(startStep); startStep = null; }
-    const cam = renderer.xr.getCamera(), head = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+    const cam = renderer.xr.getCamera();
     wrist.enabled = !step && !phone;
-    wrist.update(inputs, head, dt);
+    wrist.update(inputs, head, dt, cam);
     if (wizard.visible) wizard.place(cam, 0.75, true);
     if (toastP.visible) { toastT -= dt; if (toastT <= 0) toastP.hide(); }
     const pk = pokeAll([wizard, wrist.panel], inputs, {});
@@ -439,34 +465,12 @@ renderer.setAnimationLoop((t, frame) => {
     const want = ballHome();
     if (want.distanceTo(lane.ballHome) > 0.5) lane.ballHome.lerp(want, Math.min(1, dt * 2));
   }
-  // Kugel leuchtet, wenn man sie greifen kann
-  if (xr && !held) {
-    const can = inputs.some((inp) => inp.mode && grabTarget(inp));
-    lane.ball.material.emissive.setHex(can ? 0x552244 : 0x000000);
-  } else lane.ball.material.emissive.setHex(held ? 0x331122 : 0x000000);
+  lane.ball.material.emissive.setHex(0x000000);
   lane.step(dt);
   if (lane.rollDone()) { lane.ballState = 'scored'; scoreRoll(); }
   renderer.render(scene, camera);
 });
-let wallsT = 0, wallsN = -1;
 
-// Werkzeugleiste schwebt unten vor dem Spieler und folgt der Blickrichtung langsam
-let tYaw;
-function placeToolbar() {
-  if (phone) { toolbar.visible = false; return; }
-  toolbar.visible = true;
-  const cam = renderer.xr.getCamera();
-  const pos = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld)); dir.y = 0;
-  if (dir.lengthSq() < 1e-4) return;
-  const yaw = Math.atan2(dir.x, dir.z);
-  if (tYaw === undefined) tYaw = yaw;
-  const d = Math.atan2(Math.sin(yaw - tYaw), Math.cos(yaw - tYaw));
-  if (Math.abs(d) > 0.6) tYaw += d * 0.08;
-  toolbar.position.copy(pos).add(new THREE.Vector3(Math.sin(tYaw), 0, Math.cos(tYaw)).multiplyScalar(0.7));
-  toolbar.position.y = pos.y - 0.45;
-  toolbar.lookAt(pos.x, toolbar.position.y + 0.25, pos.z);
-}
 
 /* ---------- Spieler-Einstellung (Startseite) ---------- */
 function renderPlayers() {
@@ -502,7 +506,7 @@ async function start(mode) {
     placePins(new THREE.Vector3(0, 0, -5.5));
     return;
   }
-  const init = { optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection'] };
+  const init = { optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection', 'mesh-detection'] };
   if (mode === 'ar') { init.optionalFeatures.push('dom-overlay'); init.domOverlay = { root: $('overlay') }; }
   const session = await navigator.xr.requestSession(mode === 'ar' ? 'immersive-ar' : 'immersive-vr', init);
   try { await renderer.xr.setSession(session); }
@@ -515,11 +519,11 @@ async function start(mode) {
     const viewer = await session.requestReferenceSpace('viewer');
     hitSource = await session.requestHitTestSource?.({ space: viewer }) || null;
   } catch { hitSource = null; }
-  tYaw = undefined; note = ''; toolbar.visible = false;
+  note = '';
   if (phone) showStep('place'); else { step = null; startStep = 'players'; }
   lane.setVisible(lane.placed);
   drawToolbar(); drawScore('');
-  session.addEventListener('end', () => { hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); toolbar.visible = false; ring.visible = false; held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null; });
+  session.addEventListener('end', () => { hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); ring.visible = false; laneVis.visible = false; lane.placed = false; lane.setVisible(false); foul = null; held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null; });
 }
 
 $('btn-ar').addEventListener('click', () => start('ar').catch((e) => alert(`Mixed Reality ging nicht: ${e.message}`)));

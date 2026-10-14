@@ -18,18 +18,19 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 
 ## Spielen
 
-- **Einrichtung Schritt für Schritt (Brille):** Nach dem Start erscheint eine Tafel vor dir und
-  führt nacheinander durch alles: Spieler (Anzahl) → Kegel aufstellen (auf den Boden zielen und
-  drücken, das Dreieck mit 10 Kegeln zeigt von dir weg) → „Passt das so?“ → Los geht's. Knöpfe per
-  Strahl oder einfach mit dem Zeigefinger antippen.
-- **Uhr-Menü am linken Handgelenk:** Während des Spiels gibt es keine feste Leiste mehr. Schau auf
-  dein linkes Handgelenk (oder dreh den linken Controller zu dir) – dort erscheint ein kleines
-  Menü: Neu aufstellen, Kegel versetzen, Neues Spiel, Spieler, Kugel holen, Beenden.
-- **Werfen (Brille):** Die Kugel schwebt rechts vor dir auf Hüfthöhe und leuchtet, sobald du sie
-  greifen kannst. Greifen mit der Hand (Daumen + Zeigefinger zusammen, bis 20 cm neben der Kugel)
-  oder dem Controller (Grifftaste oder Abzug, auch per Strahl aus der Ferne). Arm schwingen und loslassen:
-  Richtung und Tempo kommen aus den letzten ~90 ms der Handbewegung. Nur loslassen ohne Schwung
-  legt die Kugel zurück.
+- **Einrichtung Schritt für Schritt (Brille):** Spieler → die Bahn wird automatisch in den gescannten
+  Raum gelegt (Quest-Raumeinrichtung, plane-/mesh-detection): längste freie, ausreichend breite Strecke,
+  Möbel und Wände werden umgangen → „Passt die Bahn?“ (Andere Bahn / Selbst setzen) → Los geht's.
+  Ohne Raum-Scan stellt man die Kegel selbst per Strahl auf.
+- **Bahn und Foul-Linie:** Holzbahn mit Rinnen und Pfeilen auf dem Boden, Abstand Foul-Linie → Kopfkegel
+  so lang, wie der Raum hergibt (max. 18,29 m). Steht der Kopf beim Loslassen über der Foul-Linie
+  (sie leuchtet dann rot), ist es ein Foul: 0 Punkte, umgefallene Kegel werden wieder aufgestellt.
+- **Werfen (Brille):** Die Kugel liegt automatisch in der Wurfhand (Handfläche bzw. unter dem Controller).
+  Ausholen und nach vorn schwingen – am Tiefpunkt des Schwungs geht sie von selbst los (ab ~1,3 m/s
+  Richtung Kegel). Alternativ Pinch/Abzug halten und loslassen. Wurfhand im Menü umschaltbar.
+- **Uhr-Menü:** Handrücken der linken Hand kurz anschauen wie eine Uhr (oder X/Y am Controller) – das
+  Menü öffnet sich und bleibt dann ruhig im Raum stehen, bis man etwas drückt oder wegschaut:
+  Neu aufstellen, Bahn ändern, Neues Spiel, Spieler, Andere Hand, Beenden.
 - **Handy:** auf den Boden tippen zum Aufstellen, dann nach oben wischen – je schneller, desto
   schneller die Kugel, seitlich wischen lenkt.
 - **Bildschirm:** mit der Maus nach oben wischen.
@@ -37,7 +38,6 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
   einen ganzen Frame, dann ist der Nächste dran – Brille oder Handy einfach weitergeben. Die Tafel
   zeigt alle Spieler, wer dran ist, und am Ende den Sieger. Namen werden gemerkt.
 - Gespielt wird in jedem Raum mit etwas freiem Boden – die Kegel stehen dort, wo man sie hinstellt.
-- Die Kugel schwebt nach jedem Wurf wieder rechts vor dir.
 
 ## Minigolf (`/golf.html`)
 
@@ -50,7 +50,7 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
   Bumper, Sand; drehen, löschen, zufällig verteilen) → weiteres Loch oder „Fertig, spielen“.
   Ziel ist jeweils Boden oder Möbel. Looping braucht Schwung – Boost davor.
   Bahnen werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
-- **Uhr-Menü am linken Handgelenk:** Kugel zurück, Loch aufgeben, Neue Runde, Bahn bearbeiten,
+- **Uhr-Menü (wie beim Bowling):** Kugel zurück, Loch aufgeben, Neue Runde, Bahn bearbeiten,
   Andere Bahn, Spieler, Beenden.
 - **Spielen:** Controller oder Hand nach unten halten = Schläger, durch die Kugel schwingen
   (Schlagstärke aus der Schwunggeschwindigkeit). Handy/Bildschirm: wischen. Maximal 8 Schläge

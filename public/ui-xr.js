@@ -101,43 +101,73 @@ export class Panel extends THREE.Mesh {
   }
 }
 
-// Uhr-Menue: haengt am linken Handgelenk (Hand-Tracking) bzw. am linken Controller.
-// Sichtbar, wenn man auf das Handgelenk schaut: Handruecken zeigt zum Kopf und die Hand ist nah vor dem Gesicht.
+// Uhr-Menue am linken Handgelenk.
+// Oeffnen: Handruecken links zu dir drehen und kurz draufschauen (wie auf eine Uhr) –
+// oder am Controller X/Y (bzw. A/B) druecken. Danach bleibt das Menue ruhig im Raum stehen
+// (es wackelt nicht mit der Hand mit), bis du etwas drueckst, wegschaust oder es nach 12 s
+// von selbst zugeht. Erneutes Oeffnen erst, wenn die Hand einmal weggedreht war.
+const V = () => new THREE.Vector3();
 export class WristMenu {
-  constructor(scene, width = 0.16) {
+  constructor(scene, width = 0.24) {
     this.panel = new Panel(width); scene.add(this.panel);
-    this.visible = false; this.items = []; this.enabled = true; this.lost = 0;
+    this.visible = false; this.items = []; this.enabled = true;
+    this.gaze = 0; this.armed = true; this.away = 0; this.idle = 0; this.btn = new Map();
   }
   setItems(items) { this.items = items; if (this.visible) this.panel.show({ buttons: items, cols: 2 }); }
+  close() { this.panel.hide(); this.visible = false; this.armed = false; this.gaze = 0; }
 
-  // inputs: Liste mit { hand, grip, mode, source }; head: Kopfposition
-  update(inputs, head, dt) {
-    const L = inputs.find((i) => i.mode && (i.source?.handedness === 'left')) || null;
-    let show = false, pos = null, q = null;
-    if (L && this.enabled && this.items.length) {
-      const j = L.hand.joints;
-      if (j?.wrist?.visible) {
-        const w = j.wrist, wp = w.getWorldPosition(new THREE.Vector3()), wq = w.getWorldQuaternion(new THREE.Quaternion());
-        const back = new THREE.Vector3(0, 1, 0).applyQuaternion(wq);           // Handruecken
-        const toHead = head.clone().sub(wp); const d = toHead.length(); toHead.normalize();
-        show = Math.abs(back.dot(toHead)) > 0.6 && d < 0.7;
-        pos = wp.addScaledVector(toHead, 0.05).addScaledVector(new THREE.Vector3(0, 1, 0), 0.06);
-      } else if (L.mode === 'tracked-pointer' && L.grip.visible) {
-        const gp = L.grip.getWorldPosition(new THREE.Vector3()), gq = L.grip.getWorldQuaternion(new THREE.Quaternion());
-        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(gq), toHead = head.clone().sub(gp); const d = toHead.length(); toHead.normalize();
-        show = up.dot(toHead) > 0.45 && d < 0.75;
-        pos = gp.addScaledVector(up, 0.09).addScaledVector(toHead, 0.03);
+  open(at, head) {
+    if (!this.items.length) return;
+    this.panel.show({ buttons: this.items, cols: 2 });
+    const p = at.clone();
+    // nicht zu nah am Gesicht, sonst kann man es kaum antippen
+    const toP = p.clone().sub(head); const d = toP.length();
+    if (d < 0.38) p.copy(head).addScaledVector(toP.normalize(), 0.38);
+    this.panel.position.copy(p);
+    this.panel.lookAt(head);
+    this.visible = true; this.away = 0; this.idle = 0;
+  }
+
+  // inputs: Liste mit { hand, grip, mode, source }; cam: XR-Kamera; Rueckgabe: offen?
+  update(inputs, head, dt, cam) {
+    if (!this.enabled) { if (this.visible) this.close(); this.armed = true; return false; }
+    // Controller: X/Y bzw. A/B schaltet um (Flanke)
+    for (const inp of inputs) {
+      const gp = inp.mode && !inp.source?.hand && inp.source?.gamepad; if (!gp) continue;
+      const down = !!(gp.buttons[4]?.pressed || gp.buttons[5]?.pressed), was = this.btn.get(inp) || false;
+      this.btn.set(inp, down);
+      if (down && !was) {
+        if (this.visible) this.close();
+        else {
+          const o = (inp.grip.visible ? inp.grip : inp.ray).getWorldPosition(V());
+          this.open(o.add(V().set(0, 0.12, 0)).lerp(head, 0.25), head);
+        }
+        return this.visible;
       }
     }
-    // kurzes Wackeln nicht sofort zuklappen
-    if (show) this.lost = 0; else this.lost += dt;
-    const vis = show || (this.visible && this.lost < 0.35 && pos);
-    if (vis && !this.visible) this.panel.show({ buttons: this.items, cols: 2 });
-    if (!vis && this.visible) this.panel.hide();
-    this.visible = !!vis;
-    if (this.visible && pos) { this.panel.position.lerp(pos, this.panel.userData.init ? 0.5 : 1); this.panel.userData.init = true; this.panel.lookAt(head); }
-    if (!this.visible) this.panel.userData.init = false;
-    this.left = L;
+    // Hand: Handruecken zum Gesicht, Hand im Blickfeld, kurz halten
+    const L = inputs.find((i) => i.mode && i.source?.hand && i.source.handedness === 'left');
+    const w = L?.hand.joints?.wrist;
+    let looking = false, wp = null;
+    if (w?.visible) {
+      wp = w.getWorldPosition(V());
+      const back = V().set(0, 1, 0).applyQuaternion(w.getWorldQuaternion(new THREE.Quaternion()));
+      const toHead = head.clone().sub(wp); const d = toHead.length(); toHead.normalize();
+      const fwd = cam ? V().set(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())) : toHead.clone().negate();
+      looking = back.dot(toHead) > 0.5 && d < 0.75 && fwd.dot(toHead.clone().negate()) > 0.75;
+    }
+    if (!looking) { this.gaze = 0; if (!this.visible) this.armed = true; }
+    if (!this.visible) {
+      if (looking && this.armed) { this.gaze += dt; if (this.gaze > 0.3) this.open(wp.addScaledVector(V().set(0, 1, 0), 0.1), head); }
+      return false;
+    }
+    // offen: zugehen, wenn man lange wegschaut, sich weit entfernt oder nichts drueckt
+    const toPanel = this.panel.position.clone().sub(head); const dist = toPanel.length(); toPanel.normalize();
+    const fwd = cam ? V().set(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion())) : toPanel;
+    this.away = fwd.dot(toPanel) < 0.5 ? this.away + dt : 0;
+    this.idle += dt;
+    if (this.away > 1 || dist > 1.3 || this.idle > 12) this.close();
+    if (this.panel.hover >= 0) this.idle = 0;
     return this.visible;
   }
 }

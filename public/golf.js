@@ -193,6 +193,7 @@ function stepButton(id) {
   else if (step === 'ready') { if (id === 'play') startPlay(); else if (id === 'edit') editCourse(); else if (id === 'map') showStep('map'); }
 }
 function wristButton(id) {
+  wrist.close();
   if (id === 'edit') editCourse();
   else if (id === 'map') { useTool('build'); showStep('map'); }
   else if (id === 'players') showStep('players');
@@ -460,7 +461,7 @@ renderer.setAnimationLoop((t, frame) => {
     if (startStep) { showStep(startStep); startStep = null; }
     const cam = renderer.xr.getCamera(), head = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
     wrist.enabled = !step && !phone && mode === 'play';
-    wrist.update(inputs, head, dt);
+    wrist.update(inputs, head, dt, cam);
     if (wizard.visible) wizard.place(cam, 0.8, true);
     if (toastP.visible) { toastT -= dt; if (toastT <= 0) toastP.hide(); }
     const pk = pokeAll([wizard, wrist.panel], inputs, {});

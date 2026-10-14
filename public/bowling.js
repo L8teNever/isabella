@@ -150,6 +150,12 @@ export class Lane {
     this._sync();
   }
 
+  // nur die Kegel aus mask wieder hinstellen (Foul: Stand vor dem Wurf)
+  restorePins(mask) {
+    this.resetPins();
+    this.pins.forEach((p, i) => { if (!mask[i]) { p.active = false; p.fade = 0; p.mesh.visible = false; this.world.removeBody(p.body); p.inWorld = false; } });
+  }
+
   // umgefallene Kegel wegraeumen (nach dem ersten Wurf eines Frames)
   clearDown() {
     for (const p of this.pins) if (p.active && this.isDown(p)) { p.active = false; p.fade = 1; }
@@ -188,6 +194,7 @@ export class Lane {
     if (!this.ballInWorld) { this.world.addBody(b); this.ballInWorld = true; }
     b.wakeUp();
     for (const p of this.pins) if (p.active) p.body.wakeUp();
+    this.preMask = this.pins.map((p) => p.active && !this.isDown(p));
     this.ballState = 'rolling';
     this.throwT = performance.now();
     this.settleT = null;
