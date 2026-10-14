@@ -10,7 +10,7 @@
 //     Burst, Simple). Wiederholte Abschnitte nutzen denselben Zufallsstrom und werden gespiegelt.
 //  5. Parity-Engine vergibt Richtungen, Positionen folgen ergonomischen Regeln.
 //  6. Waende, Bomben, Lichtshow; danach Validierung (validate.ts).
-import { DIFFICULTY, MAPPING, ROWS, SECTION_DENSITY, SECTION_PATTERNS, type PatternName } from '../tuning.js';
+import { DIFFICULTY, MAPPING, ROWS as ROWS_BASE, ROWS_BY_DIFFICULTY, SECTION_DENSITY, SECTION_PATTERNS, type PatternName } from '../tuning.js';
 import { MAPPING_VERSION } from '../version.js';
 import { BANDS, Cut, type Beatmap, type Bomb, type Difficulty, type Note, type Obstacle, type Section, type SongAnalysis } from '../types.js';
 import { Rng, beatToTime, sectionAtBeat, barOfBeat, beatOfBar } from './util.js';
@@ -47,6 +47,7 @@ interface Planned extends Slot {
 
 export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Beatmap {
   const D = DIFFICULTY[difficulty];
+  const ROWS = { ...ROWS_BASE, ...ROWS_BY_DIFFICULTY[difficulty] };
   const beats = a.beats;
   const nBeats = beats.length - 1;
   const rngMain = new Rng(`${seed}:${difficulty}:main`);
@@ -322,7 +323,8 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
       case 'stream':
         flavor = rng.chance(0.2) ? 'in' : 'straight';
         x = xFor(hand, flavor, false);
-        y = p.t - hands[hand].t >= ROWS.minGapMid && rng.chance(0.3) ? 1 : 0;
+        { const g = p.t - hands[hand].t, r = rng.next();
+          y = g >= ROWS.minGapTop && r < ROWS.streamTop ? 2 : g >= ROWS.minGapMid && r < ROWS.streamTop + ROWS.streamMid ? 1 : 0; }
         break;
       case 'stair': {
         // Treppe: Positionen wandern nach aussen und nach oben, Diagonalen folgen der Bewegung

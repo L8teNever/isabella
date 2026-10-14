@@ -125,6 +125,14 @@ export const ROWS = {
   minGapMid: 0.22, minGapTop: 0.3, // Mindestabstand (s) zur vorigen Note DERSELBEN Hand, damit sie hinkommt
   maxJumpFast: 1,                  // bei schneller Folge hoechstens 1 Reihe Sprung derselben Hand
   fastGap: 0.35,
+  streamMid: 0.3, streamTop: 0,    // schnelle Ketten (Stream)
+};
+
+/** schwerere Stufen: mehr oben, kuerzere Mindestzeit, groessere Spruenge – oben/unten im Wechsel ist gewollt schwerer */
+export const ROWS_BY_DIFFICULTY: Partial<Record<Difficulty, Partial<typeof ROWS>>> = {
+  hard: { minGapTop: 0.26 },
+  expert: { foreTop: 0.3, backTop: 0.12, minGapTop: 0.2, minGapMid: 0.16, maxJumpFast: 2, streamTop: 0.12 },
+  expertplus: { foreTop: 0.34, backTop: 0.15, minGapTop: 0.17, minGapMid: 0.14, maxJumpFast: 2, streamTop: 0.18 },
 };
 
 export const MAPPING = {
