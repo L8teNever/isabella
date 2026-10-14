@@ -50,12 +50,14 @@ etwa einer Minute sind sie spielbar.
   ausblenden, löschen, Job-Log.
 - **Debug-Ansicht** (`debug.html?song=ID`): Wellenform, Beats/Takte, Onsets je Band, Abschnitte,
   Energie, Noten/Bomben/Wände und Lichtshow als Zeitleiste, mit Abspielen, Metronom- und Noten-Klick.
-- **Spielen** (`play.html`): *VR starten* (eigene Neon-Umgebung) oder *MR starten* (Passthrough, nur
-  Blöcke und dezente Effekte). Menüs per Laserpointer (Abzug/Pinch = Klick), Thumbstick blättert.
-  Song-Detail: Schwierigkeit, Seed, Modifikatoren (Schneller, Keine Wände, Keine Bomben),
-  Highscores. Einstellungen: Latenz, Schwert-Offset/-Winkel, Spielergröße, Lautstärke, Lichteffekte,
-  Linkshänder, Komfortmodus, FPS-Anzeige, Name, MR: Boden/Richtung setzen. *Upload vom Handy* zeigt einen
-  QR-Code. Pause: B/Y-Taste oder Brille absetzen/Systemmenü, Weiterspielen mit 3-s-Countdown.
+- **Spielen** (`play.html`): *VR starten* oder *MR starten* (Passthrough, nur Blöcke und dezente Effekte).
+  Man landet in einer kleinen **Lobby**, alles in Reichweite, ohne sich zu bewegen: in der Mitte die
+  Song-Auswahl (mit Bestwert je Song) und das Song-Detail (Schwierigkeit, Variante, Modifikatoren Schneller /
+  Keine Wände / Keine Bomben, *Starten*), links die **Bestenliste** zum gewählten Song, rechts die
+  **Einstellungen** in Gruppen (Spiel, Aussehen, Audio, Komfort, Mehr). Im Hintergrund läuft eine zufällige
+  Map. Menüs per Laserpointer (Abzug/Pinch = Klick), Thumbstick blättert. *Upload vom Handy* (unter „Mehr“)
+  zeigt einen QR-Code. Pause: B/Y-Taste oder Brille absetzen/Systemmenü, Weiterspielen mit 3-s-Countdown;
+  die Bahn richtet sich bei Start und Weiterspielen nach Kopf und Blickrichtung aus.
 - **Desktop-Debugmodus**: Autoplay schneidet alle Noten (Taste `A` schaltet auf Maus-Steuerung des
   rechten Schwerts), `Esc` = Pause.
 
@@ -71,13 +73,47 @@ Schnitt. **Verfehlt = stumm** (Standard aus) – sobald ein Block verfehlt ist (
 `apps/web/src/audio/player.ts`). Weil der Song als fertige Mischung vorliegt, verstummt kurz alles, nicht nur ein
 einzelnes Instrument.
 
+## Eigene Inhalte (Blöcke, Schwerter, Farben, Maps, Wände)
+
+Alles, was man auswählen kann, liegt als Ordner mit einer `info.json` in `content/`:
+
+```
+content/
+  blocks/<name>/info.json    Block-Skins      style: neon-cube | crystal | retro-pixel   oder  model: datei.glb
+  sabers/<name>/info.json    Schwerter        style: classic | katana | neon-stab        oder  model: datei.glb
+  colors/<name>/info.json    Farbsets         left: "#rrggbb", right: "#rrggbb"
+  maps/<name>/info.json      Maps             style: neon-runway | space | synthwave, wallSkin: <Wand-Ordner>
+  walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal
+```
+
+Gemeinsame Felder: `name`, `description`, `order` (Reihenfolge, klein = vorne), optional `preview` (Bild im
+selben Ordner). Ordnernamen nur aus `a-z`, `0-9`, `-` und `_`.
+
+**Neuen Inhalt hinzufügen, ohne neu zu bauen:** Ordner im Daten-Volume unter `<DATA_DIR>/content/<kategorie>/<name>/`
+anlegen (im Docker-Container also `/data/content/...`) und den Container neu starten. Gleicher Ordnername wie ein
+mitgelieferter Eintrag ersetzt diesen. Kaputte `info.json` werden übersprungen und im Log gemeldet.
+
+Beispiel – eigener Block aus einem 3D-Modell:
+
+```json
+{ "name": "Mein Block", "description": "Selbst gebaut", "model": "block.glb", "preview": "vorschau.png" }
+```
+
+- **Block-Modell:** die erste Geometrie im `.glb` wird zentriert und auf Blockgröße skaliert, Vorderseite = +Z
+  (dort sitzt der Pfeil). Die Farbe kommt pro Block, das Modell sollte also hell/weiß sein.
+- **Schwert-Modell:** die längste Achse wird zur Klinge, das Griffende liegt in der Hand; `bladeLength`
+  (0,5–1,4 m) ändert nur das Aussehen – die Treffer-Zone bleibt immer 1 m, das Spielgefühl ist gleich.
+- **Map:** `wallSkin` nennt die Wand, die automatisch dazu passt (Einstellung „Wände: Automatisch“).
+- Liste aller Inhalte: `GET /beatblade/api/content`.
+
 ## Architektur
 
 ```
 packages/core   Analyse (STFT, Multi-Band-Onsets, Tempo, Beat-Tracking, Takt, Energie, Struktur) +
                 Mapping (Generator, Muster, Parity, Waende/Bomben, Lichtshow, Validierung), Typen, Tuning
 apps/server     Fastify-API, Upload, persistente Job-Queue (SQLite), Worker-Threads, ffmpeg, SSE, Seed-Import
-apps/web        Vite + Three.js: Bibliothek/Upload, Debug-Ansicht, WebXR-Spiel
+apps/web        Vite + Three.js: Bibliothek/Upload, Debug-Ansicht, WebXR-Spiel (Lobby, Skins, Maps)
+content         auswählbare Inhalte: Blöcke, Schwerter, Farben, Maps, Wände (je Ordner eine info.json)
 seed-songs      credits.json (CC-BY-Songs, werden beim Build geladen)
 ```
 

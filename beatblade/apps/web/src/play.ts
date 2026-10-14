@@ -413,4 +413,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, renderer, get state() { return state; } };
