@@ -159,6 +159,9 @@ export const MAPPING = {
   onsetWindow: 0.035,
   /** Melodie-Gewicht (fliessende Passagen) */
   melody: 0.25,
+  /** Feineinrasten: jede Note auf den staerksten echten Onset (Schlagzeug-Baender) innerhalb ±snapWindow (s).
+   *  Bei festem Tempo nur, wenn alle Noten gleich daneben liegen (Median ≥ snapRigidMin, Streuung ≤ snapRigidSpread). */
+  snapWindow: 0.025, snapRigidMin: 0.004, snapRigidSpread: 0.008,
   /** Swing: Abschnitt gilt als geswungen, wenn so viel der Offbeat-Onsets auf 2/3 statt auf 1/2 des Beats liegen;
    *  dann kommen Offbeat-Noten auf die geswungene Position (auf allen Stufen, ohne zusaetzliche Noten) */
   swingMin: 0.65, swingMinOnsets: 0.25,

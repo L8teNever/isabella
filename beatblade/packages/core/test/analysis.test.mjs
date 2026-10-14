@@ -43,8 +43,11 @@ test('Mapping: deterministisch, ohne Parity-Fehler/Ueberkreuzungen, Dichte steig
     assert.equal(p.crossover, 0, `${d}: Ueberkreuzungen`);
     assert.ok(m1.stats.nps >= prev, `${d}: Dichte ${m1.stats.nps} < ${prev}`);
     prev = m1.stats.nps;
-    // alle Noten auf dem Raster
-    for (const n of m1.notes) assert.ok(Math.abs(n.b * 24 - Math.round(n.b * 24)) < 1e-3, 'Note nicht quantisiert');
+    // alle Noten am Raster: hoechstens 25 ms neben ihrem Rasterpunkt (Feineinrasten auf den echten Onset)
+    for (const n of m1.notes) {
+      const g = Math.round(n.b * 24) / 24, k = Math.floor(g), tg = a.beats[k] + (g - k) * (a.beats[k + 1] - a.beats[k]);
+      assert.ok(Math.abs(n.t - tg) <= 0.0251, `Note ${n.t} zu weit vom Raster (${((n.t - tg) * 1000).toFixed(1)} ms)`);
+    }
   }
 });
 

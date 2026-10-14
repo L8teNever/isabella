@@ -41,6 +41,17 @@ export function beatToTime(beats: number[], b: number): number {
   return beats[k] + (b - k) * (beats[k + 1] - beats[k]);
 }
 
+/** Sekunden -> Beat (gebrochen), Umkehrung von beatToTime */
+export function timeToBeat(beats: number[], t: number): number {
+  const n = beats.length;
+  if (n < 2) return t / 0.5;
+  if (t <= beats[0]) return (t - beats[0]) / (beats[1] - beats[0]);
+  if (t >= beats[n - 1]) return n - 1 + (t - beats[n - 1]) / (beats[n - 1] - beats[n - 2]);
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (beats[m] <= t) lo = m; else hi = m; }
+  return lo + (t - beats[lo]) / (beats[lo + 1] - beats[lo]);
+}
+
 /** Abschnitt zu einem Beat-Index */
 export function sectionAtBeat(a: SongAnalysis, k: number): Section | undefined {
   const bar = Math.floor((k - a.downbeatOffset) / a.beatsPerBar) + (a.downbeatOffset > 0 ? 1 : 0);

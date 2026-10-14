@@ -2,7 +2,7 @@
 // Drop-Pausen und Auswahl pro Takt nach Ziel-Dichte. Gleiche Eingaben + gleicher Zufall = gleiches Ergebnis.
 import { MAPPING, SECTION_DENSITY } from '../tuning.js';
 import { BANDS, type Section, type SongAnalysis, type SectionType } from '../types.js';
-import { Rng, beatToTime, sectionAtBeat, barOfBeat, beatOfBar } from './util.js';
+import { Rng, beatToTime, timeToBeat, sectionAtBeat, barOfBeat, beatOfBar } from './util.js';
 
 export const STEPS = 24;      // Rasteraufloesung der Analyse (pro Beat)
 
@@ -249,6 +249,30 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
     }
     chosen.sort((x, y) => x.b - y.b);
   }
+
+  // ---------- 3. Feineinrasten auf den echten Onset ----------
+  // Gesangs-Noten bleiben auf dem gerundeten Raster (gemeinter Rhythmus statt Mikro-Schwankung).
+  const near = chosen.map((c) => (c.voc ? null : strongestNear(perc, c.t, MAPPING.snapWindow)));
+  const move = (c: Slot, t: number) => { c.t = t; c.b = timeToBeat(beats, t); };
+  if (a.fixedTempo) {
+    // festes Tempo: das Raster ist exakt – nur eine fuer alle Noten gleiche Verschiebung uebernehmen
+    const d = near.map((o, i) => (o && o.s >= MAPPING.onsetMin ? o.t - chosen[i].t : null)).filter((x): x is number => x !== null).sort((x, y) => x - y);
+    if (d.length >= 16) {
+      const med = d[d.length >> 1], q1 = d[Math.floor(d.length * 0.25)], q3 = d[Math.floor(d.length * 0.75)];
+      if (Math.abs(med) >= MAPPING.snapRigidMin && (q3 - q1) / 2 <= MAPPING.snapRigidSpread) for (const c of chosen) if (!c.voc) move(c, c.t + med);
+    }
+  } else {
+    chosen.forEach((c, i) => {
+      const o = near[i];
+      if (!o || o.s < MAPPING.onsetMin) return;
+      // Abstand zu den Nachbarn darf nicht unter den Mindestabstand fallen
+      const prev = chosen[i - 1], next = chosen[i + 1];
+      if (prev && Math.abs(prev.t - c.t) >= D.minGap * 0.95 && o.t - prev.t < D.minGap * 0.95) return;
+      if (next && Math.abs(next.t - c.t) >= D.minGap * 0.95 && next.t - o.t < D.minGap * 0.95) return;
+      move(c, o.t);
+    });
+  }
+  chosen.sort((x, y) => x.b - y.b);
 
   return { slots, chosen, startT, endT, pauseBefore, dropStarts };
 }
