@@ -10,6 +10,8 @@ import { Panel, type Item, type Spec } from './panel';
 import { api, contentUrl, STATUS_LABEL, playable, fmtTime, type Credit, type ScItem, type YtStatus } from '../api';
 import { settings, saveSettings } from '../settings';
 import { starString, starsFor, type ScoreKeeper } from '../game/score';
+import { OrbitScore } from '../game/orbit/orbitscore';
+import { MODE_LABEL, type ModeId } from '../game/mode';
 
 export interface MenuActions {
   play(song: Song, d: Difficulty, seed: number): void;
@@ -68,7 +70,7 @@ export class Menus {
   private credits: Credit[] = [];
   private kb: { title: string; value: string; done: (v: string) => void; back: Screen } | null = null;
   private loadingText = ''; private loadingP = 0;
-  private result: { s: ScoreKeeper; song: Song; d: Difficulty; saved: boolean } | null = null;
+  private result: { s: ScoreKeeper; song: Song; d: Difficulty; mode: ModeId; saved: boolean } | null = null;
   private qrUrl = '';
   private calibText = '';
   private backStack: Screen[] = [];
@@ -219,7 +221,7 @@ export class Menus {
 
   loading(text: string, p: number) { this.loadingText = text; this.loadingP = p; if (this.screen !== 'loading') { this.screen = 'loading'; } this.panel.visible = true; this.refresh(); }
   pause() { this.screen = 'pause'; this.show(); }
-  results(s: ScoreKeeper, song: Song, d: Difficulty) { this.result = { s, song, d, saved: false }; this.scores = []; this.screen = 'results'; this.show(); api.scores(song.id, d).then((x) => { this.scores = x; this.refresh(); }).catch(() => {}); }
+  results(s: ScoreKeeper, song: Song, d: Difficulty, mode: ModeId = 'schnitt') { this.result = { s, song, d, mode, saved: false }; this.scores = []; this.screen = 'results'; this.show(); api.scores(song.id, d, mode).then((x) => { this.scores = x; this.refresh(); }).catch(() => {}); }
   calibration(text: string) { this.calibText = text; this.screen = 'calibrate'; this.show(); }
 
   refresh() {
@@ -444,10 +446,13 @@ export class Menus {
       ] };
       case 'results': {
         const r = this.result!; const s = r.s;
-        return { title: `${s.rating.toFixed(1)} %  ${starString(s.stars)}`, subtitle: `${r.song.title} · ${DIFFICULTY_LABEL[r.d]}`, cols: 2, items: [
+        const os = s instanceof OrbitScore ? s : null;
+        return { title: `${s.rating.toFixed(1)} %  ${starString(s.stars)}`, subtitle: `${r.song.title} · ${DIFFICULTY_LABEL[r.d]} · ${MODE_LABEL[r.mode]}`, cols: 2, items: [
           { type: 'text', text: `Punkte ${s.score.toLocaleString('de-DE')}   ·   Sterne ${s.stars}/5   (5 ★ = 100 %, 4 ★ ab 90 %, 3 ★ ab 75 %, 2 ★ ab 50 %, 1 ★ ab 25 %)`, size: 26, align: 'center' },
           { type: 'text', text: `Max. Combo ${s.maxCombo}   ·   Treffer ${s.hits}/${s.total}   ·   Fehler ${s.misses + s.badCuts}   ·   Bomben ${s.bombs}`, size: 26, align: 'center', color: '#b8b0d6' },
-          { type: 'text', text: `Verpasst ${s.misses}   ·   falsche Richtung ${s.badDir}   ·   falsche Farbe ${s.badColor}   ·   Zeit in Wänden ${s.wallTime.toFixed(1)} s`, size: 24, align: 'center', color: '#ff9db0' },
+          os
+            ? { type: 'text', text: `Perfekt ${os.perfect}   ·   Gut ${os.good}   ·   Schlecht ${os.bad}   ·   Verpasst ${s.misses - os.railsLost}   ·   Rails ${os.railsHeld}/${os.railsHeld + os.railsLost}   ·   Zeit in Wänden ${s.wallTime.toFixed(1)} s`, size: 24, align: 'center', color: '#ffd9a0' }
+            : { type: 'text', text: `Verpasst ${s.misses}   ·   falsche Richtung ${s.badDir}   ·   falsche Farbe ${s.badColor}   ·   Zeit in Wänden ${s.wallTime.toFixed(1)} s`, size: 24, align: 'center', color: '#ff9db0' },
           ...(this.scores.length ? [{ type: 'text', text: 'Highscores: ' + this.scores.slice(0, 5).map((h, i) => `${i + 1}. ${h.name} ${h.score.toLocaleString('de-DE')}`).join('   '), size: 22, color: '#d8d0f0' } as Item] : []),
           { type: 'button', id: 'name', label: `Name: ${settings.name}` },
           { type: 'button', id: 'save', label: r.saved ? 'Gespeichert ✓' : 'Highscore speichern', disabled: r.saved || s.judged === 0 },
@@ -529,7 +534,7 @@ export class Menus {
       else if (id === 'name') this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
       else if (id === 'save' && !r.saved) {
         r.saved = true; this.refresh();
-        api.postScore(r.song.id, { mode: 'schnitt', difficulty: r.d, name: settings.name, score: r.s.score, accuracy: Math.round(r.s.rating * 100) / 100, rank: `${r.s.stars}★`, maxCombo: r.s.maxCombo, misses: r.s.misses + r.s.badCuts, modifiers: [settings.arrows === 'egal' && 'PE', settings.fastNotes && 'FN', settings.noWalls && 'NW', settings.noBombs && 'NB'].filter(Boolean).join(',') })
+        api.postScore(r.song.id, { mode: r.mode, difficulty: r.d, name: settings.name, score: r.s.score, accuracy: Math.round(r.s.rating * 100) / 100, rank: `${r.s.stars}★`, maxCombo: r.s.maxCombo, misses: r.s.misses + r.s.badCuts, modifiers: [settings.arrows === 'egal' && 'PE', settings.fastNotes && 'FN', settings.noWalls && 'NW', settings.noBombs && 'NB'].filter(Boolean).join(',') })
           .then((x) => { this.scores = x; this.loadBest(); this.refresh(); }).catch(() => { r.saved = false; this.refresh(); });
       }
     }

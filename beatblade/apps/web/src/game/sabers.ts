@@ -23,6 +23,8 @@ export class Saber {
   history: SaberSample[] = [];
   /** aktueller und vorheriger Stand in Spielfeld-Koordinaten */
   hilt = new THREE.Vector3(); tip = new THREE.Vector3(); dir = new THREE.Vector3(0, 0, -1);
+  /** Controller-Griff ohne Schwert-Versatz (Orbit: Handkugel) */
+  grip = new THREE.Vector3();
   prevHilt = new THREE.Vector3(); prevTip = new THREE.Vector3();
   active = false;
   color: number;
@@ -74,6 +76,7 @@ export class Saber {
    */
   setPose(pos: THREE.Vector3, quat: THREE.Quaternion, t: number) {
     this.active = true; this.group.visible = true; this.trail.visible = true;
+    this.grip.copy(pos);
     const q = quat.clone().multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (-settings.saberAngle * Math.PI) / 180));
     this.group.position.copy(pos).add(new THREE.Vector3(0, 0, -settings.saberOffsetCm / 100).applyQuaternion(q));
     this.group.quaternion.copy(q);

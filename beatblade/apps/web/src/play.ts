@@ -7,13 +7,14 @@ import { mrSafeBlending } from './game/mrblend';
 import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
-import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
+import { loadAudio, loadBeatmap, loadOrbitMap, pruneSong } from './storage/cache';
 import { Environment } from './game/environment';
 import { NoteView } from './game/notes';
 import { Slicer } from './game/slicer';
 import { Saber } from './game/sabers';
 import { Game, prepareMap } from './game/game';
-import type { GameMode } from './game/mode';
+import type { GameMode, ModeId } from './game/mode';
+import { OrbitGame, prepareOrbit, ORB_HIT_Z } from './game/orbit/orbit';
 import { HIT_Z, lookahead } from './game/layout';
 import { Menus } from './ui3d/menus';
 import { Hud } from './ui3d/hud';
@@ -66,7 +67,7 @@ const slicer = new Slicer(root, view.cubeGeo, view.arrows.geometry);
 const sabers: [Saber, Saber] = [new Saber(0, root), new Saber(1, root)];
 const hud = new Hud(root, camera);
 let state: State = 'menu';
-let current: { song: Song; d: Difficulty; seed: number } | null = null;
+let current: { song: Song; d: Difficulty; seed: number; mode: ModeId } | null = null;
 let resumeAt = 0;
 let lastCombo = 0;
 
@@ -76,14 +77,22 @@ const game = new Game(root, view, slicer, sabers, {
   finished: () => finish(),
   muteNow: () => audio.muteNow(),
 });
+const orbit = new OrbitGame(root, view, slicer, sabers, {
+  haptic: (hand, v, ms) => pulse(hand, v, ms),
+  touch: (v) => audio.slice(v),
+  finished: () => finish(),
+  muteNow: () => audio.muteNow(),
+});
 /** laufender Spielmodus (Schnitt oder Orbit) */
 let gm: GameMode = game;
+// Modus per Adresse vorwaehlen (…/play.html?mode=orbit), sonst der zuletzt gespielte
+{ const m = new URLSearchParams(location.search).get('mode'); if (m === 'orbit' || m === 'schnitt') { settings.gameMode = m; saveSettings(); } }
 
 
 const menus = new Menus(root, {
   play: (s, d, seed) => startSong(s, d, seed),
   resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); if (renderer.xr.isPresenting) setDirection(); },
-  restart: () => { if (current) startSong(current.song, current.d, current.seed); },
+  restart: () => { if (current) { settings.gameMode = current.mode; startSong(current.song, current.d, current.seed); } },
   quitToMenu: () => { audio.stop(); toMenu(); },
   exitXR: () => renderer.xr.getSession()?.end(),
   calibrateLatency: () => calibrate(),
@@ -91,7 +100,7 @@ const menus = new Menus(root, {
   setDirection: () => setDirection(),
   isMR: () => mode === 'ar',
   inXR: () => renderer.xr.isPresenting,
-  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); applyLook(); },
+  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); orbit.applyColors(); applyLook(); },
 });
 
 // ---------- Eingaben (Controller / Haende / Maus) ----------
@@ -143,6 +152,7 @@ addEventListener('keydown', (e) => {
   if (mode !== 'desktop') return;
   if (e.key === 'Escape' && state === 'playing') pauseGame('esc');
   if (e.key === 'a') autoplay = !autoplay;
+  if (e.key === 'o' && state !== 'playing') { settings.gameMode = settings.gameMode === 'orbit' ? 'schnitt' : 'orbit'; saveSettings(); hud.message(''); console.info('Spielmodus', settings.gameMode); }
   if (e.key === ' ') tapTimes.push(audio.ctx.currentTime);
 });
 let autoplay = true;
@@ -162,7 +172,7 @@ function applyMap() {
   // Themen-Maps (Halloween, Weihnachten) bringen eigene Bloecke und Farben mit
   const blockSkin = typeof m?.data.blockSkin === 'string' ? m.data.blockSkin : undefined;
   const colorSet = typeof m?.data.colorSet === 'string' ? m.data.colorSet : undefined;
-  game.applyColors(colorSet);
+  game.applyColors(colorSet); orbit.applyColors(colorSet);
   loadBlockSkin(blockSkin).then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
 }
 function applyLook() {
@@ -181,7 +191,8 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
   const run = ++startRun;
   const live = () => run === startRun && state === 'loading';
   const progress = (text: string, p: number) => { if (live()) menus.loading(text, p); };
-  current = { song, d, seed };
+  const modeId: ModeId = settings.gameMode === 'orbit' ? 'orbit' : 'schnitt';
+  current = { song, d, seed, mode: modeId };
   audio.stop(); hud.show(false); slicer.clear();
   state = 'loading'; menus.loading('Audio laden …', 0);
   try {
@@ -192,9 +203,19 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     await audio.decode(data);
     if (!live()) return;
     progress('Level laden …', 0.9);
-    const bm = prepareMap(await loadBeatmap(song, d, seed));
-    if (!live()) return;
-    game.start(bm);
+    let lead: number;
+    if (modeId === 'orbit') {
+      if (!(song.orbitDifficulties ?? []).includes(d)) throw new Error('Orbit-Level wird noch erzeugt – gleich nochmal versuchen');
+      const om = prepareOrbit(await loadOrbitMap(song, d, seed));
+      if (!live()) return;
+      orbit.start(om); gm = orbit;
+      lead = Math.max(1.5, lookahead(om.speed) - (om.notes[0]?.t ?? 3) + 0.5);
+    } else {
+      const bm = prepareMap(await loadBeatmap(song, d, seed));
+      if (!live()) return;
+      orbit.stop(); game.start(bm); gm = game;
+      lead = Math.max(1.5, lookahead(bm.njs, bm.bpm, bm.offset) - (bm.notes[0]?.t ?? 3) + 0.5);
+    }
     applyMap();
     // Bahn direkt vor dir ausrichten: Mitte unter dem Kopf, Richtung = Blickrichtung (Hoehe/Boden bleibt)
     if (renderer.xr.isPresenting) setDirection();
@@ -202,7 +223,6 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     env?.reset();
     menus.hide(); hud.show(true); hud.message('');
     // Vorlauf: Noten der ersten Sekunden sind schon unterwegs, bevor die Musik einsetzt
-    const lead = Math.max(1.5, lookahead(bm.njs, bm.bpm, bm.offset) - (bm.notes[0]?.t ?? 3) + 0.5);
     audio.play(0, lead);
     state = 'playing';
   } catch (e) {
@@ -230,10 +250,10 @@ function finish() {
   const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
   setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500);
   state = 'results';
-  setTimeout(() => { hud.show(false); if (current) menus.results(gm.score, current.song, current.d); }, 800);
+  setTimeout(() => { hud.show(false); if (current) menus.results(gm.score, current.song, current.d, gm.id); }, 800);
 }
 
-function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
+function toMenu() { orbit.stop(); gm = game; state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
 
 // ---------- Latenz-Kalibrierung ----------
 let tapTimes: number[] = [];
@@ -404,7 +424,7 @@ renderer.setAnimationLoop((_t, frame) => {
   if (mode === 'ar' && (mrFixT += dt) > 0.5) { mrFixT = 0; mrSafeBlending(scene); }
   env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? gm.lights : []);
   // Schwerter im Menue ausblenden (Laser), im Spiel zeigen
-  if (xr) for (const s of sabers) { s.group.visible = playingLike && s.active; s.trail.visible = s.group.visible; }
+  if (xr) for (const s of sabers) { s.group.visible = playingLike && s.active && gm.id === 'schnitt'; s.trail.visible = s.group.visible; }
 
   // FPS
   fpsN++; fpsT += dt;
@@ -417,6 +437,22 @@ renderer.setAnimationLoop((_t, frame) => {
 function desktopSabers(t: number) {
   for (const hand of [0, 1] as const) {
     const sb = sabers[hand];
+    if (gm.id === 'orbit') {
+      // Orbit: Handkugel direkt am Ziel (Autoplay) bzw. rechte Hand folgt der Maus auf der Trefferebene
+      let p = new THREE.Vector3(hand === 0 ? -0.32 : 0.32, 1.15, ORB_HIT_Z + 0.1);
+      const target = autoplay ? gm.autoTarget(hand, t) : null;
+      if (target) p = target;
+      else if (!autoplay && hand === 1 && mouseIn) {
+        raycaster.setFromCamera(mouse, camera);
+        const tt = (ORB_HIT_Z - raycaster.ray.origin.z) / raycaster.ray.direction.z;
+        p = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, tt);
+      }
+      // weich nachfuehren (wie eine echte Hand)
+      const cur = sb.active ? sb.grip.clone() : p.clone();
+      cur.lerp(p, autoplay ? 0.6 : 0.5);
+      sb.setPose(cur, new THREE.Quaternion(), performance.now() / 1000);
+      continue;
+    }
     const restHilt = new THREE.Vector3(hand === 0 ? -0.3 : 0.3, 1.0, -0.2);
     let tipTarget = new THREE.Vector3(hand === 0 ? -0.4 : 0.4, 1.3, -1.1);
     if (autoplay) {
@@ -435,4 +471,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, renderer, view, slicer, root, hud, get env() { return env; }, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { game, orbit, get gm() { return gm; }, menus, audio, settings, sabers, camera, renderer, view, slicer, root, hud, get env() { return env; }, get state() { return state; } };

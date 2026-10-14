@@ -1,5 +1,5 @@
 // Lokaler Cache im Headset (Cache API): Audio und Beatmaps, damit erneutes Spielen sofort startet.
-import type { Beatmap, Difficulty, Song } from '@beatblade/core';
+import type { Beatmap, Difficulty, OrbitMap, Song } from '@beatblade/core';
 import { api } from '../api';
 
 const NAME = 'beatblade-v1';
@@ -31,6 +31,13 @@ export async function loadAudio(song: Song, onProgress?: (p: number) => void): P
 export async function loadBeatmap(song: Song, d: Difficulty, seed = song.seed): Promise<Beatmap> {
   const key = `/beatmap/${song.id}/${d}/${seed}/${song.updatedAt}`;
   const r = await cached(key, async () => new Response(JSON.stringify(await api.beatmap(song.id, d, seed)), { headers: { 'Content-Type': 'application/json' } }));
+  return r.json();
+}
+
+/** Orbit-Level (gleiches Schema wie loadBeatmap) */
+export async function loadOrbitMap(song: Song, d: Difficulty, seed = song.seed): Promise<OrbitMap> {
+  const key = `/beatmap/${song.id}/orbit-${d}/${seed}/${song.updatedAt}`;
+  const r = await cached(key, async () => new Response(JSON.stringify(await api.orbitmap(song.id, d, seed)), { headers: { 'Content-Type': 'application/json' } }));
   return r.json();
 }
 
