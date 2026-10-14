@@ -164,7 +164,7 @@ addEventListener('keydown', (e) => {
 let autoplay = true;
 
 /** Block-Skin auf Bloecke und geschnittene Haelften anwenden */
-let saberKey = '';
+const saberKeys = ['', ''];
 /** Lobby-Hintergrund: immer eine zufaellige Map */
 function lobbyMap() {
   const list = mapItems();
@@ -195,9 +195,13 @@ function applyLook() {
   loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
   loadOrbNoteSkin().then((s) => orbit.setNoteSkin(s));
   applyHandOrb();
-  // Schwert nur neu bauen, wenn ein anderes gewaehlt wurde
-  const key = currentSaber()?.id ?? '';
-  if (key !== saberKey) { saberKey = key; for (const sb of sabers) buildSaber(sb.color).then((v) => { if ((currentSaber()?.id ?? '') === key) sb.setVisual(v); }); }
+  // Schwert je Hand nur neu bauen, wenn ein anderes gewaehlt wurde (links und rechts koennen verschieden sein)
+  for (const sb of sabers) {
+    const h = sb.hand, key = currentSaber(h)?.id ?? '';
+    if (key === saberKeys[h]) continue;
+    saberKeys[h] = key;
+    buildSaber(sb.color, h).then((v) => { if ((currentSaber(h)?.id ?? '') === key) sb.setVisual(v); });
+  }
 }
 
 // ---------- Ablauf ----------

@@ -1,0 +1,9 @@
+{
+  "name": "Cyber Blade",
+  "description": "Futuristische Klinge mit Carbon-Griff und LED. Modell: „Cyber Blade“ von jordanger88 (sketchfab.com/jordanger88), Lizenz CC-BY 4.0.",
+  "model": "schwert.glb",
+  "glow": false,
+  "bladeLength": 1.0,
+  "order": 7,
+  "preview": "preview.jpg"
+}

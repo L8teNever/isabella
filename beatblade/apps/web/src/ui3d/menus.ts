@@ -24,8 +24,8 @@ export interface MenuActions {
 }
 
 type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick' | 'sc';
-type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'walls' | 'orbs' | 'orbnotes';
-const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen', walls: 'Wände wählen', orbs: 'Handkugeln wählen (Orbit)', orbnotes: 'Orbit-Noten wählen' };
+type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'sabersR' | 'walls' | 'orbs' | 'orbnotes';
+const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen (links / beide)', sabersR: 'Schwert rechts wählen', walls: 'Wände wählen', orbs: 'Handkugeln wählen (Orbit)', orbnotes: 'Orbit-Noten wählen' };
 const PICK_PER_PAGE = 9;
 
 const PER_PAGE = 6;
@@ -155,6 +155,8 @@ export class Menus {
       ...mapItems().map((m) => ({ id: m.id, name: m.name, desc: m.description, img: this.thumb(m.preview), on: settings.mapChoice === m.id }))];
     if (k === 'walls') return [{ id: 'auto', name: 'Automatisch', desc: 'Die Wand, die zur Map passt.', img: null, on: settings.wallSkin === 'auto' },
       ...wallItems().map((w) => ({ id: w.id, name: w.name, desc: w.description, img: this.thumb(w.preview), on: settings.wallSkin === w.id }))];
+    if (k === 'sabersR') return [{ id: '', name: 'Wie links', desc: 'Rechts dasselbe Schwert wie links.', img: null, on: !settings.saberSkinRight },
+      ...saberSkins().map((b) => ({ id: b.id, name: b.name, desc: b.description, img: this.thumb(b.preview), on: settings.saberSkinRight === b.id }))];
     const list = k === 'blocks' ? blockSkins() : k === 'orbs' ? orbItems() : k === 'orbnotes' ? orbNoteItems() : saberSkins();
     const cur = k === 'blocks' ? currentBlock()?.id : k === 'orbs' ? currentOrb()?.id : k === 'orbnotes' ? currentOrbNote()?.id : currentSaber()?.id;
     return list.map((b) => ({ id: b.id, name: b.name, desc: b.description, img: this.thumb(b.preview), on: b.id === cur }));
@@ -276,7 +278,7 @@ export class Menus {
       ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
       ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
       ...(settings.colorLeft || settings.colorRight ? [full('creset', 'Eigene Farben zurücksetzen')] : []),
-      full('sskin', `Schwert: ${saberName()} ›`),
+      half('sskin', `Schwert links: ${saberName(0)} ›`), half('sskinr', `Schwert rechts: ${settings.saberSkinRight ? saberName(1) : 'wie links'} ›`),
       half('oskin', `Handkugeln: ${orbName()} ›`), half('onskin', `Orbit-Noten: ${orbNoteName()} ›`),
       half('mapc', `Map: ${mapName()} ›`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ›`),
       tog('glow', 'Leuchten'), { type: 'text', text: '', span: 10 },
@@ -326,6 +328,7 @@ export class Menus {
     else if (id === 'mapc') return this.openPicker('maps');
     else if (id === 'wallc') return this.openPicker('walls');
     else if (id === 'sskin') return this.openPicker('sabers');
+    else if (id === 'sskinr') return this.openPicker('sabersR');
     else if (id === 'bskin') return this.openPicker('blocks');
     else if (id === 'oskin') return this.openPicker('orbs');
     else if (id === 'onskin') return this.openPicker('orbnotes');
@@ -504,6 +507,7 @@ export class Menus {
       else if (k === 'blocks') settings.blockSkin = v;
       else if (k === 'orbs') settings.orbSkin = v;
       else if (k === 'orbnotes') settings.orbNoteSkin = v;
+      else if (k === 'sabersR') settings.saberSkinRight = v;
       else settings.saberSkin = v;
       saveSettings(); this.act.applySettings(); this.refresh();
       return;

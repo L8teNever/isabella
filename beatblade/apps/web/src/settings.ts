@@ -26,6 +26,8 @@ export interface Settings {
   blockSkin: string;
   /** Schwert (Ordnername in content/sabers) */
   saberSkin: string;
+  /** Schwert der rechten Hand ('' = wie links / saberSkin) */
+  saberSkinRight: string;
   /** Map (Ordnername in content/maps) oder 'zufall'; Wand-Skin oder 'auto' (passend zur Map) */
   mapChoice: string; wallSkin: string;
   floorOffset: number;        // MR: Bodenkorrektur (m)
@@ -39,7 +41,7 @@ const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', saberSkin: 'lichtschwert', mapChoice: 'neon-laufsteg', wallSkin: 'auto', floorOffset: 0, gameMode: 'schnitt', orbSkin: 'leuchten', orbNoteSkin: 'neon-kugel',
+  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', saberSkin: 'lichtschwert', saberSkinRight: '', mapChoice: 'neon-laufsteg', wallSkin: 'auto', floorOffset: 0, gameMode: 'schnitt', orbSkin: 'leuchten', orbNoteSkin: 'neon-kugel',
 };
 
 const SETTINGS_V = 2;

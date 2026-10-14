@@ -150,6 +150,13 @@ Beispiel – eigener Block aus einem 3D-Modell:
   (dort sitzt der Pfeil). Die Farbe kommt pro Block, das Modell sollte also hell/weiß sein.
 - **Schwert-Modell:** die längste Achse wird zur Klinge, das Griffende liegt in der Hand; `bladeLength`
   (0,5–1,4 m) ändert nur das Aussehen – die Treffer-Zone bleibt immer 1 m, das Spielgefühl ist gleich.
+- **Fertige Schwert-Modelle (z. B. von Sketchfab):** `.glb` in den Ordner legen, `"model": "schwert.glb"` und
+  `"glow": false` (kein zusätzlicher Leuchtzylinder, Modell bleibt wie es ist). Die Längsachse wird automatisch
+  erkannt (auch bei schräg modellierten Schwertern), der Griff kommt in die Hand; zeigt die Spitze trotzdem nach hinten,
+  `"flip": true` setzen. Große Texturen vorher verkleinern, z. B.
+  `npx @gltf-transform/cli optimize ein.glb schwert.glb --texture-size 1024 --texture-compress webp --compress false --simplify false`.
+  Lizenz und Autor in die `description` schreiben. Vorschaubild: `node tools/swords/build.mjs x x --extern <name>`.
+- **Links und rechts verschieden:** Einstellungen › Aussehen › „Schwert links“ / „Schwert rechts“ (rechts „wie links“ = gleiches Schwert).
 - **Schwert mit eigenem Leuchtrand** (wie Frostklinge und Glutklinge): Materialnamen im `.glb` steuern das Leuchten –
   `glow…` = Leuchtrand/Muster in der Handfarbe, `glowcore…` = heller Kern, `glowsoft…` = weiches Glühen (additiv,
   Vertex-Farben als Verlauf, wird mit der Combo stärker); alle anderen Materialien bleiben, wie modelliert. Modell entlang
@@ -243,3 +250,9 @@ pnpm seed:download               # mitgelieferte Songs laden
 Mitgelieferte Musik: Kevin MacLeod (incompetech.com), Lizenz CC BY 4.0 – Details je Song in
 `seed-songs/credits.json` und auf dem Credits-Screen. Für hochgeladene Musik ist die hochladende Person
 verantwortlich.
+
+Schwert-Modelle von Dritten (unverändert importiert, nur Texturen verkleinert):
+- „Cyber Blade“ von jordanger88 – https://sketchfab.com/3d-models/cyber-blade-7a9afdc5ecb241a298ba3b278bb88680 – CC BY 4.0
+- „[LOW POLY] Cyberpunk 2077 – Thermal Katana“ von Alf Does Stuff –
+  https://sketchfab.com/3d-models/low-poly-cyberpunk-2077-thermal-katana-7aa5b646caa0413b87d8f1f8a0d4f1d9 – CC BY-NC 4.0
+  (nur nicht-kommerziell; Fan-Art zu Cyberpunk 2077)

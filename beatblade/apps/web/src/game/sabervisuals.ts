@@ -98,21 +98,28 @@ const gltfCache = new Map<string, Promise<GLTF>>();
  *  - "glowsoft…" weiches Glühen (Fläche mit Verlaufs-Textur): additiv, wird mit der Combo staerker
  * Ohne solche Materialien bekommt die Klinge wie bisher einen Leuchtzylinder.
  */
-export async function saberFromModel(url: string, len: number, color: number): Promise<SaberVisual | null> {
+export async function saberFromModel(url: string, len: number, color: number, opt: { flip?: boolean; glow?: boolean } = {}): Promise<SaberVisual | null> {
   try {
     let p = gltfCache.get(url);
     if (!p) { p = new GLTFLoader().loadAsync(url); gltfCache.set(url, p); p.catch(() => gltfCache.delete(url)); }   // Fehlschlag nicht merken
     const model = (await p).scene.clone(true);
-    const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
-    // laengste Achse auf -Z drehen
-    if (size.y >= size.x && size.y >= size.z) model.rotation.x = -Math.PI / 2;
-    else if (size.x >= size.z) model.rotation.y = Math.PI / 2;
+    // Hauptachse der Punktwolke auf -Z (Klinge), zweite Achse auf Y (Klingenbreite) – auch fuer schraeg modellierte Schwerter
+    model.quaternion.copy(alignQuaternion(model));
     const wrap = new THREE.Group(); wrap.add(model);
+    if (opt.flip) { const turn = new THREE.Group(); turn.add(model); turn.rotation.y = Math.PI; wrap.add(turn); }
     const b2 = new THREE.Box3().setFromObject(wrap), s2 = b2.getSize(new THREE.Vector3());
     const k = (len + 0.2) / Math.max(s2.z, 1e-6);
     wrap.scale.setScalar(k);
     const b3 = new THREE.Box3().setFromObject(wrap);
     wrap.position.z -= b3.max.z - 0.14;   // Griffende knapp hinter der Hand
+    // Griff in die Hand: Mitte der Punkte im Griffbereich (z > -0.06) auf die Achse legen
+    wrap.updateMatrixWorld(true);
+    const gp = new THREE.Box3(), pt = new THREE.Vector3();
+    wrap.traverse((o) => {
+      const m = o as THREE.Mesh; const pos = m.isMesh ? m.geometry.attributes.position : undefined; if (!pos) return;
+      for (let i = 0; i < pos.count; i += Math.max(1, Math.floor(pos.count / 3000))) { pt.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld); if (pt.z > -0.06) gp.expandByPoint(pt); }
+    });
+    if (!gp.isEmpty()) { const c = gp.getCenter(new THREE.Vector3()); wrap.position.x -= c.x; wrap.position.y -= c.y; }
     const group = new THREE.Group(); group.add(wrap);
     // Leucht-Materialien nach Namen ersetzen
     const glows: THREE.MeshBasicMaterial[] = [], cores: THREE.MeshBasicMaterial[] = [], softs: THREE.MeshBasicMaterial[] = [], softBase: number[] = [];
@@ -131,6 +138,11 @@ export async function saberFromModel(url: string, len: number, color: number): P
         const g = new THREE.MeshBasicMaterial({ color }); m.material = g; glows.push(g);
       }
     });
+    if (!glows.length && !cores.length && !softs.length && opt.glow === false) {
+      // fertig modelliertes Schwert: nur eine dezente Huelle in der Handfarbe, sonst wie modelliert
+      const hs = GLOW.saberHaloStrength * 0.18;
+      return finish(group, haloMesh(len - 0.14, GLOW.saberHalo * 0.5, hs, color), [], [], hs, []);
+    }
     if (!glows.length && !cores.length && !softs.length) {
       const glowMat = additive(color, 0.35);
       const glow = along(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, len, 12, 1, true), glowMat), len);
@@ -150,6 +162,37 @@ export async function saberFromModel(url: string, len: number, color: number): P
     console.warn('Schwert-Modell konnte nicht geladen werden', url, e);
     return null;
   }
+}
+
+/**
+ * Drehung, die die Hauptachse der Modell-Punkte auf -Z legt (Spitze vorn) und die zweite Achse auf Y.
+ * Griff-Seite = die Haelfte mit mehr Punkten (Griffe/Parierstangen sind detailreicher als die Klinge).
+ */
+function alignQuaternion(model: THREE.Object3D): THREE.Quaternion {
+  model.updateMatrixWorld(true);
+  const pts: THREE.Vector3[] = [], v = new THREE.Vector3();
+  model.traverse((o) => {
+    const m = o as THREE.Mesh; const pos = m.isMesh ? m.geometry.attributes.position : undefined; if (!pos) return;
+    const step = Math.max(1, Math.floor(pos.count / 4000));
+    for (let i = 0; i < pos.count; i += step) pts.push(v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).clone());
+  });
+  if (pts.length < 3) return new THREE.Quaternion();
+  const c = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).divideScalar(pts.length);
+  const cov = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+  for (const p of pts) { const d = [p.x - c.x, p.y - c.y, p.z - c.z]; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) cov[i * 3 + j] += d[i] * d[j]; }
+  const mul = (m: number[], x: THREE.Vector3) => new THREE.Vector3(m[0] * x.x + m[1] * x.y + m[2] * x.z, m[3] * x.x + m[4] * x.y + m[5] * x.z, m[6] * x.x + m[7] * x.y + m[8] * x.z);
+  const power = (m: number[], seed: THREE.Vector3) => { let x = seed.clone().normalize(); for (let k = 0; k < 60; k++) x = mul(m, x).normalize(); return x; };
+  const a1 = power(cov, new THREE.Vector3(0.3, 0.9, 0.2));
+  // zweite Achse: Kovarianz ohne die erste Richtung
+  const l1 = mul(cov, a1).dot(a1);
+  const cov2 = cov.map((x, k) => x - l1 * [a1.x, a1.y, a1.z][Math.floor(k / 3)] * [a1.x, a1.y, a1.z][k % 3]);
+  let a2 = power(cov2, new THREE.Vector3(0.9, -0.2, 0.3)); a2 = a2.sub(a1.clone().multiplyScalar(a2.dot(a1))).normalize();
+  // Griff-Seite: mehr Punkte auf dieser Haelfte -> diese Seite nach +Z
+  let plus = 0; for (const p of pts) if (v.copy(p).sub(c).dot(a1) > 0) plus++;
+  const tip = plus > pts.length / 2 ? a1.clone().negate() : a1.clone();
+  const basis = new THREE.Matrix4().makeBasis(a2.clone().cross(tip.clone().negate()).normalize(), a2, tip.clone().negate());
+  // basis bildet Modell-Achsen (x, y=a2, z=-tip) ab; die Inverse dreht das Modell in die Spiel-Achsen
+  return new THREE.Quaternion().setFromRotationMatrix(basis).invert();
 }
 
 /** heller Kern eines Leuchtrands: Farbe stark zu Weiss gemischt */

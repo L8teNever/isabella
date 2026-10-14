@@ -53,6 +53,27 @@ function place(o: THREE.Object3D, y: number) {
 }
 
 const dbg = new URLSearchParams(location.search);
+/** fertige Modelle aus content/sabers (nur Vorschau, kein Export): Laenge, Farbe, flip/glow aus info.json */
+type Extern = { id: string; url: string; len: number; color: number; flip: boolean; glow: boolean };
+async function externVisual(e: Extern) {
+  const v = await saberFromModel(e.url, e.len, e.color, { flip: e.flip, glow: e.glow });
+  if (!v) throw new Error('Modell laedt nicht: ' + e.id);
+  v.tint(e.color); v.boost(0.25);
+  return v.group;
+}
+(window as unknown as { previewExtern: (l: Extern[]) => Promise<Record<string, string>> }).previewExtern = async (list) => {
+  const shots: Record<string, string> = {};
+  for (const e of list) {
+    const s = stage(256, 256);
+    const len = e.len + 0.2;
+    s.scene.add(place(await externVisual(e), 0));
+    s.cam.position.set(0.14 - len / 2, 0.05, 3.15 * len / 1.2); s.cam.lookAt(0.14 - len / 2, 0, 0);
+    s.comp.render();
+    shots[e.id] = s.r.domElement.toDataURL('image/jpeg', 0.9);
+    s.r.dispose(); s.r.domElement.remove();
+  }
+  return shots;
+};
 async function visual(id: keyof typeof SWORDS, url: string) {
   const v = await saberFromModel(url, SWORDS[id].len, SWORDS[id].color);
   if (!v) throw new Error('Modell laedt nicht: ' + id);

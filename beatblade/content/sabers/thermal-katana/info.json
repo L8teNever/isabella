@@ -1,0 +1,9 @@
+{
+  "name": "Thermal-Katana",
+  "description": "Low-Poly-Katana mit glühender Schneide. Modell: „[LOW POLY] Cyberpunk 2077 – Thermal Katana“ von Alf Does Stuff (sketchfab.com/alfdoesstuff), Lizenz CC-BY-NC 4.0 (nur nicht-kommerziell).",
+  "model": "schwert.glb",
+  "glow": false,
+  "bladeLength": 1.0,
+  "order": 8,
+  "preview": "preview.jpg"
+}

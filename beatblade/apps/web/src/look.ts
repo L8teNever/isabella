@@ -84,18 +84,24 @@ export function loadBlockSkin(override?: string): Promise<BlockSkin> {
 
 // ---------- Schwerter ----------
 export function saberSkins(): ContentItem[] { return contentList?.sabers?.length ? contentList.sabers : []; }
-export function currentSaber(): ContentItem | undefined {
+/** Schwert einer Hand: 0 = links (bzw. beide), 1 = rechts – rechts kann ein eigenes gewaehlt sein */
+export function currentSaber(hand: 0 | 1 = 0): ContentItem | undefined {
   const list = saberSkins();
-  return list.find((b) => b.id === settings.saberSkin) ?? list[0];
+  const id = hand === 1 && settings.saberSkinRight ? settings.saberSkinRight : settings.saberSkin;
+  return list.find((b) => b.id === id) ?? list[0];
 }
-export const saberName = () => currentSaber()?.name ?? 'Lichtschwert';
+export const saberName = (hand: 0 | 1 = 0) => currentSaber(hand)?.name ?? 'Lichtschwert';
 
 /** Aussehen fuer ein Schwert bauen (pro Hand eigenes Objekt). Klingenlaenge nur optisch, Treffer-Zone bleibt. */
-export async function buildSaber(color: number): Promise<SaberVisual> {
-  const it = currentSaber();
+export async function buildSaber(color: number, hand: 0 | 1 = 0): Promise<SaberVisual> {
+  const it = currentSaber(hand);
   const style = typeof it?.data.style === 'string' ? it.data.style : 'classic';
   const len = typeof it?.data.bladeLength === 'number' ? Math.max(0.5, Math.min(1.4, it.data.bladeLength)) : SABER_LEN;
-  if (it?.model) { const v = await saberFromModel(contentUrl(it.model), len, color); if (v) return v; }
+  if (it?.model) {
+    // flip: Modell zeigt mit dem Griff nach vorn -> umdrehen; glow: false = kein zusaetzlicher Leuchtzylinder (fertig modellierte Schwerter)
+    const v = await saberFromModel(contentUrl(it.model), len, color, { flip: it.data.flip === true, glow: it.data.glow !== false });
+    if (v) return v;
+  }
   return buildSaberVisual(style, len, color);
 }
 
