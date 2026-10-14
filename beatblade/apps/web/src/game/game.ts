@@ -17,7 +17,8 @@ interface BombState { b: Bomb; done: boolean; }
 
 export interface GameEvents {
   haptic(hand: 0 | 1, intensity: number, ms: number): void;
-  slice(intensity: number): void;
+  /** Treffer-Sound; noteT = Songzeit der Note (erklingt mit der Musik) */
+  slice(intensity: number, noteT?: number): void;
   finished(): void;
   /** Planungs-Vorlauf der Audio-Ausgabe (s) – so frueh muss ein Aussetzer feststehen */
   /** Musik an Songzeit t aussetzen / Aussetzer zuruecknehmen */
@@ -228,7 +229,7 @@ export class Game implements GameMode {
     const pre = Math.min(70, (sb.preSwingAngle() / 100) * 70);
     const acc = 15 * (1 - Math.min(1, dist / (NOTE_SIZE * 0.75)));
     this.ev.haptic(sb.hand, 0.7, 50);
-    this.ev.slice(1);
+    this.ev.slice(1, n.t);
     this.follows.push(new FollowThrough(sb, performance.now() / 1000, (post) => { this.score.finalize(pre, (post / 60) * 30, acc, mult); }));
   }
 }

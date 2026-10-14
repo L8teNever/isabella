@@ -8,6 +8,8 @@ export const MUTE_LEVEL = 0;          // Lautstaerke waehrend des Aussetzers (0 
 export const MUTE_HOLD = 0.16;        // Sekunden, die die Musik aussetzt
 export const MUTE_FADE = 0.004;       // Ein-/Ausblend-Zeitkonstante (s) gegen Knacksen
 export const MUTE_BACK = 0.025;       // Zeitkonstante fuers Wiederkommen (s)
+/** Treffer-Sound auf den Notenzeitpunkt legen, solange der Treffer hoechstens so weit (s) daneben liegt */
+export const HIT_SOUND_SNAP = 0.1;
 
 export class AudioPlayer {
   ctx: AudioContext;
@@ -78,16 +80,22 @@ export class AudioPlayer {
   rawTime(): number { return this.playing ? this.ctx.currentTime - this.startCtx : this.pausedAt; }
 
   /**
-   * Songzeit, die der Spieler gerade HOERT: Kontextzeit minus Startzeit minus Ausgabe-Latenz minus
-   * Kalibrierung. getOutputTimestamp liefert bereits die Zeit am Ausgang; sonst outputLatency abziehen.
+   * Einzige Latenz-Quelle (Spiel UND Kalibrierung): wie weit (s) das gerade Gehoerte hinter der Kontextzeit liegt.
+   * getOutputTimestamp liefert die Zeit am Ausgang; sonst Ausgabe- plus Verarbeitungs-Latenz.
    */
+  outputDelay(): number {
+    const ts = this.ctx.getOutputTimestamp?.();
+    if (ts && ts.contextTime !== undefined && ts.performanceTime) {
+      const heard = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
+      return Math.max(0, this.ctx.currentTime - heard);
+    }
+    return (this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0);
+  }
+
+  /** Songzeit, die der Spieler gerade HOERT: Kontextzeit minus Ausgabe-Latenz minus Startzeit minus Kalibrierung */
   songTime(): number {
     if (!this.playing) return this.pausedAt - settings.latencyMs / 1000;
-    const ts = this.ctx.getOutputTimestamp?.();
-    let heard: number;
-    if (ts && ts.contextTime !== undefined && ts.performanceTime) heard = ts.contextTime + (performance.now() - ts.performanceTime) / 1000;
-    else heard = this.ctx.currentTime - (this.ctx.outputLatency || this.ctx.baseLatency || 0);
-    return heard - this.startCtx - settings.latencyMs / 1000;
+    return this.ctx.currentTime - this.outputDelay() - this.startCtx - settings.latencyMs / 1000;
   }
 
   get duration() { return this.buffer?.duration ?? 0; }
@@ -119,9 +127,14 @@ export class AudioPlayer {
     o.connect(g).connect(this.gain); o.start(t); o.stop(t + 0.4);
   }
 
-  /** kurzer Schnitt-Sound */
-  slice(intensity = 1) {
-    const t = this.ctx.currentTime, len = 0.08;
+  /** kurzer Schnitt-Sound; mit noteT erklingt er genau mit der Musik an dieser Songzeit (wenn der Treffer nah dran war) */
+  slice(intensity = 1, noteT?: number) {
+    let t = this.ctx.currentTime;
+    if (noteT !== undefined && this.playing && Math.abs(this.songTime() - noteT) <= HIT_SOUND_SNAP) {
+      // das Musik-Sample der Songzeit noteT wird zur Kontextzeit startCtx + noteT ausgegeben
+      t = Math.max(t, this.startCtx + noteT);
+    }
+    const len = 0.08;
     const b = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * len), this.ctx.sampleRate), d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.25));
     const s = this.ctx.createBufferSource(); s.buffer = b;

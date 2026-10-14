@@ -30,7 +30,8 @@ const MAX = 128;
 
 export interface OrbitEvents {
   haptic(hand: 0 | 1, intensity: number, ms: number): void;
-  touch(intensity: number): void;
+  /** Treffer-Sound; noteT = Songzeit der Note (erklingt mit der Musik) */
+  touch(intensity: number, noteT?: number): void;
   finished(): void;
   muteNow(): void;
 }
@@ -348,6 +349,6 @@ export class OrbitGame implements GameMode {
     this.slicer.good(pos, new THREE.Color(GRADE_COLOR[g]).getHex());
     this.slicer.burst(pos, c, g === 'perfekt' ? 18 + Math.round(comboLevel(this.score.combo) * 30) : g === 'gut' ? 12 : 5);
     for (const h of this.handsFor(n)) if (s.best[h] < Infinity) this.ev.haptic(h, g === 'perfekt' ? 0.8 : 0.5, 45);
-    this.ev.touch(g === 'perfekt' ? 1 : g === 'gut' ? 0.75 : 0.45);
+    this.ev.touch(g === 'perfekt' ? 1 : g === 'gut' ? 0.75 : 0.45, n.t);
   }
 }

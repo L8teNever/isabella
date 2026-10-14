@@ -73,13 +73,13 @@ let lastCombo = 0;
 
 const game = new Game(root, view, slicer, sabers, {
   haptic: (hand, v, ms) => pulse(hand, v, ms),
-  slice: (v) => audio.slice(v),
+  slice: (v, noteT) => audio.slice(v, noteT),
   finished: () => finish(),
   muteNow: () => audio.muteNow(),
 });
 const orbit = new OrbitGame(root, view, slicer, sabers, {
   haptic: (hand, v, ms) => pulse(hand, v, ms),
-  touch: (v) => audio.slice(v),
+  touch: (v, noteT) => audio.slice(v, noteT),
   finished: () => finish(),
   muteNow: () => audio.muteNow(),
 });
@@ -247,7 +247,7 @@ function pauseGame(why = 'knopf') {
 
 function sendLog(reason: string) {
   const s = gm.score;
-  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, rating: Math.round(s.rating * 10) / 10, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, mode: gm.id, cuts: gm.debugLog() });
+  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, rating: Math.round(s.rating * 10) / 10, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, outputDelay: Math.round(audio.outputDelay() * 10000) / 10000, latencyMs: settings.latencyMs, mode: gm.id, cuts: gm.debugLog() });
 }
 
 function finish() {
@@ -273,7 +273,8 @@ async function calibrate(): Promise<number | null> {
   await new Promise((r) => setTimeout(r, (1 + n * spb + 0.5) * 1000));
   state = 'menu';
   // Abweichung jedes Drucks zum gehoerten Klick (Klick erklingt erst nach der Ausgabe-Latenz)
-  const outLat = audio.ctx.outputLatency || audio.ctx.baseLatency || 0;
+  // dieselbe Latenz-Quelle wie das Spiel (songTime)
+  const outLat = audio.outputDelay();
   const devs = tapTimes.slice(2).map((t) => { let best = Infinity; for (const c of clicks) { const d = t - (c + outLat); if (Math.abs(d) < Math.abs(best)) best = d; } return best; })
     .filter((d) => Math.abs(d) < spb / 2);
   if (devs.length < 8) return null;
