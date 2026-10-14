@@ -40,14 +40,15 @@ export class Environment {
   private keep: { m: THREE.MeshBasicMaterial; c: THREE.Color }[] = [];
   style = 'neon-runway';
 
-  constructor(scene: THREE.Scene, public mr: boolean) {
+  /** scene: Lichter, Nebel, Hintergrund; parent: alles Sichtbare der Map (gemeinsame Buehne mit dem Spielfeld) */
+  constructor(scene: THREE.Scene, parent: THREE.Object3D, public mr: boolean) {
     this.scene = scene;
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x404060, mr ? 2.2 : 1.6);
     scene.add(this.hemi);
     const dir = new THREE.DirectionalLight(0xffffff, 1.2); dir.position.set(0.5, 2, 1.5); scene.add(dir);
     this.floorMat = new THREE.MeshBasicMaterial({ color: 0x7a4dff, transparent: true, opacity: mr ? 0.25 : 0.6, blending: THREE.AdditiveBlending, depthWrite: false });
     this.ringMat = new THREE.MeshBasicMaterial({ color: 0x7a4dff, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
-    scene.add(this.group);
+    parent.add(this.group);
     this.build();
   }
 

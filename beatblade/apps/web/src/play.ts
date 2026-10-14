@@ -56,8 +56,12 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.03, 150);
 camera.position.set(0, 1.6, 0.25);
 scene.add(camera);
-const root = new THREE.Group();            // Spielfeld (kalibrierbar: Richtung/Boden)
-scene.add(root);
+// Buehne: Map UND Spielfeld haengen daran und werden nur gemeinsam ausgerichtet (Richtung, Position, MR-Boden).
+// So laufen die Noten immer exakt auf der Spur der Map. Am Bildschirm bleibt sie die Identitaet.
+const stage = new THREE.Group();
+scene.add(stage);
+const root = new THREE.Group();            // Spielfeld (Noten, Schwerter, Menues) – immer Identitaet relativ zur Buehne
+stage.add(root);
 
 const audio = new AudioPlayer();
 let mode: XRMode = 'desktop';
@@ -92,7 +96,8 @@ let gm: GameMode = game;
 
 const menus = new Menus(root, {
   play: (s, d, seed) => startSong(s, d, seed),
-  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); if (renderer.xr.isPresenting) setDirection(); },
+  // nach der Pause nicht neu ausrichten: Map und Noten sollen mitten im Song nicht springen
+  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); },
   restart: () => { if (current) { settings.gameMode = current.mode; startSong(current.song, current.d, current.seed); } },
   quitToMenu: () => { audio.stop(); toMenu(); },
   exitXR: () => renderer.xr.getSession()?.end(),
@@ -291,12 +296,15 @@ async function calibrate(): Promise<number | null> {
 
 // ---------- Kalibrierung Spielfeld (MR: Boden/Richtung) ----------
 let floorMin = Infinity, floorUntil = 0;
+/** Referenzraum wurde neu zentriert: im naechsten Bild neu ausrichten */
+let recenter = false;
 function setDirection() {
   const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
   const p = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld)); fwd.y = 0; fwd.normalize();
-  root.position.x = p.x; root.position.z = p.z;
-  root.rotation.y = Math.atan2(-fwd.x, -fwd.z);
+  // nur die Buehne bewegen: Map und Spielfeld bleiben deckungsgleich (nur Gier-Drehung, keine Neigung)
+  stage.position.x = p.x; stage.position.z = p.z;
+  stage.rotation.y = Math.atan2(-fwd.x, -fwd.z);
   placeMenu();
 }
 function placeMenu() { menus.place(); }
@@ -308,6 +316,8 @@ async function startXR(m: 'vr' | 'ar') {
   });
   setup(m);
   await renderer.xr.setSession(session);
+  // Neu-Zentrieren (Meta-Taste halten) verschiebt den Referenzraum: im naechsten Bild Map und Spielfeld gemeinsam neu vor den Spieler stellen
+  renderer.xr.getReferenceSpace()?.addEventListener('reset', () => { recenter = true; });
   session.addEventListener('end', () => { audio.stop(); state = 'menu'; $('start').hidden = false; renderer.domElement.style.display = 'none'; });
   // 'visible-blurred' = Quest blendet kurz etwas ein (Spielbereich-Grenze, Benachrichtigung): weiterspielen.
   // Nur 'hidden' (Brille abgesetzt, Systemmenue offen) pausiert.
@@ -318,8 +328,9 @@ async function startXR(m: 'vr' | 'ar') {
 function setup(m: XRMode) {
   mode = m;
   $('start').hidden = true; renderer.domElement.style.display = 'block';
-  if (!env) { env = new Environment(scene, m === 'ar'); lobbyMap(); }
-  root.position.y = m === 'ar' ? settings.floorOffset : 0;
+  if (!env) { env = new Environment(scene, stage, m === 'ar'); lobbyMap(); }
+  // MR-Bodenkorrektur auf der Buehne: Bodenmarkierung der Map und Spielfeld liegen auf demselben Boden
+  stage.position.y = m === 'ar' ? settings.floorOffset : 0;
   hud.fps.visible = settings.showFps;
   audio.resume();
   menus.go('main', false); menus.show();
@@ -359,7 +370,9 @@ renderer.setAnimationLoop((_t, frame) => {
   const dt = Math.min(0.05, clock.getDelta());
   const xr = renderer.xr.isPresenting;
   const cam = xr ? renderer.xr.getCamera() : camera;
-  root.updateMatrixWorld();
+  // erst im Bild nach dem Neu-Zentrieren ist die Kopfpose aktuell
+  if (recenter && xr) { recenter = false; setDirection(); }
+  stage.updateMatrixWorld();
   // Kopf in Spielfeld-Koordinaten
   headLocal.setFromMatrixPosition(cam.matrixWorld); root.worldToLocal(headLocal);
   const songT = audio.songTime();
@@ -389,7 +402,7 @@ renderer.setAnimationLoop((_t, frame) => {
     const left = Math.ceil((floorUntil - performance.now()) / 1000);
     menus.loading(`Controller auf den Boden legen … ${Math.max(0, left)}`, 1 - left / 4);
     if (performance.now() > floorUntil) {
-      if (floorMin < 1) { settings.floorOffset = Math.round((root.position.y - (floorMin - 0.025)) * 1000) / 1000; root.position.y = settings.floorOffset; saveSettings(); }
+      if (floorMin < 1) { settings.floorOffset = Math.round((stage.position.y - (floorMin - 0.025)) * 1000) / 1000; stage.position.y = settings.floorOffset; saveSettings(); }
       state = 'menu'; menus.go('settings', false);
     }
   }
@@ -485,4 +498,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, orbit, get gm() { return gm; }, menus, audio, settings, sabers, camera, renderer, view, slicer, root, hud, get env() { return env; }, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { game, orbit, get gm() { return gm; }, menus, audio, settings, sabers, camera, renderer, view, slicer, root, stage, hud, get env() { return env; }, get state() { return state; } };
