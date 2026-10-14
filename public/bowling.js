@@ -60,7 +60,10 @@ export class Lane {
     w.addContactMaterial(new CANNON.ContactMaterial(floorM, pinM, { friction: 0.35, restitution: 0.15 }));
     w.addContactMaterial(new CANNON.ContactMaterial(pinM, pinM, { friction: 0.15, restitution: 0.5 }));
     w.addContactMaterial(new CANNON.ContactMaterial(ballM, pinM, { friction: 0.05, restitution: 0.45 }));
-    this.mats = { floorM, pinM, ballM };
+    const wallM = new CANNON.Material('wall');
+    w.addContactMaterial(new CANNON.ContactMaterial(wallM, ballM, { friction: 0.1, restitution: 0.45 }));
+    w.addContactMaterial(new CANNON.ContactMaterial(wallM, pinM, { friction: 0.2, restitution: 0.4 }));
+    this.mats = { floorM, pinM, ballM, wallM };
 
     this.floor = new CANNON.Body({ mass: 0, material: floorM, shape: new CANNON.Plane() });
     this.floor.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
@@ -115,9 +118,23 @@ export class Lane {
     for (const b of this.walls) this.world.removeBody(b);
     this.walls = segs.map(([[ax, az], [bx, bz]]) => {
       const len = Math.hypot(bx - ax, bz - az);
-      const b = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(len / 2, 1.5, 0.05)) });
+      const b = new CANNON.Body({ mass: 0, material: this.mats.wallM, shape: new CANNON.Box(new CANNON.Vec3(len / 2 + 0.05, 1.5, 0.08)) });
       b.position.set((ax + bx) / 2, this.floorY + 1.5, (az + bz) / 2);
       b.quaternion.setFromEuler(0, -Math.atan2(bz - az, bx - ax), 0);
+      this.world.addBody(b); return b;
+    });
+  }
+
+  // ganzer Raum: Waende, Rand des gescannten Bodens und Moebel – die Kugel bleibt im Raum und prallt ab
+  setRoom(scan) {
+    const segs = [...scan.walls];
+    const F = scan.floorPoly;
+    if (F) for (let i = 0; i < F.length; i++) segs.push([F[i], F[(i + 1) % F.length]]);
+    this.setWalls(segs);
+    for (const b of this.boxes || []) this.world.removeBody(b);
+    this.boxes = scan.boxes.map((bx) => {
+      const b = new CANNON.Body({ mass: 0, shape: new CANNON.Box(new CANNON.Vec3(bx.size.x / 2, bx.size.y / 2, bx.size.z / 2)) });
+      b.position.set(bx.center.x, bx.center.y, bx.center.z); b.quaternion.setFromEuler(0, bx.yaw, 0);
       this.world.addBody(b); return b;
     });
   }

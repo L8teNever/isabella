@@ -5,6 +5,7 @@
 //   Handy/Bildschirm: von der Kugel weg wischen. Mehrere Spieler reihum, Schlaege je Loch.
 import * as THREE from 'three';
 import { RoomScan } from '/room-scan.js';
+import { RoomEdges } from '/room-edge.js';
 import { Course, TYPES, BALL_R, ZONES } from '/golf-course.js';
 import { clearanceField } from '/lane-fit.js';
 import { generateCourse, virtualField } from '/golf-random.js';
@@ -38,6 +39,7 @@ scene.add(hall); scene.background = new THREE.Color(0x15111d);
 
 const scan = new RoomScan(scene);
 const course = new Course(scene, scan);
+const edges = new RoomEdges(scene, { height: 0.04 }); edges.visible = false;
 
 /* ---------- Spieler und Runde ---------- */
 let names = ['Spieler 1'];
@@ -355,6 +357,40 @@ function press(inp, kind) {
   note = ''; saveMap(); drawBoard('');
 }
 
+// Vorschau: halb durchsichtiges Element dort, wo der Strahl gerade hinzeigt
+let ghost = null;
+function dropGhost() {
+  if (!ghost) return;
+  scene.remove(ghost.obj);
+  ghost.obj.traverse((o) => { if (o.material) { o.geometry?.dispose(); o.material.dispose(); } });
+  ghost = null;
+}
+function ghostYaw(p) {
+  if (tool === 'cup') { const t = course.items.find((x) => x.type === 'tee' && x.hole === editHole); if (t) return Math.atan2(p.x - t.obj.position.x, p.z - t.obj.position.z); }
+  return yawToward(p);
+}
+function updateGhost() {
+  let p = null;
+  const want = renderer.xr.isPresenting && !phone && mode === 'build' && !held && !drawing && ['tee', 'cup', 'obst'].includes(step) && TYPES[tool] && !ZONES.includes(tool);
+  if (want) {
+    const inp = inputs.find((i) => i.mode && i.source && !i.source.hand) || inputs.find((i) => i.mode);
+    if (inp) {
+      setRay(inp);
+      if (wizard.pick(raycaster) < 0 && !raycaster.intersectObjects(itemMeshes(), false)[0]) p = surfaceHit();
+    }
+  }
+  if (!p) { if (ghost) ghost.obj.visible = false; return; }
+  if (!ghost || ghost.type !== tool) {
+    dropGhost();
+    ghost = course.add(tool, p, 0, editHole);
+    course.items = course.items.filter((x) => x !== ghost);
+    if (ghost.body) { course.world.removeBody(ghost.body); ghost.body = null; }
+    course.group.remove(ghost.obj); scene.add(ghost.obj);
+    ghost.obj.traverse((o) => { delete o.userData.item; if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.45; o.material.depthWrite = false; } });
+  }
+  ghost.obj.visible = true; ghost.obj.position.copy(p); ghost.obj.rotation.y = ghostYaw(p);
+}
+
 // gemalte Zone fertig: Punkte ausduennen, Mitte bestimmen, als Flaeche anlegen
 let drawing = null;
 const drawLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false }));
@@ -499,7 +535,7 @@ renderer.setAnimationLoop((t, frame) => {
   const xr = renderer.xr.isPresenting;
   if (frame) {
     const ref = renderer.xr.getReferenceSpace();
-    if (scan.update(frame, ref)) { course.syncRoom(); shadow.position.y = scan.floorY + 0.001; drawToolbar(); }
+    if (scan.update(frame, ref)) { course.syncRoom(); edges.build(scan); shadow.position.y = scan.floorY + 0.001; drawToolbar(); }
     // Anker holen, dann gespeicherte Karte an ihren Platz
     if (anchorStep === 'start') { anchorStep = 'busy'; initAnchor(frame, session).finally(() => { anchorStep = 'wait'; }); }
     if (anchor) { const pose = frame.getPose(anchor.anchorSpace, ref); if (pose) { anchorM.fromArray(pose.transform.matrix); anchored = true; } }
@@ -568,7 +604,8 @@ renderer.setAnimationLoop((t, frame) => {
     const pk = pokeAll([wizard, wrist.panel], inputs, {});
     if (pk) (pk.panel === wizard ? stepButton : wristButton)(pk.id);
   }
-  course.animate(dt);
+  course.animate(dt); updateGhost();
+  edges.visible = xr && scan.scanned; if (edges.visible) edges.update();
   updateClub(dt); updateReady();
   // Kugel und Regeln
   if (mode === 'play' && round && !round.over) {
@@ -611,7 +648,7 @@ async function start(kind) {
   session.addEventListener('end', () => {
     saveMap(); session = null; anchor = null; anchored = false; anchorStep = null;
     $('gstart').hidden = false; $('goverlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d);
-    club.visible = false; drawing = null; drawLine.visible = false; clearSel(); board.visible = false; course.hideBall(); held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null;
+    club.visible = false; dropGhost(); drawing = null; drawLine.visible = false; clearSel(); board.visible = false; course.hideBall(); held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null;
   });
 }
 

@@ -9,6 +9,7 @@ import { Game, drawBoard, boardHeight, BOARD_W } from '/score.js';
 import { initSound, cheer } from '/sound.js';
 import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 import { RoomScan } from '/room-scan.js';
+import { RoomEdges } from '/room-edge.js';
 import { findLanes } from '/lane-fit.js';
 
 const $ = (id) => document.getElementById(id);
@@ -45,6 +46,7 @@ scene.background = new THREE.Color(0x15111d);
 
 const lane = new Lane(scene);
 const scan = new RoomScan(scene);
+const edges = new RoomEdges(scene); edges.visible = false;
 let lanes = [], laneIdx = 0, searchT = 0, foul = null, isFoul = false;
 const HAND_KEY = 'isabella-hand';
 let bowlHand = 'right';
@@ -394,9 +396,10 @@ renderer.setAnimationLoop((t, frame) => {
       arHit = r ? new THREE.Vector3(r.transform.position.x, r.transform.position.y, r.transform.position.z) : null;
     }
     // gescannter Raum (Quest-Raumeinrichtung): Waende fuer die Physik, Moebel fuer die Bahnsuche
-    if (scan.update(frame, ref)) lane.setWalls(scan.walls);
+    if (scan.update(frame, ref)) { lane.setRoom(scan); edges.build(scan); }
   }
   const head = viewerPos();
+  edges.visible = xr && !phone && scan.scanned; if (edges.visible) edges.update();
   // Bahn automatisch suchen (wartet kurz, bis der Raum-Scan da ist)
   if (step === 'search' && xr) {
     searchT += dt;

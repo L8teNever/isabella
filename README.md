@@ -28,6 +28,9 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 - **Werfen (Brille):** Die Kugel liegt automatisch in der Wurfhand (Handfläche bzw. unter dem Controller).
   Ausholen und nach vorn schwingen – am Tiefpunkt des Schwungs geht sie von selbst los (ab ~1,3 m/s
   Richtung Kegel). Alternativ Pinch/Abzug halten und loslassen. Wurfhand im Menü umschaltbar.
+- **Raum-Grenzen:** Wände, Möbel und der Rand des gescannten Bodens sind feste Banden – die Kugel
+  rollt nicht aus dem Raum, sondern prallt ab und kann dabei noch Kegel treffen. Unten an Wänden und
+  Möbeln leuchtet ein paar Zentimeter hoch eine Barriere (Cyan), am Bodenrand ohne Wand eine rote Linie.
 - **Uhr-Menü:** Handrücken der linken Hand kurz anschauen wie eine Uhr (oder X/Y am Controller) – das
   Menü öffnet sich und bleibt dann ruhig im Raum stehen, bis man etwas drückt oder wegschaut:
   Neu aufstellen, Bahn ändern, Neues Spiel, Spieler, Andere Hand, Beenden.
@@ -50,6 +53,10 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 - **Hindernisse:** Rampe, Looping (braucht Schwung – Boost davor), Boost, Wand, Bumper, Sand (bremst),
   Wasser (+1 Schlag), Hügel, Drehkreuz (dreht sich), Tunnel. Sand und Wasser malt man auf den Boden
   (Abzug/Pinch halten und Form ziehen, die Fläche wird gefüllt; kurz drücken = runde Fläche).
+- **Raum-Grenzen sichtbar:** Unten an Wänden und Möbeln leuchtet eine niedrige Barriere (dort prallt
+  die Kugel ab), an Tischkanten oben ebenfalls; rote Linie = Rand des gescannten Bodens (dahinter „aus“).
+- **Vorschau beim Bauen:** Das gewählte Element schwebt halb durchsichtig dort, wo der Strahl hinzeigt –
+  drücken setzt es genau dort hin.
 - **Auswählen und Bearbeiten:** Element antippen = auswählen (mehrere möglich), festhalten = verschieben.
   Für die Auswahl: drehen, größer/kleiner, breiter/schmaler, länger/kürzer, höher/flacher, alle wählen,
   löschen. Controller-Stick beim Festhalten: links/rechts dreht, hoch/runter ändert die Größe.
