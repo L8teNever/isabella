@@ -1,7 +1,8 @@
 # BeatBlade
 
 Selbst gehostetes VR-/MR-Rhythmusspiel für den Browser (Meta Quest 3/3S/Pro, andere WebXR-Headsets).
-Blöcke im Takt mit zwei Lichtschwertern in Pfeilrichtung zerschneiden – rot links, blau rechts.
+Zwei Spielmodi: **Schnitt** – Blöcke im Takt mit zwei Lichtschwertern in Pfeilrichtung zerschneiden, rot links,
+blau rechts – und **Orbit** – Kugeln an den Händen, Notenkugeln auf einer freien Fläche berühren und Rails folgen.
 Eigenes Design, keine fremden Assets. Levels werden **automatisch aus der Musik erzeugt**.
 
 Man lädt von jedem Gerät (Handy, PC, Tablet, auch aus der Brille) Musik hoch, der Server analysiert im
@@ -60,16 +61,43 @@ etwa einer Minute sind sie spielbar.
   ausblenden, löschen, Job-Log.
 - **Debug-Ansicht** (`debug.html?song=ID`): Wellenform, Beats/Takte, Onsets je Band, Abschnitte,
   Energie, Noten/Bomben/Wände und Lichtshow als Zeitleiste, mit Abspielen, Metronom- und Noten-Klick.
+  Umschalter **Modus Schnitt/Orbit**: Orbit zeigt Höhe und Seite jeder Kugel, Rails als Linien je Hand,
+  Gold/Grün, Wände/Ducken und die Orbit-Werte (Rails, schnellste Handbewegung, Probleme).
 - **Spielen** (`play.html`): *VR starten* oder *MR starten* (Passthrough, nur Blöcke und dezente Effekte).
   Man landet in einer kleinen **Lobby**, alles in Reichweite, ohne sich zu bewegen: in der Mitte die
-  Song-Auswahl (mit Bestwert je Song) und das Song-Detail (Schwierigkeit, Variante, Modifikatoren Schneller /
-  Keine Wände / Keine Bomben, *Starten*), links die **Bestenliste** zum gewählten Song, rechts die
+  Song-Auswahl (mit Bestwert je Song) und das Song-Detail (**Modus Schnitt/Orbit**, Schwierigkeit, Variante,
+  Modifikatoren Schneller / Keine Wände / Keine Bomben, *Starten*; der zuletzt gewählte Modus gilt für alle Songs), links die **Bestenliste** zum gewählten Song, rechts die
   **Einstellungen** in Gruppen (Spiel, Aussehen, Audio, Komfort, Mehr). Im Hintergrund läuft eine zufällige
   Map. Menüs per Laserpointer (Abzug/Pinch = Klick), Thumbstick blättert. *Upload vom Handy* (unter „Mehr“)
   zeigt einen QR-Code. Pause: B/Y-Taste oder Brille absetzen/Systemmenü, Weiterspielen mit 3-s-Countdown;
   die Bahn richtet sich bei Start und Weiterspielen nach Kopf und Blickrichtung aus.
-- **Desktop-Debugmodus**: Autoplay schneidet alle Noten (Taste `A` schaltet auf Maus-Steuerung des
-  rechten Schwerts), `Esc` = Pause.
+- **Desktop-Debugmodus**: Autoplay schneidet alle Noten bzw. berührt alle Kugeln (Taste `A` schaltet auf
+  Maus-Steuerung der rechten Hand), `O` wechselt den Modus, `Esc` = Pause. `play.html?mode=orbit` wählt Orbit vor.
+
+## Spielmodus Orbit
+
+Statt Schwertern sitzen **Kugeln an den Händen**. Notenkugeln fliegen auf eine Trefferfläche vor dir zu und
+liegen dort frei im Raum (nicht in einem Raster); du berührst sie im Takt mit der Kugel der passenden Hand.
+
+- **Normale Kugeln** (rot/blau): nur mit der Hand ihrer Farbe.
+- **Gold**: groß, in der Mitte – mit **beiden Händen** gleichzeitig berühren (Drop-Starts und starke Akzente).
+- **Grün**: mit **einer beliebigen Hand** – kommt in Läufen in ruhigen, melodischen Passagen.
+- **Rails**: leuchtende Bahnen auf gehaltenen Klängen (Pads, Gesang); die Hand folgt der Kurve, die Höhe folgt der
+  Tonhöhe. Eine Rail zählt, wenn man mindestens **80 %** der Zeit an ihr bleibt; der gespielte Teil verschwindet.
+- **Hindernisse**: dieselben Wände (und Wand-Skins) wie bei Schnitt – ausweichen oder ducken.
+- **Wertung**: Perfekt / Gut / Schlecht nach dem Abstand beim Berühren, Verpasst senkt die Prozent; Prozent und
+  Sterne wie bei Schnitt. Alle Werte oben in `apps/web/src/game/orbit/orbitscore.ts`, Darstellung in
+  `apps/web/src/game/orbit/orbit.ts`.
+- Linkshänder-Spiegelung, Spielergröße, *Schneller*, *Keine Wände*, Pause/Countdown, MR und Autoplay gelten auch hier.
+- **Highscores** sind nach Modus getrennt (bestehende Einträge gehören zu Schnitt).
+
+Die Level werden aus derselben Analyse automatisch erzeugt (`packages/core/src/mapping/orbit/`): gleiche
+Zeit-Auswahl wie Schnitt (`mapping/timing.ts`), Hände nach Kick bzw. Snare/Hi-Hat und Abwechseln bei schnellen
+Folgen, Bewegungsmuster je 2-Takt-Phrase (Bogen, Welle, Kreis, Lift, Pendel, Stufen; Wiederholungen gespiegelt),
+Rails aus den Analyse-Werten `sustain`/`pitch`, Gold/Grün, Wände; danach Validierung (Handgeschwindigkeit,
+Überkreuzen, Abstand gleichzeitiger Kugeln, Kugeln in Wänden, Bereich, Rails, Dichte) mit Spielbarkeits-Score.
+Alle Stellschrauben: `packages/core/src/mapping/orbit/tuning.ts`. Orbit-Levels haben eine eigene Version
+(`ORBIT_MAPPING_VERSION`): Änderungen erzeugen nur die Orbit-Levels neu, Schnitt bleibt unberührt.
 
 ## Wertung
 
@@ -83,7 +111,7 @@ Schnitt. **Verfehlt = stumm** (Standard aus) – sobald ein Block verfehlt ist (
 `apps/web/src/audio/player.ts`). Weil der Song als fertige Mischung vorliegt, verstummt kurz alles, nicht nur ein
 einzelnes Instrument.
 
-## Eigene Inhalte (Blöcke, Schwerter, Farben, Maps, Wände)
+## Eigene Inhalte (Blöcke, Schwerter, Farben, Maps, Wände, Orbit-Kugeln)
 
 Alles, was man auswählen kann, liegt als Ordner mit einer `info.json` in `content/`:
 
@@ -95,6 +123,9 @@ content/
   maps/<name>/info.json      Maps             style: neon-runway | space | synthwave | halloween | christmas | underwater
                                               | neon-city | volcano; wallSkin: <Wand-Ordner>; optional blockSkin, colorSet
   walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal | ice | mist
+  orbs/<name>/info.json      Orbit-Handkugeln style: glow | ring | crystal
+  orbnotes/<name>/info.json  Orbit-Noten      style: neon | crystal | ring | pumpkin | ornament   oder  model: datei.glb
+                                              Rail-Aussehen: railWidth (m, 0,008–0,06), railOpacity (0,2–1), railGlow (true/false)
 ```
 
 Gemeinsame Felder: `name`, `description`, `order` (Reihenfolge, klein = vorne), optional `preview` (Bild im
@@ -117,6 +148,8 @@ Beispiel – eigener Block aus einem 3D-Modell:
 - **Map:** `wallSkin` nennt die Wand, die automatisch dazu passt (Einstellung „Wände: Automatisch“).
   Themen-Maps können mit `blockSkin` und `colorSet` eigene Blöcke und Farben mitbringen (Halloween: Kürbisse
   in Orange/Lila, Weihnachten: Geschenke in Rot/Grün); eigene Farben links/rechts gelten weiterhin.
+  Mit `orbNoteSkin` bringen sie auch eigene Orbit-Noten mit (Halloween: Kürbisse, Weihnachten: Christbaumkugeln).
+- **Orbit-Noten-Modell:** wie beim Block-Modell, wird auf Kugelgröße skaliert; hell/weiß modellieren.
 - **Vorschaubild:** `preview` (z. B. `preview.jpg`, quadratisch, 256×256) erscheint im Auswahl-Menü.
 - Liste aller Inhalte: `GET /beatblade/api/content`.
 
@@ -125,9 +158,11 @@ Beispiel – eigener Block aus einem 3D-Modell:
 ```
 packages/core   Analyse (STFT, Multi-Band-Onsets, Tempo, Beat-Tracking, Takt, Energie, Struktur) +
                 Mapping (Generator, Muster, Parity, Waende/Bomben, Lichtshow, Validierung), Typen, Tuning
-apps/server     Fastify-API, Upload, persistente Job-Queue (SQLite), Worker-Threads, ffmpeg, SSE, Seed-Import
+apps/server     Fastify-API, Upload, persistente Job-Queue (SQLite), Worker-Threads, ffmpeg, SSE, Seed-Import;
+                Levels je Modus: beatmaps/<diff>-<seed>.json (Schnitt), beatmaps/orbit-<diff>-<seed>.json (Orbit),
+                API mit ?mode=schnitt|orbit (Level, Bestenliste, Bestwerte, Score speichern)
 apps/web        Vite + Three.js: Bibliothek/Upload, Debug-Ansicht, WebXR-Spiel (Lobby, Skins, Maps)
-content         auswählbare Inhalte: Blöcke, Schwerter, Farben, Maps, Wände (je Ordner eine info.json)
+content         auswählbare Inhalte: Blöcke, Schwerter, Farben, Maps, Wände, Orbit-Kugeln (je Ordner eine info.json)
 seed-songs      credits.json (CC-BY-Songs, werden beim Build geladen)
 ```
 
@@ -144,6 +179,8 @@ seed-songs      credits.json (CC-BY-Songs, werden beim Build geladen)
 5. Takt/Downbeat: Bass, Bass-Onsets, Akkordwechsel je Beat; 4/4 oder 3/4 (nur wenn eindeutig).
 6. Struktur: Takt-Merkmale → Self-Similarity-Matrix → Checkerboard-Novelty + Energiesprünge → Abschnitte
    (auf 4er-Phrasen eingerastet) → Intro/Strophe/Build-up/Drop/Breakdown/Outro, Wiederholungsgruppen.
+7. Für Orbit je Beat: `sustain` (Melodie vorhanden und Harmonie stabil = gehaltener Klang, Grundlage der Rails)
+   und `pitch` (Tonhöhe des melodischen Anteils, je Song normiert – Form der Rails).
 
 ### Mapping (packages/core/src/mapping)
 
@@ -169,7 +206,7 @@ gespeichert.
 
 ```bash
 pnpm install
-pnpm build && pnpm test          # Core-Tests: BPM, Beats, Downbeats, Mapping-Regeln
+pnpm build && pnpm test          # Core-Tests: BPM, Beats, Downbeats, Mapping-Regeln, Schnitt-Fingerabdruck, Orbit
 DATA_DIR=./data SEED_DIR=./seed-songs WEB_DIR=../web/dist PORT=3901 pnpm --filter @beatblade/server start
 pnpm --filter @beatblade/web dev # Vite mit Proxy auf :3901
 pnpm seed:download               # mitgelieferte Songs laden
