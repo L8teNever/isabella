@@ -123,7 +123,7 @@ Alles, was man auswählen kann, liegt als Ordner mit einer `info.json` in `conte
 ```
 content/
   blocks/<name>/info.json    Block-Skins      style: neon-cube | crystal | retro-pixel | pumpkin | gift   oder  model: datei.glb
-  sabers/<name>/info.json    Schwerter        style: classic | katana | neon-stab        oder  model: datei.glb
+  sabers/<name>/info.json    Schwerter        style: classic | katana | neon-stab        oder  model: datei.glb (z. B. frostklinge, glutklinge)
   colors/<name>/info.json    Farbsets         left: "#rrggbb", right: "#rrggbb"
   maps/<name>/info.json      Maps             style: neon-runway | space | synthwave | halloween | christmas | underwater
                                               | neon-city | volcano; wallSkin: <Wand-Ordner>; optional blockSkin, colorSet
@@ -150,6 +150,14 @@ Beispiel – eigener Block aus einem 3D-Modell:
   (dort sitzt der Pfeil). Die Farbe kommt pro Block, das Modell sollte also hell/weiß sein.
 - **Schwert-Modell:** die längste Achse wird zur Klinge, das Griffende liegt in der Hand; `bladeLength`
   (0,5–1,4 m) ändert nur das Aussehen – die Treffer-Zone bleibt immer 1 m, das Spielgefühl ist gleich.
+- **Schwert mit eigenem Leuchtrand** (wie Frostklinge und Glutklinge): Materialnamen im `.glb` steuern das Leuchten –
+  `glow…` = Leuchtrand/Muster in der Handfarbe, `glowcore…` = heller Kern, `glowsoft…` = weiches Glühen (additiv,
+  Vertex-Farben als Verlauf, wird mit der Combo stärker); alle anderen Materialien bleiben, wie modelliert. Modell entlang
+  −Z (Spitze), Griffende bei +0,14 m, 1 m Klinge, Gesamtlänge 1,2 m. Die beiden mitgelieferten Schwerter werden
+  prozedural gebaut: `apps/web/tools/swords/swords.ts` (Formen als Zahlenlisten: Klingen-Umriss, Leuchtstriche,
+  Parierstange, Rauten, Griff) – neues Schwert = neuen Eintrag dort anlegen und
+  `node tools/swords/build.mjs` (in `apps/web`, braucht Playwright) laufen lassen; das schreibt `schwert.glb` und
+  `preview.jpg` nach `content/sabers/<name>/`, dazu eine `info.json` mit `"model": "schwert.glb"` anlegen.
 - **Map:** `wallSkin` nennt die Wand, die automatisch dazu passt (Einstellung „Wände: Automatisch“).
   Themen-Maps können mit `blockSkin` und `colorSet` eigene Blöcke und Farben mitbringen (Halloween: Kürbisse
   in Orange/Lila, Weihnachten: Geschenke in Rot/Grün); eigene Farben links/rechts gelten weiterhin.

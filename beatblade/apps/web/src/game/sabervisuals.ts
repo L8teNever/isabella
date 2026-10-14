@@ -2,7 +2,7 @@
 // Eingebaute Stile: Lichtschwert (bisher), Katana, Neon-Stab. Oder eigenes .glb-Modell aus content/sabers/<name>/.
 // Konvention: Griff am Ursprung, Klinge zeigt nach -Z, beginnt bei z = -0.06.
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLOW } from './glow';
 
 export interface SaberVisual {
@@ -88,11 +88,21 @@ export function buildSaberVisual(style: string, len: number, color: number): Sab
   return finish(group, haloMesh(len, GLOW.saberHalo, GLOW.saberHaloStrength, color), [glowMat], [0.55], GLOW.saberHaloStrength, [glow]);
 }
 
-/** eigenes Modell (.glb): laengste Achse wird zur Klinge (-Z), Laenge = Klinge + Griff; Leuchten kommt dazu */
+const gltfCache = new Map<string, Promise<GLTF>>();
+
+/**
+ * eigenes Modell (.glb): laengste Achse wird zur Klinge (-Z), Laenge = Klinge + Griff; Leuchten kommt dazu.
+ * Materialnamen im Modell steuern das Leuchten (alles andere bleibt, wie modelliert):
+ *  - "glow…"     Leuchtrand/Muster: in der Schwertfarbe (Handfarbe), voll hell
+ *  - "glowcore…" heller Kern des Leuchtrands: Schwertfarbe stark aufgehellt
+ *  - "glowsoft…" weiches Glühen (Fläche mit Verlaufs-Textur): additiv, wird mit der Combo staerker
+ * Ohne solche Materialien bekommt die Klinge wie bisher einen Leuchtzylinder.
+ */
 export async function saberFromModel(url: string, len: number, color: number): Promise<SaberVisual | null> {
   try {
-    const gltf = await new GLTFLoader().loadAsync(url);
-    const model = gltf.scene;
+    let p = gltfCache.get(url);
+    if (!p) { p = new GLTFLoader().loadAsync(url); gltfCache.set(url, p); p.catch(() => gltfCache.delete(url)); }   // Fehlschlag nicht merken
+    const model = (await p).scene.clone(true);
     const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
     // laengste Achse auf -Z drehen
     if (size.y >= size.x && size.y >= size.z) model.rotation.x = -Math.PI / 2;
@@ -104,12 +114,43 @@ export async function saberFromModel(url: string, len: number, color: number): P
     const b3 = new THREE.Box3().setFromObject(wrap);
     wrap.position.z -= b3.max.z - 0.14;   // Griffende knapp hinter der Hand
     const group = new THREE.Group(); group.add(wrap);
-    const glowMat = additive(color, 0.35);
-    const glow = along(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, len, 12, 1, true), glowMat), len);
-    group.add(glow);
-    return finish(group, haloMesh(len, GLOW.saberHalo, GLOW.saberHaloStrength, color), [glowMat], [0.35], GLOW.saberHaloStrength, [glow]);
+    // Leucht-Materialien nach Namen ersetzen
+    const glows: THREE.MeshBasicMaterial[] = [], cores: THREE.MeshBasicMaterial[] = [], softs: THREE.MeshBasicMaterial[] = [], softBase: number[] = [];
+    model.traverse((o) => {
+      const m = o as THREE.Mesh; if (!m.isMesh) return;
+      const src = m.material as THREE.Material & { map?: THREE.Texture | null; opacity: number };
+      const name = (src.name || '').toLowerCase();
+      if (name.startsWith('glowsoft')) {
+        const op = src.opacity < 1 ? src.opacity : 0.55;
+        const g = additive(color, op); g.map = src.map ?? null; g.side = THREE.DoubleSide;
+        g.vertexColors = !!m.geometry.attributes.color;   // Verlauf innen hell -> aussen 0
+        m.material = g; m.renderOrder = 2; softs.push(g); softBase.push(op);
+      } else if (name.startsWith('glowcore')) {
+        const g = new THREE.MeshBasicMaterial({ color: coreColor(color) }); m.material = g; cores.push(g);
+      } else if (name.startsWith('glow')) {
+        const g = new THREE.MeshBasicMaterial({ color }); m.material = g; glows.push(g);
+      }
+    });
+    if (!glows.length && !cores.length && !softs.length) {
+      const glowMat = additive(color, 0.35);
+      const glow = along(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, len, 12, 1, true), glowMat), len);
+      group.add(glow);
+      return finish(group, haloMesh(len, GLOW.saberHalo, GLOW.saberHaloStrength, color), [glowMat], [0.35], GLOW.saberHaloStrength, [glow]);
+    }
+    // eigener Leuchtrand: Leucht-Huelle schmal und dezent, sonst ueberstrahlt sie die dunkle Klinge
+    const hs = GLOW.saberHaloStrength * 0.2;
+    // Huelle kuerzer als die Klinge (beginnt am Heft, endet vor der Spitze), damit sie nicht ueber die Spitze ragt
+    const halo = haloMesh(len - 0.14, GLOW.saberHalo * 0.6, hs, color); halo.position.z += 0.05;
+    const v = finish(group, halo, softs, softBase, hs, []);
+    return {
+      ...v,
+      tint(c) { v.tint(c); for (const g of glows) g.color.setHex(c); for (const g of cores) g.color.setHex(coreColor(c)); },
+    };
   } catch (e) {
     console.warn('Schwert-Modell konnte nicht geladen werden', url, e);
     return null;
   }
 }
+
+/** heller Kern eines Leuchtrands: Farbe stark zu Weiss gemischt */
+function coreColor(c: number): number { return new THREE.Color(c).lerp(new THREE.Color(0xffffff), 0.72).getHex(); }

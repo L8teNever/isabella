@@ -1,0 +1,8 @@
+{
+  "name": "Frostklinge",
+  "description": "Schlanke Klinge mit hellem Leuchtrand, Leuchtstrichen und gezackter Schulter, kleine Parierstange mit leuchtenden Rauten.",
+  "model": "schwert.glb",
+  "bladeLength": 1.0,
+  "order": 3,
+  "preview": "preview.jpg"
+}

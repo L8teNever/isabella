@@ -1,0 +1,8 @@
+{
+  "name": "Glutklinge",
+  "description": "Kräftige Klinge mit glühendem Rand und Symbol am Heft, große geschwungene Parierstange mit Zacken, Knauf.",
+  "model": "schwert.glb",
+  "bladeLength": 1.0,
+  "order": 4,
+  "preview": "preview.jpg"
+}
