@@ -16,12 +16,15 @@ export const rowY = (y: number) => {
   return base + y * ROW_H;
 };
 
-/** Vorlaufzeit (s): wie lange eine Note vor ihrem Zeitpunkt sichtbar ist (aus NJS, wie Sprungdistanz) */
-export function lookahead(njs: number, bpm: number, offset = 0): number {
-  // halbe Sprungdauer in Beats: bei hohem Tempo/NJS kuerzer, mindestens 1 Beat
-  const spb = 60 / bpm;
-  let hjd = 4;
-  while (njs * spb * hjd > 18) hjd /= 2;
-  hjd = Math.max(1, hjd + offset);
-  return Math.max(0.75, Math.min(1.6, hjd * spb * 1.2));
+// ---------- Sichtweite: wie frueh Bloecke im Hintergrund auftauchen ----------
+export const VIEW_SEC = 3.0;            // Sekunden, die ein Block sichtbar ist, bevor er bei dir ankommt
+export const VIEW_DIST_MAX = 45;        // hoechstens so weit weg (m) taucht er auf (bei schnellen Bloecken)
+export const ARRIVE_PART = 0.45;        // Anteil der Sichtzeit fuers sanfte Heranschweben aus der Ferne
+
+/** Vorlaufzeit (s): wie lange eine Note vor ihrem Zeitpunkt sichtbar ist */
+export function lookahead(njs: number, _bpm?: number, _offset = 0): number {
+  return Math.max(1.5, Math.min(VIEW_SEC, VIEW_DIST_MAX / njs));
 }
+
+/** sanftes Ein- und Ausblenden (0..1 -> 0..1) */
+export const smooth = (p: number) => { const q = Math.min(1, Math.max(0, p)); return q * q * (3 - 2 * q); };

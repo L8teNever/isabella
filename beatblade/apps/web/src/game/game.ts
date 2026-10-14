@@ -2,7 +2,7 @@
 // Richtung pruefen, schneiden, Punkte/Energie fuehren, Fehlschlaege und Wand-Kollision werten.
 import * as THREE from 'three';
 import { Cut, cutVector, type Beatmap, type Note, type Bomb, type Obstacle } from '@beatblade/core';
-import { HIT_Z, laneX, rowY, COLORS, lookahead, NOTE_SIZE } from './layout';
+import { HIT_Z, laneX, rowY, COLORS, lookahead, NOTE_SIZE, ARRIVE_PART, smooth } from './layout';
 import { NoteView } from './notes';
 import { Slicer, ERROR_COLOR } from './slicer';
 import { Saber, FollowThrough } from './sabers';
@@ -95,10 +95,10 @@ export class Game {
       if (s.done) continue;
       const z = this.z(n.t, t);
       if (!paused && z > HIT_Z + 0.65) { s.done = true; this.score.miss(); this.slicer.error(new THREE.Vector3(laneX(n.x), rowY(n.y), HIT_Z - 0.6), 30); if (settings.missMute) this.ev.muteNow(); continue; }   // vorbeigeflogen
-      // Einflug: aus dem Boden hochspringen und aufdrehen (erste 40 % der Vorlaufzeit)
-      const p = Math.min(1, Math.max(0, 1 - dtn / this.look) / 0.4), e = 1 - (1 - p) ** 3;
-      const y = rowY(n.y) * e + (1 - e) * 0.1;
-      v.addNote(laneX(n.x), y, z, this.colors[n.c], n.d, 0.6 + 0.4 * e, (1 - e) * Math.PI);
+      // Einflug: tief hinten klein auftauchen, sanft wachsen und in die Zielposition schweben, dabei langsam aufdrehen
+      const p = (1 - dtn / this.look) / ARRIVE_PART, e = smooth(p);
+      const x = laneX(n.x) * (0.55 + 0.45 * e), y = rowY(n.y) * e + (1 - e) * 1.1;
+      v.addNote(x, y, z, this.colors[n.c], n.d, 0.15 + 0.85 * e, (1 - e) * Math.PI * 0.75);
     }
     while (this.b0 < this.bombs.length && this.bombs[this.b0].done) this.b0++;
     for (let i = this.b0; i < this.bombs.length; i++) {
