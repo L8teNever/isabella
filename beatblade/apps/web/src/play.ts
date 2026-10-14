@@ -165,10 +165,16 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
 
 function pauseGame() {
   if (state !== 'playing') return;
-  audio.pause(); state = 'paused'; hud.message(''); menus.pause();
+  audio.pause(); state = 'paused'; hud.message(''); menus.pause(); sendLog('pause');
+}
+
+function sendLog(reason: string) {
+  const s = game.score;
+  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, energy: s.energy, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, noFail: settings.noFail, cuts: game.cutLog.slice(-60) });
 }
 
 function finish(fail: boolean) {
+  sendLog(fail ? 'fail' : 'end');
   if (fail) { audio.stop(); hud.message('Gescheitert', 'Zu viele Noten verpasst – No Fail im Song-Menü'); }
   else { const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4); setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500); }
   state = 'results';
@@ -278,7 +284,7 @@ renderer.setAnimationLoop((_t, frame) => {
       const pos = new THREE.Vector3().setFromMatrixPosition(inp.grip.matrixWorld); root.worldToLocal(pos);
       const q = new THREE.Quaternion().setFromRotationMatrix(inp.ray.matrixWorld).premultiply(root.getWorldQuaternion(new THREE.Quaternion()).invert());
       const sb = sabers[hand as 0 | 1];
-      sb.setPose(pos, q, songT);
+      sb.setPose(pos, q, performance.now() / 1000);
       // Pause: B/Y
       const b = !!gp.buttons[5]?.pressed;
       if (b && !inp.prevButtons[5] && state === 'playing') pauseGame();
@@ -354,7 +360,7 @@ function desktopSabers(t: number) {
     const dir = tipTarget.clone().sub(restHilt).normalize();
     const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
     const hilt = tipTarget.clone().addScaledVector(dir, -1.06);
-    sb.setPose(hilt, q, t);
+    sb.setPose(hilt, q, performance.now() / 1000);
   }
 }
 

@@ -31,6 +31,15 @@ app.get(`${api}/info`, async (req) => ({
 }));
 app.get(`${api}/credits`, async () => readCredits().map(({ title, artist, license, licenseUrl, source, attribution, genre }) => ({ title, artist, license, licenseUrl, source, attribution, genre })));
 app.get(`${api}/health`, async () => ({ ok: true }));
+// Fehlersuche: Spiel meldet Schnitt-Protokolle (letzte 300 Eintraege werden behalten)
+const debugLog: unknown[] = [];
+app.post(`${api}/debug`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+  debugLog.push({ at: new Date().toISOString(), ...(req.body as object) });
+  while (debugLog.length > 300) debugLog.shift();
+  try { fs.appendFileSync(path.join(config.dataDir, 'debug.log'), JSON.stringify(debugLog[debugLog.length - 1]) + '\n'); } catch { /* egal */ }
+  return { ok: true };
+});
+app.get(`${api}/debug`, async () => debugLog.slice(-50));
 
 songRoutes(app, api);
 

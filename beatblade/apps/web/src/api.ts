@@ -31,6 +31,7 @@ export const api = {
   scores: (id: string, d: Difficulty) => j<Highscore[]>(`/songs/${id}/scores?difficulty=${d}`),
   postScore: (id: string, s: Omit<Highscore, 'songId' | 'createdAt'>) => j<Highscore[]>(`/songs/${id}/scores`, json('POST', s)),
   credits: () => j<Credit[]>('/credits'),
+  debug: (data: unknown) => fetch(`${API}/debug`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin', keepalive: true }).catch(() => {}),
   audioUrl: (id: string) => `${API}/songs/${id}/audio`,
   coverUrl: (s: Song) => (s.hasCover ? `${API}/songs/${s.id}/cover?v=${s.updatedAt}` : null),
   async setCover(id: string, file: File): Promise<Song> {

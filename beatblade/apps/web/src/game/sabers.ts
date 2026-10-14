@@ -85,7 +85,7 @@ export class Saber {
   tipVelocity(): THREE.Vector3 {
     const h = this.history; if (h.length < 2) return new THREE.Vector3();
     const last = h[h.length - 1]; let first = h[h.length - 2];
-    for (let i = h.length - 2; i >= 0; i--) { first = h[i]; if (last.t - h[i].t >= 0.03) break; }
+    for (let i = h.length - 2; i >= 0; i--) { first = h[i]; if (last.t - h[i].t >= 0.05) break; }
     const dt = last.t - first.t; return dt > 0 ? last.tip.clone().sub(first.tip).divideScalar(dt) : new THREE.Vector3();
   }
 

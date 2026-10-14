@@ -46,6 +46,8 @@ export class Game {
   private follows: FollowThrough[] = [];
   private i0 = 0; private b0 = 0;
   inWall = false;
+  /** Protokoll aller Schnitte (zur Fehlersuche an den Server) */
+  cutLog: Record<string, unknown>[] = [];
   ended = false;
   lastT = 0;
   colors: [number, number] = [COLORS.left, COLORS.right];
@@ -61,7 +63,7 @@ export class Game {
     this.score.total = this.notes.length;
     this.speed = bm.njs;
     this.look = lookahead(bm.njs, bm.bpm, bm.offset);
-    this.follows = []; this.i0 = 0; this.b0 = 0; this.ended = false; this.inWall = false;
+    this.follows = []; this.cutLog = []; this.i0 = 0; this.b0 = 0; this.ended = false; this.inWall = false;
     this.colors = settings.leftHanded ? [COLORS.right, COLORS.left] : [COLORS.left, COLORS.right];
     this.sabers[0].setColor(this.colors[0]); this.sabers[1].setColor(this.colors[1]);
     this.slicer.clear();
@@ -121,7 +123,8 @@ export class Game {
 
     // ---------- Treffer ----------
     for (const saber of this.sabers) if (saber.active) this.collide(saber, t);
-    for (const f of this.follows) f.update(t);
+    const now = performance.now() / 1000;
+    for (const f of this.follows) f.update(now);
     this.follows = this.follows.filter((f) => !f.done);
     this.lastT = t;
     if (!this.ended && (this.score.failed || t > this.endTime)) { this.ended = true; this.ev.finished(this.score.failed); }
@@ -172,6 +175,7 @@ export class Game {
       okDir = ang <= ANGLE_TOL;
     }
     const okColor = sb.hand === n.c;
+    this.cutLog.push({ t: Math.round(t * 1000) / 1000, hand: sb.hand, c: n.c, d: n.d, vx: Math.round(v2.x * 100) / 100, vy: Math.round(v2.y * 100) / 100, okDir, okColor, dist: Math.round(dist * 100) / 100 });
     if (speed < MIN_SPEED && okColor) return;          // zu langsam: kein Schnitt (Note fliegt weiter)
     s.done = true;
     const normal = new THREE.Vector3().crossVectors(sb.dir, vel.clone().normalize()).normalize();
@@ -187,6 +191,6 @@ export class Game {
     const acc = 15 * (1 - Math.min(1, dist / (NOTE_SIZE * 0.75)));
     this.ev.haptic(sb.hand, 0.7, 50);
     this.ev.slice(1);
-    this.follows.push(new FollowThrough(sb, t, (post) => { this.score.finalize(pre, (post / 60) * 30, acc, mult); }));
+    this.follows.push(new FollowThrough(sb, performance.now() / 1000, (post) => { this.score.finalize(pre, (post / 60) * 30, acc, mult); }));
   }
 }
