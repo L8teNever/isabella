@@ -199,6 +199,7 @@ export class Menus {
         return { title: r.failed ? 'Gescheitert' : `Rang ${s.rank}`, subtitle: `${r.song.title} · ${DIFFICULTY_LABEL[r.d]}`, cols: 2, items: [
           { type: 'text', text: `Score ${s.score.toLocaleString('de-DE')}   ·   Genauigkeit ${s.accuracy.toFixed(1)} %`, size: 36, align: 'center' },
           { type: 'text', text: `Max. Combo ${s.maxCombo}   ·   Treffer ${s.hits}/${s.total}   ·   Fehler ${s.misses + s.badCuts}   ·   Bomben ${s.bombs}`, size: 26, align: 'center', color: '#b8b0d6' },
+          { type: 'text', text: `Verpasst ${s.misses}   ·   falsche Richtung ${s.badDir}   ·   falsche Farbe ${s.badColor}   ·   Zeit in Wänden ${s.wallTime.toFixed(1)} s`, size: 24, align: 'center', color: '#ff9db0' },
           ...(this.scores.length ? [{ type: 'text', text: 'Highscores: ' + this.scores.slice(0, 5).map((h, i) => `${i + 1}. ${h.name} ${h.score.toLocaleString('de-DE')}`).join('   '), size: 22, color: '#d8d0f0' } as Item] : []),
           { type: 'button', id: 'name', label: `Name: ${settings.name}` },
           { type: 'button', id: 'save', label: r.saved ? 'Gespeichert ✓' : 'Highscore speichern', disabled: r.saved || r.failed || s.score <= 0 },

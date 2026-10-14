@@ -7,7 +7,7 @@ const STEPS = [2, 4, 8];
 
 export class ScoreKeeper {
   score = 0; combo = 0; maxCombo = 0; mult = 1; private multProg = 0;
-  energy = 0.5; hits = 0; misses = 0; badCuts = 0; bombs = 0; wallTime = 0;
+  energy = 0.5; hits = 0; misses = 0; badCuts = 0; badDir = 0; badColor = 0; bombs = 0; wallTime = 0;
   maxPossible = 0; private idealMult = 1; private idealProg = 0;
   failed = false;
   total = 0;               // Notenanzahl
@@ -44,16 +44,16 @@ export class ScoreKeeper {
     this.multProg = 0;
   }
 
-  miss(bad = false) {
+  miss(bad = false, why: 'dir' | 'color' = 'dir') {
     this.breakCombo(); this.judged++;
-    if (bad) this.badCuts++; else this.misses++;
+    if (bad) { this.badCuts++; if (why === 'dir') this.badDir++; else this.badColor++; } else this.misses++;
     this.drain(0.1);
     this.advanceIdeal();
   }
 
   bomb() { this.breakCombo(); this.bombs++; this.drain(0.15); }
 
-  wall(dt: number) { this.wallTime += dt; this.drain(1.3 * dt); if (this.combo > 0) this.breakCombo(); }
+  wall(dt: number) { this.wallTime += dt; this.drain(0.5 * dt); if (this.combo > 0) this.breakCombo(); }
 
   private drain(v: number) {
     this.energy = Math.max(0, this.energy - v);

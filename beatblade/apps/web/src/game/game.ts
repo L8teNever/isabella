@@ -111,7 +111,9 @@ export class Game {
       // Kopf in der Wand?
       const x0 = laneX(o.x) - 0.275, x1 = laneX(o.x + o.w - 1) + 0.275;
       const yMin = o.kind === 'crouch' ? rowY(0) + 0.75 : -1;
-      if (head.x > x0 && head.x < x1 && head.y > yMin && head.z < zf && head.z > zb) this.inWall = true;
+      // 8 cm Toleranz: nur wer wirklich mit dem Kopf in der Wand steht, verliert Energie
+      const m = 0.08;
+      if (head.x > x0 + m && head.x < x1 - m && head.y > yMin + m && head.z < zf && head.z > zb) this.inWall = true;
     }
     v.end();
     if (paused) return;
@@ -176,7 +178,7 @@ export class Game {
     if (normal.lengthSq() < 0.5) normal.set(1, 0, 0);
     this.slicer.cut(c, n.d, this.colors[n.c], normal, new THREE.Vector3(0, 0, this.speed), okColor && okDir ? 20 : 6);
     if (!okColor || !okDir) {
-      this.score.miss(true);
+      this.score.miss(true, okColor ? 'dir' : 'color');
       this.ev.haptic(sb.hand, 0.3, 40);
       return;
     }

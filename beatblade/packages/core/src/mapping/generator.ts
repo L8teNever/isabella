@@ -213,8 +213,8 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
           obstacles.push({ b: round(b), t: round(t), dur: round(beatToTime(beats, b + 1) - t), x: 0, w: 4, kind: 'crouch' });
         }
       }
-      // vor Drops (Hard+): Ausweich-Wand im letzten Takt des Build-ups
-      if (sec.type === 'buildup' && difficulty !== 'easy' && difficulty !== 'normal' && len >= 2) {
+      // vor Drops (ab Expert): Ausweich-Wand im letzten Takt des Build-ups
+      if (sec.type === 'buildup' && (difficulty === 'expert' || difficulty === 'expertplus') && len >= 2) {
         const b = beatOfBar(a, sec.endBar - 1), t = beatToTime(beats, b), te = beatToTime(beats, b + barBeats - MAPPING.dropPause);
         if (t > startT && te > t + 0.3) obstacles.push({ b: round(b), t: round(t), dur: round(te - t), x: side % 2 === 0 ? 1 : 2, w: 1, kind: 'full' });
         side++;
