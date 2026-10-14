@@ -1,0 +1,8 @@
+{
+  "name": "Neonsäbel",
+  "description": "Langer, schmaler Tron-Säbel, zur Spitze leicht nach oben gebogen: Leuchtrand, zwei Leuchtschlitze, zwei runde Löcher, gewickelter Griff.",
+  "model": "schwert.glb",
+  "bladeLength": 1.15,
+  "order": 6,
+  "preview": "preview.jpg"
+}

@@ -6,9 +6,18 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildSword, FROST, GLUT } from './swords';
+import { buildGitter, buildSaebel } from './tron';
 import { saberFromModel } from '../../src/game/sabervisuals';
 
-const SWORDS = { frostklinge: { spec: FROST, color: 0x3fc8ff }, glutklinge: { spec: GLUT, color: 0xff2a3a } };
+const SWORDS = {
+  frostklinge: { build: () => buildSword(FROST), color: 0x3fc8ff, len: 1.0 },
+  glutklinge: { build: () => buildSword(GLUT), color: 0xff2a3a, len: 1.0 },
+  gitterklinge: { build: buildGitter, color: 0x2fe6ff, len: 0.85 },
+  neonsaebel: { build: buildSaebel, color: 0xff2030, len: 1.15 },
+};
+/** nur diese bauen (?nur=a,b), sonst alle */
+const only = new URLSearchParams(location.search).get('nur')?.split(',');
+const ids = () => (Object.keys(SWORDS) as (keyof typeof SWORDS)[]).filter((k) => !only || only.includes(k));
 
 async function exportGlb(g: THREE.Object3D): Promise<ArrayBuffer> {
   return (await new GLTFExporter().parseAsync(g, { binary: true })) as ArrayBuffer;
@@ -45,7 +54,7 @@ function place(o: THREE.Object3D, y: number) {
 
 const dbg = new URLSearchParams(location.search);
 async function visual(id: keyof typeof SWORDS, url: string) {
-  const v = await saberFromModel(url, 1.0, SWORDS[id].color);
+  const v = await saberFromModel(url, SWORDS[id].len, SWORDS[id].color);
   if (!v) throw new Error('Modell laedt nicht: ' + id);
   v.tint(SWORDS[id].color); v.boost(0.25);
   if (dbg.has('nohalo')) v.halo.visible = false;
@@ -57,8 +66,8 @@ async function visual(id: keyof typeof SWORDS, url: string) {
   const out: Record<string, unknown> = {};
   const urls: Record<string, string> = {};
   const stats: Record<string, unknown> = {};
-  for (const id of Object.keys(SWORDS) as (keyof typeof SWORDS)[]) {
-    const g = buildSword(SWORDS[id].spec);
+  for (const id of ids()) {
+    const g = SWORDS[id].build();
     let tris = 0, meshes = 0;
     g.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh) return; meshes++; const gg = m.geometry; tris += (gg.index ? gg.index.count : gg.attributes.position.count) / 3; });
     const buf = await exportGlb(g);
@@ -68,7 +77,7 @@ async function visual(id: keyof typeof SWORDS, url: string) {
   }
   // Vorschau je Schwert (256 x 256)
   const shots: Record<string, string> = {};
-  for (const id of Object.keys(SWORDS) as (keyof typeof SWORDS)[]) {
+  for (const id of ids()) {
     const s = stage(256, 256);
     s.scene.add(place(await visual(id, urls[id]), 0));
     s.cam.position.set(-0.46, 0.05, 3.15); s.cam.lookAt(-0.46, 0, 0);
@@ -78,7 +87,8 @@ async function visual(id: keyof typeof SWORDS, url: string) {
   }
   // Vergleich wie die Vorlage: beide uebereinander
   const big = dbg.has('big'), s = stage(big ? 1400 : 489, big ? 1400 : 489);
-  s.scene.add(place(await visual('frostklinge', urls.frostklinge), 0.2), place(await visual('glutklinge', urls.glutklinge), -0.28));
+  const pair = ids().length === 2 ? ids() : (['frostklinge', 'glutklinge'] as const);
+  s.scene.add(place(await visual(pair[0], urls[pair[0]]), 0.2), place(await visual(pair[1], urls[pair[1]]), -0.28));
   if (dbg.has('zoom')) { s.cam.position.set(0.0, -0.04, 1.0); s.cam.lookAt(0.0, -0.04, 0); }
   else { s.cam.position.set(-0.46, -0.04, 3.05); s.cam.lookAt(-0.46, -0.04, 0); }
   s.comp.render();

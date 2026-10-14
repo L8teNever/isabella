@@ -1,0 +1,8 @@
+{
+  "name": "Gitterklinge",
+  "description": "Kurze, wuchtige Tron-Klinge: schwarz mit Leuchtrand, Leuchtschlitzen und Haken an der Spitze, eckige Parierstange mit Zähnen, Griffbügel mit Leuchtblock.",
+  "model": "schwert.glb",
+  "bladeLength": 0.85,
+  "order": 5,
+  "preview": "preview.jpg"
+}

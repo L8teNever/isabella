@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-type P = [number, number];   // (Laenge, Breite): Laenge = spaeteres z, Breite = y
+export type P = [number, number];   // (Laenge, Breite): Laenge = spaeteres z, Breite = y
 
 export interface SwordSpec {
   /** Klingen-Umriss (obere Haelfte, von der Parierstange zur Spitze); wird an der Mittellinie gespiegelt */
@@ -35,7 +35,7 @@ export interface SwordSpec {
 const mirror = (half: P[]): P[] => [...half, ...half.slice().reverse().filter(([, y]) => Math.abs(y) > 1e-9).map(([z, y]) => [z, -y] as P)];
 
 /** Shape in (z, y) -> Geometrie: extrudiert entlang x (Dicke), danach Achsen auf (x = Dicke, y = Breite, z = Laenge) */
-function extrude(outline: P[], depth: number, holes: P[][] = [], bevel = 0): THREE.BufferGeometry {
+export function extrude(outline: P[], depth: number, holes: P[][] = [], bevel = 0): THREE.BufferGeometry {
   const s = new THREE.Shape(outline.map(([z, y]) => new THREE.Vector2(z, y)));
   for (const h of holes) s.holes.push(new THREE.Path(h.map(([z, y]) => new THREE.Vector2(z, y))));
   const g = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 1, curveSegments: 6 });
@@ -45,7 +45,7 @@ function extrude(outline: P[], depth: number, holes: P[][] = [], bevel = 0): THR
 }
 
 /** Umriss nach innen versetzen (einfach: Richtung Schwerpunkt der Mittellinie, je Punkt senkrecht zur Kante) */
-function inset(poly: P[], d: number): P[] {
+export function inset(poly: P[], d: number): P[] {
   const n = poly.length, out: P[] = [];
   for (let i = 0; i < n; i++) {
     const a = poly[(i - 1 + n) % n], b = poly[i], c = poly[(i + 1) % n];
@@ -63,13 +63,13 @@ const area = (p: P[]) => p.reduce((s, a, i) => { const b = p[(i + 1) % p.length]
 const ccw = (p: P[]) => (area(p) > 0 ? p : p.slice().reverse());
 
 /** Leuchtrand: Ring zwischen Umriss und eingeruecktem Umriss */
-function rimGeo(outline: P[], width: number, depth: number): THREE.BufferGeometry {
+export function rimGeo(outline: P[], width: number, depth: number): THREE.BufferGeometry {
   const o = ccw(outline), i = inset(o, -width);   // ccw: Normale (dy, -dx) zeigt nach aussen -> -width = nach innen
   return extrude(o, depth, [i.slice().reverse()]);
 }
 
 /** weiches Gluehen: Band um den Umriss, innen hell, aussen 0 (Vertex-Farben, additiv im Spiel) – ohne Textur */
-function softGlow(outline: P[], pad: number, strength: number): THREE.Mesh {
+export function softGlow(outline: P[], pad: number, strength: number): THREE.Mesh {
   const o = ccw(outline), out = inset(o, pad), n = o.length;
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -142,7 +142,7 @@ export function buildSword(spec: SwordSpec): THREE.Group {
 }
 
 /** Teile mit gleichem Material zu einem Mesh zusammenfassen: wenige Draw Calls im Headset */
-function mergeByMaterial(g: THREE.Group): THREE.Group {
+export function mergeByMaterial(g: THREE.Group): THREE.Group {
   const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
   g.updateMatrixWorld(true);
   g.traverse((o) => {

@@ -138,7 +138,7 @@ export async function saberFromModel(url: string, len: number, color: number): P
       return finish(group, haloMesh(len, GLOW.saberHalo, GLOW.saberHaloStrength, color), [glowMat], [0.35], GLOW.saberHaloStrength, [glow]);
     }
     // eigener Leuchtrand: Leucht-Huelle schmal und dezent, sonst ueberstrahlt sie die dunkle Klinge
-    const hs = GLOW.saberHaloStrength * 0.2;
+    const hs = GLOW.saberHaloStrength * 0.15;
     // Huelle kuerzer als die Klinge (beginnt am Heft, endet vor der Spitze), damit sie nicht ueber die Spitze ragt
     const halo = haloMesh(len - 0.14, GLOW.saberHalo * 0.6, hs, color); halo.position.z += 0.05;
     const v = finish(group, halo, softs, softBase, hs, []);

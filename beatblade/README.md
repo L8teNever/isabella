@@ -158,6 +158,10 @@ Beispiel – eigener Block aus einem 3D-Modell:
   Parierstange, Rauten, Griff) – neues Schwert = neuen Eintrag dort anlegen und
   `node tools/swords/build.mjs` (in `apps/web`, braucht Playwright) laufen lassen; das schreibt `schwert.glb` und
   `preview.jpg` nach `content/sabers/<name>/`, dazu eine `info.json` mit `"model": "schwert.glb"` anlegen.
+  Kantige Tron-Schwerter mit Aussparungen, Leuchtschlitzen und Leuchtblöcken (Gitterklinge, Neonsäbel) entstehen in
+  `apps/web/tools/swords/tron.ts`; nur einzelne bauen: `node tools/swords/build.mjs <bild-ordner> gitterklinge,neonsaebel`.
+  **Länge:** `bladeLength` (0,5–1,4 m) ändert nur die sichtbare Länge; die Treffer-Zone bleibt für alle Schwerter 1 m
+  (Gitterklinge 0,85 m, Neonsäbel 1,15 m sichtbar), damit sich das Treffen nicht je Schwert anders anfühlt.
 - **Map:** `wallSkin` nennt die Wand, die automatisch dazu passt (Einstellung „Wände: Automatisch“).
   Themen-Maps können mit `blockSkin` und `colorSet` eigene Blöcke und Farben mitbringen (Halloween: Kürbisse
   in Orange/Lila, Weihnachten: Geschenke in Rot/Grün); eigene Farben links/rechts gelten weiterhin.

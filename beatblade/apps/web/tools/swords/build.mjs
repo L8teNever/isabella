@@ -1,5 +1,5 @@
 // Baut die Schwert-Modelle und Vorschaubilder in content/sabers/<name>/ (schwert.glb, preview.jpg).
-// Aufruf aus apps/web:  node tools/swords/build.mjs [ausgabe-ordner-fuer-vergleichsbild]
+// Aufruf aus apps/web:  node tools/swords/build.mjs [ausgabe-ordner-fuer-vergleichsbild] [name,name …]   (ohne Namen: alle)
 // Braucht: vite (ist da) und Playwright mit Chromium (z. B. pnpm dlx playwright … oder PLAYWRIGHT_MODULE=/pfad/zu/playwright/index.mjs).
 import { createServer } from 'vite';
 import fs from 'node:fs';
@@ -16,7 +16,8 @@ const port = srv.httpServer.address().port;
 const b = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader'] });
 const p = await b.newPage();
 p.on('pageerror', (e) => console.error('Fehler:', e.message));
-await p.goto(`http://localhost:${port}/index.html${process.env.SWORD_DEBUG ? '?' + process.env.SWORD_DEBUG : ''}`);
+const q = [process.env.SWORD_DEBUG, process.argv[3] && `nur=${process.argv[3]}`].filter(Boolean).join('&');
+await p.goto(`http://localhost:${port}/index.html${q ? '?' + q : ''}`);
 await p.waitForFunction(() => window.ready === true);
 const res = await p.evaluate(() => window.build());
 for (const [id, data] of Object.entries(res.glb)) {
