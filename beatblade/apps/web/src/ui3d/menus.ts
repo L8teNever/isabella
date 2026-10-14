@@ -74,7 +74,7 @@ export class Menus {
   go(s: Screen, push = true) { if (push && this.screen !== s && !['loading', 'pause', 'results'].includes(this.screen)) this.backStack.push(this.screen); this.screen = s; this.refresh(); }
   back() { this.screen = this.backStack.pop() ?? 'main'; this.refresh(); }
   show() { this.panel.visible = true; this.refresh(); }
-  hide() { this.panel.hide(); }
+  hide() { this.panel.hide(); if (this.screen === 'loading') this.screen = 'main'; }
   get visible() { return this.panel.visible; }
 
   loading(text: string, p: number) { this.loadingText = text; this.loadingP = p; if (this.screen !== 'loading') { this.screen = 'loading'; } this.panel.visible = true; this.refresh(); }
@@ -83,7 +83,9 @@ export class Menus {
   calibration(text: string) { this.calibText = text; this.screen = 'calibrate'; this.show(); }
 
   refresh() {
-    if (!this.panel.visible && this.screen !== 'loading') return;
+    // nur zeichnen, wenn das Menue sichtbar ist – sonst holt ein Song-Update (z. B. Level neu erzeugt)
+    // waehrend des Spiels den alten 'Level laden …'-Bildschirm zurueck
+    if (!this.panel.visible) return;
     const spec = this.build();
     this.panel.show(spec);
   }
