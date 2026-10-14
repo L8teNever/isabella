@@ -55,8 +55,8 @@ export class AudioPlayer {
   stop() { this.stopSource(); this.playing = false; this.pausedAt = 0; }
   private stopSource() { if (this.src) { this.src.onended = null; try { this.src.stop(); } catch { /* schon gestoppt */ } this.src.disconnect(); this.src = null; } }
 
-  /** wie weit die Audio-Planung dem Gehoerten voraus ist (s): Ausgabe-Latenz + Kalibrierung */
-  lead(): number { return this.playing ? Math.max(0, this.rawTime() - this.songTime()) : 0; }
+  /** Verfehlt = stumm: Musik ab sofort fuer MUTE_HOLD aussetzen (erst wenn der Fehler feststeht, nie vorab) */
+  muteNow() { if (this.playing) this.muteAt(this.rawTime()); }
 
   /** Musik an Songposition p (Sekunden im Song) fuer MUTE_HOLD aussetzen */
   muteAt(p: number) {
