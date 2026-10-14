@@ -9,6 +9,7 @@ import cookie from '@fastify/cookie';
 import { ANALYSIS_VERSION, MAPPING_VERSION } from '@beatblade/core';
 import { config } from './config.js';
 import { registerAuth, loggedIn } from './auth.js';
+import { contentByKind } from './content.js';
 import { songRoutes } from './routes/songs.js';
 import { resumeAndUpgrade } from './queue.js';
 import { importSeeds, readCredits } from './seed.js';
@@ -31,6 +32,7 @@ app.get(`${api}/info`, async (req) => ({
 }));
 app.get(`${api}/credits`, async () => readCredits().map(({ title, artist, license, licenseUrl, source, attribution, genre }) => ({ title, artist, license, licenseUrl, source, attribution, genre })));
 app.get(`${api}/health`, async () => ({ ok: true }));
+app.get(`${api}/content`, async () => contentByKind());
 // Fehlersuche: Spiel meldet Schnitt-Protokolle (letzte 300 Eintraege werden behalten)
 const debugLog: unknown[] = [];
 app.post(`${api}/debug`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {

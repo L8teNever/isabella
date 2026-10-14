@@ -4,6 +4,8 @@ import path from 'node:path';
 
 const env = process.env;
 const num = (v: string | undefined, d: number) => (v && !Number.isNaN(+v) ? +v : d);
+/** Wurzel des Repos (aus dist/ oder src/ gleich tief: apps/server/{src,dist} -> beatblade) */
+function repoRoot() { return path.resolve(new URL('.', import.meta.url).pathname, '../../..'); }
 const base = (env.BASE_PATH || '').replace(/\/+$/, '');
 
 export const config = {
@@ -14,6 +16,8 @@ export const config = {
   dataDir: path.resolve(env.DATA_DIR || './data'),
   seedDir: path.resolve(env.SEED_DIR || './seed-songs'),
   webDir: path.resolve(env.WEB_DIR || '../web/dist'),
+  /** mitgelieferte Inhalte (Blöcke, Schwerter, Farben, Maps, Wände) */
+  contentDir: path.resolve(env.CONTENT_DIR || path.join(repoRoot(), 'content')),
   /** open | password | cloudflare */
   authMode: (env.AUTH_MODE || 'open') as 'open' | 'password' | 'cloudflare',
   password: env.APP_PASSWORD || '',
