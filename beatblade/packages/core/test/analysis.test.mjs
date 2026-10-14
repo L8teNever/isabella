@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, generate, countProblems, DIFFICULTIES } from '../dist/index.js';
+import { analyze, generate, countProblems, timingReport, DIFFICULTIES } from '../dist/index.js';
 import { synthSong } from './synth.mjs';
 
 test('BPM auf synthetischen Songs: ±1 BPM, keine Oktavfehler', () => {
@@ -66,4 +66,20 @@ test('Schnitt-Level unverändert (Fingerabdruck)', async () => {
     }
   }
   if (process.env.UPDATE_SNAPSHOT) (await import('node:fs')).writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
+});
+
+test('Swing: Offbeat-Noten liegen auf der geswungenen Position (2/3), nicht auf 1/2', () => {
+  const a = analyze(synthSong({ bpm: 120, seconds: 60, swing: 1, seed: 5 }));
+  const m = generate(a, 'expert', 7);
+  const pos = m.notes.map((n) => Math.round((n.b % 1) * 24)).filter((x) => x > 0 && x < 24);
+  assert.ok(pos.filter((x) => x === 16).length >= 5, `zu wenige geswungene Offbeats: ${JSON.stringify(pos)}`);
+  assert.equal(pos.filter((x) => x === 12).length, 0, 'gerade Offbeats im geswungenen Song');
+});
+
+test('Timing: Noten liegen auf echten Sounds (synthetisch)', () => {
+  const a = analyze(synthSong({ bpm: 128, seconds: 60, seed: 3 }));
+  for (const d of DIFFICULTIES) {
+    const r = timingReport(a, generate(a, d, 7).notes);
+    assert.ok(r.onsetHit >= 0.97, `${d}: nur ${(r.onsetHit * 100).toFixed(1)} % auf einem Sound`);
+  }
 });

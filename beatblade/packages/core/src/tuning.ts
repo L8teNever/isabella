@@ -159,6 +159,9 @@ export const MAPPING = {
   onsetWindow: 0.035,
   /** Melodie-Gewicht (fliessende Passagen) */
   melody: 0.25,
+  /** Swing: Abschnitt gilt als geswungen, wenn so viel der Offbeat-Onsets auf 2/3 statt auf 1/2 des Beats liegen;
+   *  dann kommen Offbeat-Noten auf die geswungene Position (auf allen Stufen, ohne zusaetzliche Noten) */
+  swingMin: 0.65, swingMinOnsets: 0.25,
   /** Gesang/Lead als Notenquelle: Abschnitte mit so viel Melodie (Mittel 0..1) folgen dem Gesang, sonst dem Schlagzeug */
   vocalLeadMelody: 0.5,
   /** Gewicht der Gesang-Onsets in Gesang-Abschnitten / sonst; Schlagzeug-Gewicht in Gesang-Abschnitten */

@@ -105,24 +105,47 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
     }
     return v;
   };
+  // Swing je Abschnitt: liegen die Offbeats eher auf 2/3 als auf 1/2 des Beats?
+  const swingOf = new Map<Section | undefined, boolean>();
+  {
+    const cnt = new Map<Section | undefined, { half: number; swing: number; beats: number }>();
+    const strong = BANDS.flatMap((band) => a.onsets[band]).filter((o) => o.s >= 0.3).sort((x, y) => x.t - y.t);
+    let j = 0;
+    for (let k = 0; k < nBeats; k++) {
+      const sec = sectionAtBeat(a, k), c = cnt.get(sec) ?? { half: 0, swing: 0, beats: 0 };
+      const b0 = beats[k], bd = beats[k + 1] - b0;
+      c.beats++;
+      while (j < strong.length && strong[j].t < b0) j++;
+      for (let i = j; i < strong.length && strong[i].t < b0 + bd; i++) {
+        const u = (strong[i].t - b0) / bd;
+        if (Math.abs(u - 0.5) < 0.06) c.half += strong[i].s; else if (Math.abs(u - 2 / 3) < 0.06) c.swing += strong[i].s;
+      }
+      cnt.set(sec, c);
+    }
+    for (const [sec, c] of cnt) swingOf.set(sec, c.half + c.swing >= c.beats * MAPPING.swingMinOnsets && c.swing / (c.half + c.swing) >= MAPPING.swingMin);
+  }
+
   for (let k = 0; k < nBeats; k++) {
     const seen = new Set<number>();
+    const swung = swingOf.get(sectionAtBeat(a, k)) ?? false;
     for (const s of subdivs) {
       // Triolen nur, wo die Musik wirklich in Triolen laeuft; 1/8 nur bei hoher Energie (Bursts/Slider)
       if (s === 3 && (a.triplet[k] ?? 0) < 0.58) continue;
       for (let j = 0; j < s; j++) {
-        const gi = Math.round((j * STEPS) / s);
+        let gi = Math.round((j * STEPS) / s);
+        // geswungen: die Offbeat-Achtel liegt auf 2/3, gerade Sechzehntel gibt es dort nicht
+        if (swung && s !== 3) { if (gi === 12) gi = 16; else if (gi % 12 !== 0) continue; }
         if (seen.has(gi)) continue;
         seen.add(gi);
         const idx = k * STEPS + gi;
         const kick = at('sub', idx), snare = Math.max(at('lowmid', idx) * 0.6, at('highmid', idx)), hat = at('high', idx);
         const sec = sectionAtBeat(a, k), lead = vocalLead(sec), voc = vocGrid?.[idx] ?? 0;
         const mel = a.melody[k] ?? 0;
-        const bar = barOfBeat(a, k), inBar = ((k - a.downbeatOffset) % a.beatsPerBar + a.beatsPerBar) % a.beatsPerBar + j / s;
+        const bar = barOfBeat(a, k), inBar = ((k - a.downbeatOffset) % a.beatsPerBar + a.beatsPerBar) % a.beatsPerBar + gi / STEPS;
         // metrische Position
         let metric = MAPPING.metric.other;
         if (gi === 0) metric = inBar === 0 ? MAPPING.metric.downbeat : MAPPING.metric.beat;
-        else if (gi === 12) metric = MAPPING.metric.half;
+        else if (gi === 12 || (swung && gi === 16)) metric = MAPPING.metric.half;
         else if (gi === 6 || gi === 18) metric = MAPPING.metric.quarter;
         const bt = beatToTime(beats, k + gi / STEPS);
         const win = (beats[k + 1] - beats[k]) / s / 2;
