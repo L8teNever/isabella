@@ -9,6 +9,7 @@ import { fitsDensity, pickTiming, STEPS, type Slot } from '../timing.js';
 import { Rng, beatToTime, beatOfBar, barOfBeat, sectionAtBeat } from '../util.js';
 import { ORBIT, ORBIT_DIFFICULTY, ORBIT_MOTIONS, ORBIT_SECTION_DENSITY, type OrbitMotion } from './tuning.js';
 import { checkOrbit, orbitPlayability, railAt, speedViolations, wallActive, wallSpan } from './validate.js';
+import { goldToReach, toReach } from './reach.js';
 
 const r3 = (v: number) => Math.round(v * 1000) / 1000;
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -74,7 +75,14 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     return undefined;
   };
   /** Punkt aus Waenden und in die Flaeche schieben */
-  const fit = (x: number, y: number, t: number, hand: 0 | 1 | -1, r = 0): [number, number] => {
+  /** liegt der Punkt (bzw. die Gold-Kugel mit Radius r) in einer Wand? */
+  const inWall = (x: number, y: number, t: number, r = 0) => walls(t).some((o) => {
+    if (o.kind === 'crouch') return y > ORBIT.crouchMaxY + 1e-6;
+    const [x0, x1] = wallSpan(o);
+    return x + r > x0 - ORBIT.wallMargin + 1e-6 && x - r < x1 + ORBIT.wallMargin - 1e-6;
+  });
+  /** Punkt aus Waenden, in die Flaeche und in Armreichweite schieben; ok = false, wenn beides nicht zugleich geht (Note weglassen) */
+  const fit = (x: number, y: number, t: number, hand: 0 | 1 | -1, r = 0): [number, number, boolean] => {
     for (const o of walls(t)) {
       if (o.kind === 'crouch') { y = Math.min(y, ORBIT.crouchMaxY); continue; }
       const [x0, x1] = wallSpan(o), m = ORBIT.wallMargin + r;
@@ -83,7 +91,12 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     x = clamp(x, ORBIT.minX + r, ORBIT.maxX - r);
     if (hand === 0 && freeHand(t) === undefined) x = Math.min(x, ORBIT.crossX);
     if (hand === 1 && freeHand(t) === undefined) x = Math.max(x, -ORBIT.crossX);
-    return [x, clamp(y, ORBIT.minY, ORBIT.maxY)];
+    y = clamp(y, ORBIT.minY, ORBIT.maxY);
+    // Armreichweite: radial an den Rand der Reichweite um die Schulter ziehen (Gold: beide Beruehrpunkte);
+    // unter einer Ducken-Wand stehen die Schultern tiefer
+    const duck = walls(t).some((o) => o.kind === 'crouch') ? ORBIT.crouchDuck : 0;
+    [x, y] = hand === -1 ? goldToReach(x, y, 1, duck) : toReach(x, y, hand, 1, duck);
+    return [x, y, !inWall(x, y, t, r)];
   };
 
   // ---------- 2. Rails auf gehaltenen Klaengen ----------
@@ -205,13 +218,14 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     let [X, Y] = motion(phraseMotion(sec, phrase), u);
     if ((sec?.occurrence ?? 0) % 2 === 1) Y = -Y;
     X += (rng.next() - 0.5) * 0.08; Y += (rng.next() - 0.5) * 0.08;
-    let x: number, y: number;
+    let x: number, y: number, ok: boolean;
     if (gold) {
-      [x, y] = fit(0, ORBIT.centerY + Y * D.reachY * 0.4, s.t, -1, ORBIT.goldHandOffset);
-      lastGold = s.t;
+      [x, y, ok] = fit(0, ORBIT.centerY + Y * D.reachY * 0.4, s.t, -1, ORBIT.goldHandOffset);
+      if (ok) lastGold = s.t;
     } else {
-      [x, y] = fit(side(hand) * (ORBIT.homeX + D.reachX * X), ORBIT.centerY + D.reachY * Y, s.t, hand);
+      [x, y, ok] = fit(side(hand) * (ORBIT.homeX + D.reachX * X), ORBIT.centerY + D.reachY * Y, s.t, hand);
     }
+    if (!ok) continue;                                     // weder in Reichweite noch neben der Wand: Note weglassen
     notes.push({ b: r3(s.b), t: r3(s.t), x: r3(x), y: r3(y), hand: gold ? 0 : hand, kind: gold ? 'gold' : 'normal' });
     prev = { t: s.t, hand };
   }
@@ -243,7 +257,11 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     if (d < ORBIT.minSpread) {
       const free = n.rail === undefined ? n : o, fixed = free === n ? o : n;
       const s = side(free.hand);
-      free.x = r3(clamp(fixed.x + s * ORBIT.minSpread, ORBIT.minX, ORBIT.maxX));
+      const duck = walls(free.t).some((o) => o.kind === 'crouch') ? ORBIT.crouchDuck : 0;
+      const [x, y] = toReach(clamp(fixed.x + s * ORBIT.minSpread, ORBIT.minX, ORBIT.maxX), free.y, free.hand, 1, duck);
+      // geht der Abstand in Reichweite nicht: die freie Kugel weglassen
+      if (Math.hypot(x - fixed.x, y - fixed.y) < ORBIT.minSpread - 1e-3 || inWall(x, y, free.t)) { notes.splice(notes.indexOf(free), 1); continue; }
+      free.x = r3(x); free.y = r3(y);
     }
   }
 
@@ -287,8 +305,8 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
       if (last && n.kind !== 'gold' && !rail) {
         const dt = n.t - last.t, d = Math.hypot(hx - last.x, n.y - last.y), lim = D.maxHandSpeed * 0.95 * dt;
         if (d > lim && d > 0) {
-          const [x, y] = fit(last.x + ((hx - last.x) * lim) / d, last.y + ((n.y - last.y) * lim) / d, n.t, hand);
-          n.x = r3(x); n.y = r3(y);
+          const [x, y, ok] = fit(last.x + ((hx - last.x) * lim) / d, last.y + ((n.y - last.y) * lim) / d, n.t, hand);
+          if (ok) { n.x = r3(x); n.y = r3(y); }
         }
       }
       if (rail) { const e = railAt(rail, rail.t1); last = { t: rail.t1, x: e.x + (rail.kind === 'gold' ? side(hand) * ORBIT.goldHandOffset : 0), y: e.y }; }

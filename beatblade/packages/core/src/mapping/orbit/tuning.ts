@@ -37,6 +37,14 @@ export const ORBIT = {
   homeX: 0.32,
   /** Grenzen der Flaeche (m) – Noten liegen immer bequem erreichbar */
   minX: -0.75, maxX: 0.75, minY: 0.75, maxY: 1.85,
+  /** Reichweite (1,75 m Spielergroesse, Spielfeld-Koordinaten): Schultern bei x = ±shoulderX, y = shoulderY, z = 0;
+   *  bequeme Reichweite Schulter bis Griffmitte armReach (etwas unter der vollen Armlaenge, damit Perfekt ohne Strecken geht).
+   *  Jede Kugel liegt innerhalb dieser Kugel um die Schulter der zustaendigen Hand. */
+  shoulderX: 0.19, shoulderY: 1.45, armReach: 0.6,
+  /** unter einer Ducken-Wand sind die Schultern so viel tiefer (m) */
+  crouchDuck: 0.4,
+  /** Trefferebene (m vor dem Spielfeld-Ursprung) – gemeinsame Quelle fuer Generator und Spiel */
+  hitZ: -0.45,
   /** Mindestabstand zweier gleichzeitiger Noten (m), damit sich die Kugeln nicht beruehren */
   minSpread: 0.28,
   /** Rails: ab diesem sustain-Wert gilt ein Beat als gehalten */

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze, generateOrbit, checkOrbit, handPath, DIFFICULTIES, ORBIT, ORBIT_DIFFICULTY } from '../dist/index.js';
+import { analyze, generateOrbit, checkOrbit, handPath, outOfReach, reachRadius, duckAt, DIFFICULTIES, ORBIT, ORBIT_DIFFICULTY } from '../dist/index.js';
 import { synthSong } from './synth.mjs';
 
 const songs = [128, 96, 174].map((bpm) => analyze(synthSong({ bpm, seconds: 90, seed: 3 })));
@@ -106,4 +106,21 @@ test('Orbit-Validierung findet eingebaute Fehler', () => {
   const f4 = clone(); f4.notes[3].y = 3; assert.ok(checkOrbit(f4).outOfArea > 0, 'outOfArea');
   // kurze Rail
   const f5 = clone(); if (f5.rails.length) { f5.rails[0].t1 = f5.rails[0].t0 + 0.1; assert.ok(checkOrbit(f5).railShort > 0, 'railShort'); }
+});
+
+test('Orbit: alle Kugeln und Rail-Punkte in Armreichweite (alle Stufen, mehrere Seeds)', () => {
+  for (const a of songs) for (const d of DIFFICULTIES) for (const seed of [1, 7, 42, 99]) {
+    const m = generateOrbit(a, d, seed);
+    assert.ok(!m.stats.issues.outOfReach, `${a.bpm} ${d} Seed ${seed}: ${m.stats.issues.outOfReach} ausser Reichweite`);
+    for (const hand of [0, 1]) for (const p of handPath(m, hand)) assert.ok(outOfReach(p.x, p.y, hand, 1, duckAt(m.obstacles, p.t)) <= 0.005, `${d} ${seed}: Hand ${hand} bei (${p.x}, ${p.y})`);
+  }
+});
+
+test('Orbit-Validierung: Kugel in der Ecke ist ausser Reichweite', () => {
+  assert.ok(outOfReach(0.75, 0.92, 1) > 0.15, 'Ecke rechts unten muesste weit ausser Reichweite sein');
+  assert.equal(outOfReach(ORBIT.shoulderX, ORBIT.shoulderY - reachRadius() + 0.02, 1), 0);
+  const m = JSON.parse(JSON.stringify(generateOrbit(songs[0], 'expertplus', 7)));
+  const n = m.notes.find((x) => x.kind === 'normal' && x.rail === undefined && x.hand === 1);
+  n.x = 0.75; n.y = 0.92;
+  assert.ok(checkOrbit(m).outOfReach > 0, 'outOfReach nicht erkannt');
 });

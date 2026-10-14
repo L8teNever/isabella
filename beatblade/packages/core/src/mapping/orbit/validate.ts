@@ -2,6 +2,7 @@
 // Bereich, Rails, lokale Dichte. Liefert Zaehler je Problem und eine Spielbarkeits-Note (0..100).
 import type { OrbitMap, OrbitNote, OrbitRail, Obstacle } from '../../types.js';
 import { ORBIT, ORBIT_DIFFICULTY } from './tuning.js';
+import { outOfReach } from './reach.js';
 
 /** ein Punkt, an dem eine Hand zu einer Zeit sein muss */
 export interface HandPoint { t: number; x: number; y: number; note?: OrbitNote; rail?: number }
@@ -89,6 +90,11 @@ export function checkOrbit(m: OrbitMap): Record<string, number> {
       if (n.x + r > x0 - ORBIT.wallMargin + 1e-6 && n.x - r < x1 + ORBIT.wallMargin - 1e-6) add('inWall');
     }
   }
+  // Armreichweite: jeder Punkt, den eine Hand beruehren muss (Noten, Gold links/rechts, Rail-Stuetzpunkte)
+  const far = (x: number, y: number, h: 0 | 1, t: number) => outOfReach(x, y, h, 1, duckAt(m.obstacles, t)) > 0.005;
+  for (const hand of [0, 1] as const) for (const p of paths[hand]) if (far(p.x, p.y, hand, p.t)) add('outOfReach');
+  // Gruen: die vorgeschlagene Hand muss hinkommen
+  for (const n of m.notes) if (n.kind === 'green' && far(n.x, n.y, n.hand, n.t)) add('outOfReach');
   // gleichzeitige Kugeln verschiedener Haende zu nah beieinander
   const ns = [...m.notes].sort((a, b) => a.t - b.t);
   for (let i = 0; i < ns.length; i++) {
@@ -121,9 +127,14 @@ export function checkOrbit(m: OrbitMap): Record<string, number> {
   return iss;
 }
 
+/** Ducken zur Zeit t? Dann stehen die Schultern um crouchDuck tiefer */
+export function duckAt(obstacles: Obstacle[], t: number): number {
+  return obstacles.some((o) => o.kind === 'crouch' && wallActive(o, t)) ? ORBIT.crouchDuck : 0;
+}
+
 /** Spielbarkeit 0..100 aus den Problem-Zaehlern */
 export function orbitPlayability(iss: Record<string, number>): number {
-  const W: Record<string, number> = { handSpeed: 8, crossing: 6, inWall: 15, spread: 4, stacked: 6, outOfArea: 5, railShort: 3, railJump: 4, railOverlap: 8, density: 2 };
+  const W: Record<string, number> = { outOfReach: 15, handSpeed: 8, crossing: 6, inWall: 15, spread: 4, stacked: 6, outOfArea: 5, railShort: 3, railJump: 4, railOverlap: 8, density: 2 };
   let p = 100;
   for (const [k, n] of Object.entries(iss)) p -= (W[k] ?? 3) * n;
   return Math.max(0, Math.round(p));
