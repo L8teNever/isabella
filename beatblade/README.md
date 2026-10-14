@@ -192,6 +192,13 @@ Rückhand je Hand) → Positionen (rot links, blau rechts, keine Sichtblocks) �
 Ducken ab Expert+), Bomben (ab Hard, sparsam) → Lichtshow → Validierung (Parity, Kreuzungen, Abstände,
 Dichte, Wände, Bomben) mit Spielbarkeits-Score. Gleicher Song + Seed + Schwierigkeit = gleiches Level.
 
+**Musik-Treue:** Jede Note liegt auf einem hörbaren Sound – Rasterpunkte ohne echten Onset werden nicht belegt, der
+Taktbonus entscheidet nur zwischen ähnlich starken Sounds. Abschnitte mit viel Melodie folgen dem Gesang/Lead
+(eigene Onset-Spur, auf 1/2, 1/3, 1/4 gerundet), geswungene Abschnitte bekommen Offbeats auf 2/3, und jede Note wird
+auf den echten Anschlag innerhalb ±25 ms eingerastet (bei festem Tempo nur eine systematische Verschiebung).
+Messen: `pnpm --filter @beatblade/core build && node packages/core/scripts/timing-report.mjs typ=song.mp3 …`
+(Anteil Noten auf einem Sound, Abweichung, Vergleich mit allen Rasterpunkten; `--gen` vergleicht einen anderen Generator-Stand).
+
 Alle Schwellen und Gewichte: `packages/core/src/tuning.ts`. Bei Änderungen am Ergebnis `version.ts`
 erhöhen – der Server erzeugt veraltete Analysen/Levels dann im Hintergrund neu.
 
