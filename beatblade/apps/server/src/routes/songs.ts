@@ -7,7 +7,7 @@ import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
 import { config } from '../config.js';
-import { queueYoutube } from '../youtube.js';
+import { queueYoutube, cookiesFile } from '../youtube.js';
 import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
 import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
 import { importFile } from '../songs-service.js';
@@ -51,6 +51,21 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     if ('error' in r) return reply.code(400).send(r);
     return reply.code(202).send(r);
   });
+
+  // YouTube-Cookies hinterlegen (gegen die Bot-Pruefung); Datei liegt nur im Daten-Volume, wird nie ausgeliefert
+  app.get(`${api}/youtube/cookies`, async () => {
+    const f = cookiesFile();
+    return fs.existsSync(f) ? { present: true, updatedAt: fs.statSync(f).mtimeMs } : { present: false };
+  });
+  app.post<{ Body: { text?: string } }>(`${api}/youtube/cookies`, { bodyLimit: 1024 * 1024, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text : '';
+    // Netscape-Cookie-Datei: Tab-getrennte Zeilen, mindestens ein youtube.com-Eintrag
+    const lines = text.split(/\r?\n/).filter((l) => l && !l.startsWith('#') || l.startsWith('#HttpOnly_'));
+    if (!lines.some((l) => /youtube\.com\t/.test(l) && l.split('\t').length >= 7)) return reply.code(400).send({ error: 'Keine gültige Cookie-Datei (Netscape-Format mit youtube.com-Einträgen).' });
+    fs.writeFileSync(cookiesFile(), text.endsWith('\n') ? text : text + '\n', { mode: 0o600 });
+    return { ok: true };
+  });
+  app.delete(`${api}/youtube/cookies`, async () => { fs.rmSync(cookiesFile(), { force: true }); return { ok: true }; });
 
   // ---------- Bearbeiten ----------
   app.patch<{ Params: { id: string }; Body: Partial<{ title: string; artist: string; album: string; hidden: boolean }> }>(`${api}/songs/:id`, async (req, reply) => {

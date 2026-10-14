@@ -34,6 +34,9 @@ export const api = {
   content: () => j<ContentList>('/content'),
   /** YouTube-Link an den Server geben; Fortschritt kommt per SSE 'yt' */
   youtube: (url: string) => j<{ job: string }>('/youtube', json('POST', { url })),
+  ytCookies: () => j<{ present: boolean; updatedAt?: number }>('/youtube/cookies'),
+  ytCookiesSet: (text: string) => j<{ ok: boolean }>('/youtube/cookies', json('POST', { text })),
+  ytCookiesDel: () => j<{ ok: boolean }>('/youtube/cookies', { method: 'DELETE' }),
   song: (id: string) => j<Song>(`/songs/${id}`),
   patch: (id: string, f: Partial<Pick<Song, 'title' | 'artist' | 'album' | 'hidden'>>) => j<Song>(`/songs/${id}`, json('PATCH', f)),
   remove: (id: string) => j<{ ok: boolean }>(`/songs/${id}`, { method: 'DELETE' }),

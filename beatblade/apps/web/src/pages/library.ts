@@ -98,6 +98,20 @@ $('yt-form').addEventListener('submit', async (e) => {
   try { const r = await api.youtube(url); ytRows.set(r.job, row); inp.value = ''; }
   catch (err) { const st = row.querySelector<HTMLElement>('.st')!; st.textContent = (err as Error).message; st.style.color = 'var(--err)'; setTimeout(() => row.remove(), 30000); }
 });
+// YouTube-Cookies (gegen die Bot-Pruefung)
+async function cookieState() {
+  try { const c = await api.ytCookies(); $('yt-cookie-state').textContent = c.present ? `· hinterlegt (${new Date(c.updatedAt!).toLocaleDateString('de-DE')})` : '· keine'; }
+  catch { $('yt-cookie-state').textContent = ''; }
+}
+$('yt-cookie-pick').addEventListener('click', () => $<HTMLInputElement>('yt-cookie-file').click());
+$<HTMLInputElement>('yt-cookie-file').addEventListener('change', async (e) => {
+  const inp = e.target as HTMLInputElement, f = inp.files?.[0]; inp.value = ''; if (!f) return;
+  try { await api.ytCookiesSet(await f.text()); $('yt-cookie-state').textContent = '· hinterlegt ✓'; }
+  catch (err) { $('yt-cookie-state').textContent = `· ${(err as Error).message}`; }
+});
+$('yt-cookie-del').addEventListener('click', async () => { await api.ytCookiesDel().catch(() => {}); cookieState(); });
+cookieState();
+
 const YT_TEXT: Record<YtStatus['state'], string> = { warten: 'Wartet …', laden: 'Lädt von YouTube', umwandeln: 'Wandelt in Audio um …', import: 'Wird übernommen …', fertig: 'Geladen – wird verarbeitet', fehler: 'Fehler' };
 function ytUpdate(s: YtStatus) {
   const row = ytRows.get(s.job); if (!row) return;

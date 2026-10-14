@@ -50,7 +50,10 @@ etwa einer Minute sind sie spielbar.
   Analysieren → Level generieren → Fertig*. Tags/Cover werden ausgelesen und sind editierbar,
   Duplikate (SHA-256) werden erkannt. **YouTube-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
   Vorschaubild als Cover) und importiert sie wie einen Upload; Fortschritt live in der Liste. Downloads laufen
-  nacheinander. Nur Inhalte laden, die du nutzen darfst – YouTube erlaubt Downloads laut Nutzungsbedingungen nicht. Suchen, sortieren, filtern, neu generieren, neu analysieren,
+  nacheinander. Nur Inhalte laden, die du nutzen darfst – YouTube erlaubt Downloads laut Nutzungsbedingungen nicht.
+  Verlangt YouTube eine Anmeldung („Bot-Prüfung“, typisch bei Servern im Rechenzentrum): unter *YouTube-Cookies*
+  eine `cookies.txt` (Netscape-Format, z. B. per Browser-Erweiterung von youtube.com exportiert) hochladen;
+  sie liegt nur als `<DATA_DIR>/youtube-cookies.txt` auf dem Server. Am besten ein Zweit-Konto verwenden. Suchen, sortieren, filtern, neu generieren, neu analysieren,
   ausblenden, löschen, Job-Log.
 - **Debug-Ansicht** (`debug.html?song=ID`): Wellenform, Beats/Takte, Onsets je Band, Abschnitte,
   Energie, Noten/Bomben/Wände und Lichtshow als Zeitleiste, mit Abspielen, Metronom- und Noten-Klick.

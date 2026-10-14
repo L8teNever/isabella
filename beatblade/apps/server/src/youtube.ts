@@ -11,6 +11,9 @@ import { hashFile, importFile } from './songs-service.js';
 import { broadcast } from './events.js';
 import type { Song } from '@beatblade/core';
 
+/** YouTube-Cookies (Netscape-Format, z. B. per Browser-Erweiterung exportiert): helfen gegen die Bot-Pruefung */
+export const cookiesFile = () => path.join(config.dataDir, 'youtube-cookies.txt');
+
 const ID_RE = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})(?:[?&#/].*)?$/;
 
 /** Video-ID aus einem YouTube-Link, sonst null */
@@ -44,7 +47,9 @@ function splitTitle(raw: string, uploader: string): { title: string; artist: str
 }
 
 function friendly(stderr: string): string {
-  if (/sign in to confirm|not a bot/i.test(stderr)) return 'YouTube blockiert den Download gerade (Bot-Prüfung). Später nochmal versuchen.';
+  if (/sign in to confirm|not a bot/i.test(stderr)) return fs.existsSync(cookiesFile())
+    ? 'YouTube blockiert trotz Cookies (Bot-Prüfung) – Cookies sind evtl. abgelaufen, bitte neu hinterlegen.'
+    : 'YouTube verlangt eine Anmeldung (Bot-Prüfung). Bitte YouTube-Cookies hinterlegen (Bibliothek → YouTube-Cookies).';
   if (/does not pass filter|duration/i.test(stderr)) return `Video ist zu lang (max. ${config.ytMaxMinutes} Minuten).`;
   if (/larger than max-filesize|File is larger/i.test(stderr)) return `Datei zu groß (max. ${config.maxUploadMb} MB).`;
   if (/private video|video unavailable|not available|removed/i.test(stderr)) return 'Video nicht verfügbar (privat, gelöscht oder gesperrt).';
@@ -88,6 +93,7 @@ function run(job: string, id: string): Promise<void> {
       '--print', 'after_move:FILE %(filepath)s',
       '-o', path.join(dir, '%(id)s.%(ext)s'),
       ...(jsRuntime ? ['--js-runtimes', 'node'] : []),
+      ...(fs.existsSync(cookiesFile()) ? ['--cookies', cookiesFile()] : []),
       `https://www.youtube.com/watch?v=${id}`,
     ];
     const p = spawn(config.ytdlp, args, { stdio: ['ignore', 'pipe', 'pipe'] });

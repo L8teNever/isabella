@@ -41,6 +41,15 @@
           <input type="url" id="yt-url" placeholder="YouTube-Link einfügen (youtube.com/watch?v=… oder youtu.be/…)" required />
           <button class="primary">Von YouTube laden</button>
         </form>
+        <details id="yt-cookies" class="hint yt-cookies">
+          <summary>YouTube-Cookies <span id="yt-cookie-state"></span></summary>
+          <p>Wenn YouTube „Bot-Prüfung“ meldet: im Browser bei YouTube anmelden (am besten mit einem Zweit-Konto),
+            mit einer Erweiterung wie „Get cookies.txt LOCALLY“ die Cookies von youtube.com als <code>cookies.txt</code>
+            exportieren und hier hochladen. Die Datei bleibt nur auf deinem Server.</p>
+          <button id="yt-cookie-pick" type="button">cookies.txt hochladen</button>
+          <button id="yt-cookie-del" type="button">Entfernen</button>
+          <input id="yt-cookie-file" type="file" accept=".txt,text/plain" hidden />
+        </details>
         <div id="uploads" class="uploads"></div>
       </div>
 
