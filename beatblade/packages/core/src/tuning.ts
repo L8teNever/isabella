@@ -118,6 +118,15 @@ export const SECTION_PATTERNS: Record<SectionType, Partial<Record<PatternName, n
   outro: { simple: 3, stair: 1 },
 };
 
+/** Reihen-Verteilung (0 unten, 1 Mitte, 2 oben): Wahrscheinlichkeiten je Schlagart, nur wenn genug Zeit ist */
+export const ROWS = {
+  foreTop: 0.18, foreMid: 0.22,      // Vorhand (Schlag nach unten): beginnt gern oben/mittig
+  backMid: 0.3, backTop: 0.06,     // Rueckhand (Schlag nach oben)
+  minGapMid: 0.22, minGapTop: 0.3, // Mindestabstand (s) zur vorigen Note DERSELBEN Hand, damit sie hinkommt
+  maxJumpFast: 1,                  // bei schneller Folge hoechstens 1 Reihe Sprung derselben Hand
+  fastGap: 0.35,
+};
+
 export const MAPPING = {
   /** Gewichte der Baender fuer die Salienz eines Rasterpunkts */
   bandSalience: { sub: 1.0, lowmid: 0.55, highmid: 0.8, high: 0.35 } as Record<Band, number>,

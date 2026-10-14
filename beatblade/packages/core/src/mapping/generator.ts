@@ -10,7 +10,7 @@
 //     Burst, Simple). Wiederholte Abschnitte nutzen denselben Zufallsstrom und werden gespiegelt.
 //  5. Parity-Engine vergibt Richtungen, Positionen folgen ergonomischen Regeln.
 //  6. Waende, Bomben, Lichtshow; danach Validierung (validate.ts).
-import { DIFFICULTY, MAPPING, SECTION_DENSITY, SECTION_PATTERNS, type PatternName } from '../tuning.js';
+import { DIFFICULTY, MAPPING, ROWS, SECTION_DENSITY, SECTION_PATTERNS, type PatternName } from '../tuning.js';
 import { MAPPING_VERSION } from '../version.js';
 import { BANDS, Cut, type Beatmap, type Bomb, type Difficulty, type Note, type Obstacle, type Section, type SongAnalysis } from '../types.js';
 import { Rng, beatToTime, sectionAtBeat, barOfBeat, beatOfBar } from './util.js';
@@ -251,10 +251,18 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
     h.last = swing; h.t = p.t; h.x = x; h.y = y; h.d = d;
   };
   const yFor = (swing: Swing, flavor: Flavor, strong: boolean, gap: number): number => {
-    // Vorhand (unten) meist untere Reihe, Rueckhand unten/mitte; obere Reihe fuer betonte Schlaege mit Zeit
-    if (swing === 'fore') return strong && gap > 0.35 && rng.chance(0.25) ? 2 : 0;
+    // alle drei Reihen nutzen (Werte in ROWS); oben nur mit genug Zeit, betonte Schlaege eher oben
     if (flavor === 'side') return 1;
-    return gap > 0.3 && rng.chance(0.35) ? 1 : 0;
+    const r = rng.next();
+    if (swing === 'fore') {
+      const top = ROWS.foreTop * (strong ? 1.3 : 1);
+      if (gap >= ROWS.minGapTop && r < top) return 2;
+      if (gap >= ROWS.minGapMid && r < top + ROWS.foreMid) return 1;
+      return 0;
+    }
+    if (gap >= ROWS.minGapTop && r < ROWS.backTop) return 2;
+    if (gap >= ROWS.minGapMid && r < ROWS.backTop + ROWS.backMid) return 1;
+    return 0;
   };
   const xFor = (hand: 0 | 1, flavor: Flavor, wide: boolean): number => {
     // rot links (0/1), blau rechts (2/3); 'out' und weite Positionen nach aussen
@@ -314,7 +322,7 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
       case 'stream':
         flavor = rng.chance(0.2) ? 'in' : 'straight';
         x = xFor(hand, flavor, false);
-        y = swing === 'back' && gapPrev > 0.25 && rng.chance(0.3) ? 1 : 0;
+        y = p.t - hands[hand].t >= ROWS.minGapMid && rng.chance(0.3) ? 1 : 0;
         break;
       case 'stair': {
         // Treppe: Positionen wandern nach aussen und nach oben, Diagonalen folgen der Bewegung
@@ -338,17 +346,19 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
         break;
       case 'doubles': case 'cross':
         flavor = rng.chance(0.3) ? 'out' : 'straight';
-        x = xFor(hand, flavor, false); y = yFor(swing, flavor, strong, gapPrev);
+        x = xFor(hand, flavor, false); y = yFor(swing, flavor, strong, p.t - hands[hand].t);
         break;
       default: {
         // simple: ruhig, gut lesbar; Melodie-Passagen bekommen fliessende Diagonalen
         flavor = p.mel > 0.6 && rng.chance(0.5) ? (rng.chance(0.5) ? 'in' : 'out') : rng.chance(0.15) ? 'out' : 'straight';
         x = xFor(hand, flavor, rng.chance(0.25));
-        y = yFor(swing, flavor, strong, gapPrev);
+        y = yFor(swing, flavor, strong, p.t - hands[hand].t);
       }
     }
-    // Sichtblock vermeiden: Mitte (x 1/2, y 1) nur bei viel Zeit
-    if ((x === 1 || x === 2) && y === 1 && Math.min(gapPrev, gapNext) < 0.45) y = 0;
+    // gleiche Hand bei schneller Folge: keine grossen Reihen-Spruenge
+    if (p.t - hands[hand].t < ROWS.fastGap && Math.abs(y - hands[hand].y) > ROWS.maxJumpFast) y = hands[hand].y + Math.sign(y - hands[hand].y) * ROWS.maxJumpFast;
+    // Sichtblock vermeiden: Mitte (x 1/2, y 1) bei schneller Folge -> nach aussen statt nach unten
+    if ((x === 1 || x === 2) && y === 1 && Math.min(gapPrev, gapNext) < 0.45) x = hand === 0 ? 0 : 3;
     put(p, hand, swing, flavor, x, y, dot);
     lastHand = hand;
   }
