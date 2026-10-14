@@ -2,5 +2,6 @@
   "name": "Energiefeld",
   "description": "Durchscheinende Wand aus bewegten Lichtstreifen.",
   "style": "energy",
-  "order": 1
+  "order": 1,
+  "preview": "preview.jpg"
 }

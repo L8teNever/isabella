@@ -75,7 +75,7 @@ export class Panel extends THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMateri
     let y = PAD;
     c.textBaseline = 'middle';
     if (s.title) { c.fillStyle = '#fff'; c.font = '800 48px system-ui, sans-serif'; c.textAlign = 'left'; c.fillText(s.title, PAD, y + 28, W - 2 * PAD); y += 64; }
-    if (s.subtitle) { c.fillStyle = '#b8b0d6'; c.font = '500 28px system-ui, sans-serif'; c.textAlign = 'left'; c.fillText(s.subtitle, PAD, y + 16, W - 2 * PAD); }
+    if (s.subtitle) { let fs = 28; c.fillStyle = '#b8b0d6'; c.font = `500 ${fs}px system-ui, sans-serif`; while (fs > 18 && c.measureText(s.subtitle).width > W - 2 * PAD) { fs -= 1; c.font = `500 ${fs}px system-ui, sans-serif`; } c.textAlign = 'left'; c.fillText(s.subtitle, PAD, y + 16, W - 2 * PAD); }
     this.rects = [];
     for (const { it, x, y: yy, w, h } of out) {
       if (it.type === 'button') {
@@ -95,7 +95,11 @@ export class Panel extends THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMateri
         c.fillStyle = '#fff'; c.font = `${it.main ? 800 : 650} ${fs}px system-ui, sans-serif`;
         while (fs > 20 && c.measureText(it.label).width > maxW) { fs -= 2; c.font = `${it.main ? 800 : 650} ${fs}px system-ui, sans-serif`; }
         c.fillText(it.label, lx, yy + (it.sub ? h * 0.36 : h / 2), maxW);
-        if (it.sub) { c.fillStyle = hot ? '#ffe' : '#b8b0d6'; c.font = '500 25px system-ui, sans-serif'; c.fillText(it.sub, lx, yy + h * 0.7, w - (lx - x) - 16); }
+        if (it.sub) {
+          let ss = 25; c.fillStyle = hot ? '#ffe' : '#b8b0d6'; c.font = `500 ${ss}px system-ui, sans-serif`;
+          while (ss > 17 && c.measureText(it.sub).width > maxW) { ss -= 1; c.font = `500 ${ss}px system-ui, sans-serif`; }
+          c.fillText(it.sub, lx, yy + h * 0.7, maxW);
+        }
         this.rects.push({ id: it.id, x, y: yy, w, h, disabled: it.disabled });
       } else if (it.type === 'text') {
         const size = it.size ?? 30;

@@ -1,0 +1,10 @@
+{
+  "name": "Weihnachten",
+  "description": "Es schneit, Tannen mit Lichterketten, verschneiter Boden. Die Blöcke sind Geschenke.",
+  "style": "christmas",
+  "wallSkin": "eiswand",
+  "blockSkin": "geschenk",
+  "colorSet": "weihnachten",
+  "order": 4,
+  "preview": "preview.jpg"
+}

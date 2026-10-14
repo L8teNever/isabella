@@ -3,5 +3,6 @@
   "description": "Stahlklinge mit leuchtender Schneide, runde Tsuba, umwickelter Griff.",
   "style": "katana",
   "bladeLength": 1.0,
-  "order": 1
+  "order": 1,
+  "preview": "preview.jpg"
 }

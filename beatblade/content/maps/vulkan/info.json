@@ -1,0 +1,8 @@
+{
+  "name": "Vulkan",
+  "description": "Glühender Vulkan, Lava-Flüsse neben der Bahn und aufsteigende Glut.",
+  "style": "volcano",
+  "wallSkin": "stein-metall",
+  "order": 7,
+  "preview": "preview.jpg"
+}

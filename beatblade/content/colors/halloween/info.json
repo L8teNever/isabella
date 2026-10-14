@@ -1,0 +1,7 @@
+{
+  "name": "Halloween",
+  "description": "Kürbis-Orange links, Lila rechts.",
+  "left": "#ff7a1a",
+  "right": "#9b4dff",
+  "order": 5
+}

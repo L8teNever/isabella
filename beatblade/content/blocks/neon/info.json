@@ -1,6 +1,7 @@
 {
   "name": "Neon-Würfel",
-  "description": "Der heutige Block: abgerundeter Würfel mit Pfeil und Leucht-Rand.",
+  "description": "Abgerundeter Würfel mit Pfeil und Leucht-Rand.",
   "style": "neon-cube",
-  "order": 0
+  "order": 0,
+  "preview": "preview.jpg"
 }

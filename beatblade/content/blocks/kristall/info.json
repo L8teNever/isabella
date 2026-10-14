@@ -2,5 +2,6 @@
   "name": "Kristall",
   "description": "Facettierter, glänzender Block, leicht durchscheinend.",
   "style": "crystal",
-  "order": 1
+  "order": 1,
+  "preview": "preview.jpg"
 }

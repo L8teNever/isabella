@@ -3,5 +3,6 @@
   "description": "Dicker Leuchtstab mit Ringen – kräftiges Leuchten.",
   "style": "neon-stab",
   "bladeLength": 0.95,
-  "order": 2
+  "order": 2,
+  "preview": "preview.jpg"
 }

@@ -1,7 +1,8 @@
 {
   "name": "Lichtschwert",
-  "description": "Das heutige Lichtschwert: Griff, leuchtende Klinge und Spur.",
+  "description": "Klassisches Lichtschwert: Griff, leuchtende Klinge und Spur.",
   "bladeLength": 1.0,
   "style": "classic",
-  "order": 0
+  "order": 0,
+  "preview": "preview.jpg"
 }

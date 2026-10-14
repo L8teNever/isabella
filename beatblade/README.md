@@ -79,11 +79,12 @@ Alles, was man auswählen kann, liegt als Ordner mit einer `info.json` in `conte
 
 ```
 content/
-  blocks/<name>/info.json    Block-Skins      style: neon-cube | crystal | retro-pixel   oder  model: datei.glb
+  blocks/<name>/info.json    Block-Skins      style: neon-cube | crystal | retro-pixel | pumpkin | gift   oder  model: datei.glb
   sabers/<name>/info.json    Schwerter        style: classic | katana | neon-stab        oder  model: datei.glb
   colors/<name>/info.json    Farbsets         left: "#rrggbb", right: "#rrggbb"
-  maps/<name>/info.json      Maps             style: neon-runway | space | synthwave, wallSkin: <Wand-Ordner>
-  walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal
+  maps/<name>/info.json      Maps             style: neon-runway | space | synthwave | halloween | christmas | underwater
+                                              | neon-city | volcano; wallSkin: <Wand-Ordner>; optional blockSkin, colorSet
+  walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal | ice | mist
 ```
 
 Gemeinsame Felder: `name`, `description`, `order` (Reihenfolge, klein = vorne), optional `preview` (Bild im
@@ -104,6 +105,9 @@ Beispiel – eigener Block aus einem 3D-Modell:
 - **Schwert-Modell:** die längste Achse wird zur Klinge, das Griffende liegt in der Hand; `bladeLength`
   (0,5–1,4 m) ändert nur das Aussehen – die Treffer-Zone bleibt immer 1 m, das Spielgefühl ist gleich.
 - **Map:** `wallSkin` nennt die Wand, die automatisch dazu passt (Einstellung „Wände: Automatisch“).
+  Themen-Maps können mit `blockSkin` und `colorSet` eigene Blöcke und Farben mitbringen (Halloween: Kürbisse
+  in Orange/Lila, Weihnachten: Geschenke in Rot/Grün); eigene Farben links/rechts gelten weiterhin.
+- **Vorschaubild:** `preview` (z. B. `preview.jpg`, quadratisch, 256×256) erscheint im Auswahl-Menü.
 - Liste aller Inhalte: `GET /beatblade/api/content`.
 
 ## Architektur

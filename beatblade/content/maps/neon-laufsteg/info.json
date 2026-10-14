@@ -1,7 +1,8 @@
 {
   "name": "Neon-Laufsteg",
-  "description": "Die heutige Neon-Umgebung mit Laser, Ringen und Nebel.",
+  "description": "Neon-Umgebung mit Laser, Ringen und Nebel.",
   "wallSkin": "neon-glas",
   "style": "neon-runway",
-  "order": 0
+  "order": 0,
+  "preview": "preview.jpg"
 }

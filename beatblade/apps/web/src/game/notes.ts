@@ -79,6 +79,16 @@ export class NoteView {
       return [new THREE.MeshBasicMaterial({ map: t, color: 0xffffff, transparent: true, opacity: this.mr ? 0.4 : 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
         new THREE.LineBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.95 })];
     }
+    if (style === 'ice') {
+      // Eiswand: hellblau, frostig, weisse Kante
+      return [new THREE.MeshStandardMaterial({ color: 0xbfe6ff, metalness: 0.1, roughness: 0.15, emissive: 0x16303f, transparent: true, opacity: this.mr ? 0.5 : 0.55, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95 })];
+    }
+    if (style === 'mist') {
+      // Spuk-Nebel: violett-gruener Schleier mit giftgruener Kante
+      return [new THREE.MeshBasicMaterial({ color: 0x5a2a8a, transparent: true, opacity: this.mr ? 0.4 : 0.35, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.LineBasicMaterial({ color: 0x7cff4d, transparent: true, opacity: 0.95 })];
+    }
     if (style === 'stone-metal') {
       return [new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.7, roughness: 0.45, emissive: 0x15171c, transparent: true, opacity: this.mr ? 0.65 : 0.72, depthWrite: false, side: THREE.DoubleSide }),
         new THREE.LineBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.95 })];

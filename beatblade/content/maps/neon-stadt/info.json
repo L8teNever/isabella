@@ -1,0 +1,8 @@
+{
+  "name": "Neon-Stadt",
+  "description": "Hochhäuser mit leuchtenden Fenstern, Neon-Kanten und Laser.",
+  "style": "neon-city",
+  "wallSkin": "neon-glas",
+  "order": 6,
+  "preview": "preview.jpg"
+}

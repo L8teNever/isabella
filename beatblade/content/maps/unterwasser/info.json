@@ -1,0 +1,8 @@
+{
+  "name": "Unterwasser",
+  "description": "Blaues Licht, Lichtstrahlen von oben, Blasen, Tang und leuchtende Korallen.",
+  "style": "underwater",
+  "wallSkin": "energiefeld",
+  "order": 5,
+  "preview": "preview.jpg"
+}

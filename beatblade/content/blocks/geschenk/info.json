@@ -1,0 +1,7 @@
+{
+  "name": "Geschenk",
+  "description": "Weihnachtsgeschenk mit Band und Schleife.",
+  "style": "gift",
+  "order": 4,
+  "preview": "preview.jpg"
+}

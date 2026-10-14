@@ -34,6 +34,10 @@ export class Environment {
   private scene: THREE.Scene;
   /** weitere, kartenspezifische Teile, die sich langsam bewegen (Sterne, Sonne ...) */
   private spin: { o: THREE.Object3D; speed: number }[] = [];
+  /** weitere Animationen der Map (Schnee, Blasen, Funken ...) */
+  private anim: ((dt: number) => void)[] = [];
+  /** Lichter mit eigener Farbe (Kuerbisse, Baumlichter, Korallen): pulsieren mit der Lichtshow, Farbe bleibt */
+  private keep: { m: THREE.MeshBasicMaterial; c: THREE.Color }[] = [];
   style = 'neon-runway';
 
   constructor(scene: THREE.Scene, public mr: boolean) {
@@ -59,7 +63,7 @@ export class Environment {
       c.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose?.(); const mt = m.material as THREE.Material | THREE.Material[] | undefined;
         if (mt && mt !== this.floorMat && mt !== this.ringMat) (Array.isArray(mt) ? mt : [mt]).forEach((x) => x.dispose()); });
     }
-    this.strips = []; this.lasers = []; this.laserMats = []; this.rings = []; this.spin = [];
+    this.strips = []; this.lasers = []; this.laserMats = []; this.rings = []; this.spin = []; this.anim = []; this.keep = [];
   }
 
   private build() {
@@ -96,7 +100,130 @@ export class Environment {
       }
     };
 
-    if (this.style === 'space') {
+    // Teilchen (Schnee, Blasen, Glut): steigen/fallen in einem Kasten und kommen am anderen Ende wieder
+    const particles = (n: number, box: [number, number, number, number, number, number], color: number, size: number, vy: number, drift = 0.3) => {
+      const [x0, x1, y0, y1, z0, z1] = box, pos = new Float32Array(n * 3), ph = new Float32Array(n);
+      for (let i = 0; i < n; i++) { pos.set([x0 + Math.random() * (x1 - x0), y0 + Math.random() * (y1 - y0), z0 + Math.random() * (z1 - z0)], i * 3); ph[i] = Math.random() * 6.3; }
+      const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color, size, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+      g.add(pts);
+      let t = 0;
+      this.anim.push((dt) => {
+        t += dt;
+        for (let i = 0; i < n; i++) {
+          let y = pos[i * 3 + 1] + vy * dt;
+          if (vy < 0 && y < y0) y = y1; if (vy > 0 && y > y1) y = y0;
+          pos[i * 3 + 1] = y; pos[i * 3] += Math.sin(t + ph[i]) * drift * dt;
+        }
+        (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      });
+    };
+    const ground = (color: number, w = 120, d = 140) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); m.position.z = -d / 2 + 10; g.add(m); return m; };
+    const runway = (color: number) => { const r = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 100).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color })); r.position.set(0, 0.002, -48); g.add(r); };
+    const sprite = (draw: (c: CanvasRenderingContext2D) => void, w: number, h: number, size = 256) => {
+      const cv = document.createElement('canvas'); cv.width = size; cv.height = size; draw(cv.getContext('2d')!);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false, depthWrite: false }));
+    };
+    const sides = (fn: (x: number, z: number, i: number) => void, count: number, zStep: number, xMin: number, xMax: number) => {
+      for (let i = 0; i < count; i++) for (const side of [-1, 1]) fn(side * (xMin + Math.random() * (xMax - xMin)), -6 - i * zStep - Math.random() * zStep * 0.5, i);
+    };
+
+    if (this.style === 'halloween') {
+      // Halloween: Vollmond, kahle Baeume, Grabsteine, leuchtende Kuerbisse am Rand, gruenlicher Nebel, Glutfunken
+      scene.background = new THREE.Color(0x0a0614); scene.fog = new THREE.Fog(0x120a1c, 14, 80);
+      ground(0x0c0a10); runway(0x150d1c); runwayStrips([-1.3, 1.3]);
+      const moon = sprite((c) => { const gr = c.createRadialGradient(128, 128, 60, 128, 128, 128); gr.addColorStop(0, '#fff6d8'); gr.addColorStop(0.45, '#ffe7a0'); gr.addColorStop(0.5, 'rgba(255,220,140,0.35)'); gr.addColorStop(1, 'rgba(255,200,120,0)'); c.fillStyle = gr; c.fillRect(0, 0, 256, 256);
+        c.fillStyle = 'rgba(200,180,120,0.35)'; for (const [x, y, r] of [[105, 110, 14], [150, 140, 10], [125, 160, 7]]) { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); } }, 34, 34);
+      moon.position.set(18, 30, -100); g.add(moon);
+      const branchMat = new THREE.LineBasicMaterial({ color: 0x1a1022 });
+      const tree = (x: number, z: number) => {
+        const pts: number[] = [];
+        const grow = (x0: number, y0: number, a: number, len: number, d: number) => {
+          const x1 = x0 + Math.sin(a) * len, y1 = y0 + Math.cos(a) * len; pts.push(x0, y0, 0, x1, y1, 0);
+          if (d > 0) { grow(x1, y1, a - 0.5 - Math.random() * 0.3, len * 0.7, d - 1); grow(x1, y1, a + 0.4 + Math.random() * 0.3, len * 0.68, d - 1); }
+        };
+        grow(0, 0, (Math.random() - 0.5) * 0.2, 2.2 + Math.random(), 5);
+        const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+        const t = new THREE.LineSegments(geo, branchMat); t.position.set(x, 0, z); t.rotation.y = Math.random() * 3; t.scale.setScalar(1.6); g.add(t);
+      };
+      sides((x, z) => tree(x, z), 8, 9, 6, 16);
+      const stone = new THREE.MeshStandardMaterial({ color: 0x3a3a46, roughness: 0.9 });
+      sides((x, z) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.18), stone); m.position.set(x, 0.45, z); m.rotation.set(0, Math.random() - 0.5, (Math.random() - 0.5) * 0.2); g.add(m); }, 10, 6, 3, 9);
+      // Kuerbis-Laternen am Rand: kleine Kugeln, die im Takt der Lichtshow mitleuchten
+      sides((x, z) => { const mat = additive(0xff8a1a, 0.95); const m = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), mat); m.scale.y = 0.8; m.position.set(x, 0.2, z); g.add(m); this.keep.push({ m: mat, c: mat.color.clone() }); }, 8, 7, 2.2, 4);
+      particles(160, [-20, 20, 0, 10, -80, 0], 0xff9a3a, 0.08, 0.6, 0.4);
+      lasers(9, 2, 30);
+    } else if (this.style === 'christmas') {
+      // Weihnachten: Schnee faellt, verschneiter Boden, Tannen mit Lichterketten, Sternenhimmel
+      scene.background = new THREE.Color(0x0a1426); scene.fog = new THREE.Fog(0x16233a, 16, 90);
+      ground(0x7d8ca3); runway(0x1b2840); runwayStrips([-1.3, 1.3]);
+      const n = 600, sp = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(110); if (v.y < 5) v.y = 5 + Math.random() * 40; sp.set([v.x, v.y, v.z], i * 3); }
+      const sg = new THREE.BufferGeometry(); sg.setAttribute('position', new THREE.BufferAttribute(sp, 3));
+      g.add(new THREE.Points(sg, new THREE.PointsMaterial({ color: 0xffffff, size: 0.4, fog: false })));
+      const needle = new THREE.MeshStandardMaterial({ color: 0x1d5a34, roughness: 0.8 }), snowTop = new THREE.MeshStandardMaterial({ color: 0xf2f6ff, roughness: 0.9 });
+      const lightCols = [0xff3d3d, 0xffd23c, 0x3db8ff, 0x4be3a0];
+      sides((x, z) => {
+        const t = new THREE.Group(); const h = 2.5 + Math.random() * 2;
+        for (let k = 0; k < 3; k++) { const cone = new THREE.Mesh(new THREE.ConeGeometry(h * (0.42 - k * 0.1), h * 0.45, 9), k === 2 ? snowTop : needle); cone.position.y = h * (0.25 + k * 0.22); t.add(cone); }
+        for (let k = 0; k < 8; k++) { const mat = additive(lightCols[k % 4], 1); const b = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 4), mat); const a = k * 2.1, yy = h * (0.15 + (k / 8) * 0.6), rr = h * 0.38 * (1 - (k / 8) * 0.7);
+          b.position.set(Math.cos(a) * rr, yy, Math.sin(a) * rr); t.add(b); this.keep.push({ m: mat, c: mat.color.clone() }); }
+        t.position.set(x, 0, z); g.add(t);
+      }, 8, 9, 4, 14);
+      // Lichterkette ueber der Bahn
+      for (let i = 0; i < 14; i++) { const mat = additive(lightCols[i % 4], 1); const b = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4), mat); b.position.set(Math.sin(i * 0.9) * 1.6, 3.2 + Math.cos(i * 0.7) * 0.2, -4 - i * 4); g.add(b); this.keep.push({ m: mat, c: mat.color.clone() }); }
+      particles(700, [-25, 25, 0, 14, -90, 4], 0xffffff, 0.07, -1.1, 0.5);
+    } else if (this.style === 'underwater') {
+      // Unterwasser: blaues Licht, Lichtstrahlen von oben, aufsteigende Blasen, Tang, Korallen
+      scene.background = new THREE.Color(0x02223a); scene.fog = new THREE.Fog(0x033a5c, 6, 60);
+      ground(0x0a3a4a); runway(0x0c2c3c); runwayStrips([-1.3, 1.3]);
+      for (let i = 0; i < 9; i++) {
+        const mat = additive(0x9fe8ff, 0.08); const ray = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 40), mat);
+        ray.position.set(-20 + i * 5, 18, -20 - i * 6); ray.rotation.z = 0.35; g.add(ray);
+        let t = Math.random() * 6; this.anim.push((dt) => { t += dt; mat.opacity = 0.05 + 0.05 * Math.sin(t * 0.7); });
+      }
+      const kelpMat = new THREE.MeshBasicMaterial({ color: 0x1f7a4a, side: THREE.DoubleSide });
+      sides((x, z) => { const h = 3 + Math.random() * 4; const k = new THREE.Mesh(new THREE.PlaneGeometry(0.35, h, 1, 8), kelpMat); k.position.set(x, h / 2, z); g.add(k);
+        const base = (k.geometry.attributes.position as THREE.BufferAttribute).array.slice(); let t = Math.random() * 6;
+        this.anim.push((dt) => { t += dt; const p = k.geometry.attributes.position as THREE.BufferAttribute; for (let i = 0; i < p.count; i++) { const y = base[i * 3 + 1] + h / 2; p.setX(i, base[i * 3] + Math.sin(t * 1.3 + y * 0.8) * 0.12 * y); } p.needsUpdate = true; }); }, 10, 6, 3, 12);
+      const coralCols = [0xff6b8a, 0xffa94d, 0xb07dff];
+      sides((x, z, i) => { const mat = additive(coralCols[i % 3], 0.85); const c = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5 + Math.random() * 0.5, 0), mat); c.position.set(x, 0.3, z); c.scale.y = 0.7; g.add(c); this.keep.push({ m: mat, c: mat.color.clone() }); }, 9, 7, 2.5, 8);
+      particles(260, [-12, 12, 0, 12, -60, 2], 0xcff6ff, 0.09, 1.2, 0.3);
+      for (let i = 0; i < 6; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(5 + i * 0.5, 0.04, 6, 64), this.ringMat); r.position.set(0, 3.5, -24 - i * 7); this.rings.push(r); g.add(r); }
+    } else if (this.style === 'neon-city') {
+      // Neon-Stadt: Hochhaeuser mit leuchtenden Fenstern links und rechts, Neon-Bänder, Laser
+      scene.background = new THREE.Color(0x05030c); scene.fog = new THREE.Fog(0x0a0618, 18, 100);
+      ground(0x07060c); runway(0x0f0c1c); runwayStrips([-1.3, 1.3, -3.2, 3.2]);
+      const win = document.createElement('canvas'); win.width = 64; win.height = 128;
+      const wc = win.getContext('2d')!; wc.fillStyle = '#0a0a14'; wc.fillRect(0, 0, 64, 128);
+      for (let y = 4; y < 128; y += 8) for (let x = 4; x < 64; x += 8) if (Math.random() < 0.45) { wc.fillStyle = ['#ffd27a', '#7ad8ff', '#ff7ad8', '#ffffff'][Math.floor(Math.random() * 4)]; wc.fillRect(x, y, 4, 4); }
+      const winTex = new THREE.CanvasTexture(win); winTex.colorSpace = THREE.SRGBColorSpace; winTex.wrapS = winTex.wrapT = THREE.RepeatWrapping;
+      sides((x, z) => {
+        const w = 3 + Math.random() * 4, h = 10 + Math.random() * 30, d = 3 + Math.random() * 4;
+        const tex = winTex.clone(); tex.needsUpdate = true; tex.repeat.set(w / 4, h / 8);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ map: tex, color: 0x9a9aa8 })); b.position.set(x + Math.sign(x) * 4, h / 2, z); g.add(b);
+        const edge = additive(0x7a4dff, 0.9); const e = new THREE.Mesh(new THREE.BoxGeometry(w + 0.05, 0.12, d + 0.05), edge); e.position.set(b.position.x, h, z); g.add(e); this.strips.push(edge);
+      }, 10, 9, 6, 14);
+      lasers(8, 4, 50);
+      for (let i = 0; i < 8; i++) { const r = new THREE.Mesh(new THREE.TorusGeometry(5 + i * 0.3, 0.05, 4, 4), this.ringMat); r.rotation.z = Math.PI / 4; r.position.set(0, 4, -22 - i * 6); this.rings.push(r); g.add(r); }
+    } else if (this.style === 'volcano') {
+      // Vulkan: roter Himmel, gluehender Vulkan, Lava-Fluss neben der Bahn, aufsteigende Glut, dunkle Felsen
+      scene.background = new THREE.Color(0x1a0504); scene.fog = new THREE.Fog(0x2a0806, 15, 90);
+      ground(0x140806); runway(0x1c0c0a); runwayStrips([-1.3, 1.3]);
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(30, 28, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0x0e0605, fog: false }));
+      cone.position.set(-10, 13, -110); g.add(cone);
+      const crater = sprite((c) => { const gr = c.createRadialGradient(128, 128, 10, 128, 128, 128); gr.addColorStop(0, '#fff2a0'); gr.addColorStop(0.3, '#ff8a1a'); gr.addColorStop(1, 'rgba(255,60,0,0)'); c.fillStyle = gr; c.fillRect(0, 0, 256, 256); }, 30, 22);
+      crater.position.set(-10, 28, -109); g.add(crater);
+      for (const side of [-1, 1]) {
+        const mat = additive(0xff5a1a, 0.45); const lava = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 110).rotateX(-Math.PI / 2), mat);
+        lava.position.set(side * 5.5, 0.01, -45); g.add(lava); this.keep.push({ m: mat, c: mat.color.clone() });
+      }
+      const rock = new THREE.MeshStandardMaterial({ color: 0x2a1c1a, roughness: 1, flatShading: true });
+      sides((x, z) => { const m = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8 + Math.random() * 1.6, 0), rock); m.position.set(x, 0.4, z); m.rotation.set(Math.random(), Math.random(), 0); g.add(m); }, 12, 6, 6.5, 16);
+      particles(300, [-20, 20, 0, 18, -90, 2], 0xff7a2a, 0.09, 1.6, 0.6);
+      lasers(10, 2, 30);
+    } else if (this.style === 'space') {
       // Weltraum: Sternenfeld, Planet mit Ring, schwebende Glas-Bahn, Orbit-Ringe
       scene.background = new THREE.Color(0x020109); scene.fog = new THREE.Fog(0x020109, 30, 140);
       const n = 1800, pos = new Float32Array(n * 3);
@@ -205,6 +332,8 @@ export class Environment {
     this.rings.forEach((r, i) => { r.rotation.z = this.laserAngle * 0.3 * (i % 2 ? 1 : -1); r.scale.setScalar(1 + this.burst * 0.25 * Math.sin(i + t * 4)); });
     this.floorMat.color.copy(this.colA).multiplyScalar(this.mr ? 0.6 + this.flash * 0.6 : glow);
     for (const sp of this.spin) sp.o.rotation.y += dt * sp.speed;
+    for (const a of this.anim) a(dt);
+    for (const k of this.keep) k.m.color.copy(k.c).multiplyScalar(0.55 + glow * 0.9);
   }
 
   /** aktuelle Akzentfarbe (fuer UI/Effekte) */

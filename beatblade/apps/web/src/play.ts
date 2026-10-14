@@ -154,6 +154,11 @@ function applyMap() {
   const m = pickMap();
   env?.setMap(mapStyle(m));
   view.setWallSkin(wallStyle(wallFor(m)));
+  // Themen-Maps (Halloween, Weihnachten) bringen eigene Bloecke und Farben mit
+  const blockSkin = typeof m?.data.blockSkin === 'string' ? m.data.blockSkin : undefined;
+  const colorSet = typeof m?.data.colorSet === 'string' ? m.data.colorSet : undefined;
+  game.applyColors(colorSet);
+  loadBlockSkin(blockSkin).then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
 }
 function applyLook() {
   loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
@@ -223,7 +228,7 @@ function finish() {
   setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d); }, 800);
 }
 
-function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); }
+function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
 
 // ---------- Latenz-Kalibrierung ----------
 let tapTimes: number[] = [];
@@ -428,4 +433,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, renderer, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, renderer, view, slicer, root, hud, get env() { return env; }, get state() { return state; } };

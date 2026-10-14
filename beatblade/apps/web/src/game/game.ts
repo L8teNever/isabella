@@ -75,8 +75,8 @@ export class Game {
   }
 
   /** Farben aus Farbset/eigener Wahl auf Bloecke und Schwerter (Linkshaender: Seiten getauscht) */
-  applyColors() {
-    const [l, r] = colorPair();
+  applyColors(setOverride?: string) {
+    const [l, r] = colorPair(setOverride);
     this.colors = settings.leftHanded ? [r, l] : [l, r];
     this.sabers[0].setColor(this.colors[0]); this.sabers[1].setColor(this.colors[1]);
   }

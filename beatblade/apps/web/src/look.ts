@@ -14,12 +14,15 @@ export interface ColorSet { id: string; name: string; left: number; right: numbe
 export const HUE_STEP = 20;
 
 const BUILTIN: ColorSet = { id: 'klassisch', name: 'Klassisch', left: COLORS.left, right: COLORS.right };
-let content: ContentList | null = null;
+let contentList: ContentList | null = null;
 
 /** Inhalte vom Server holen (einmal beim Start) */
 export async function loadLook(): Promise<void> {
-  try { content = await api.content(); } catch { content = null; }
+  try { contentList = await api.content(); } catch { contentList = null; }
 }
+
+/** ein Inhalt nach Kategorie und Ordnername */
+export function content(kind: keyof ContentList, id: string): ContentItem | undefined { return contentList?.[kind]?.find((i) => i.id === id); }
 
 const hex = (v: unknown): number | null => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? parseInt(v.slice(1), 16) : null);
 export const toHex = (c: number) => '#' + c.toString(16).padStart(6, '0');
@@ -27,21 +30,21 @@ export const toHex = (c: number) => '#' + c.toString(16).padStart(6, '0');
 /** alle gueltigen Farbsets (eingebaut zuerst) */
 export function colorSets(): ColorSet[] {
   const list: ColorSet[] = [];
-  for (const it of content?.colors ?? []) {
+  for (const it of contentList?.colors ?? []) {
     const l = hex(it.data.left), r = hex(it.data.right);
     if (l !== null && r !== null) list.push({ id: it.id, name: it.name, left: l, right: r });
   }
   return list.length ? list : [BUILTIN];
 }
 
-export function currentSet(): ColorSet {
+export function currentSet(override?: string): ColorSet {
   const sets = colorSets();
-  return sets.find((s) => s.id === settings.colorSet) ?? sets[0];
+  return (override && sets.find((s) => s.id === override)) || (sets.find((s) => s.id === settings.colorSet) ?? sets[0]);
 }
 
-/** Farben links/rechts: eigene Wahl vor Farbset */
-export function colorPair(): [number, number] {
-  const s = currentSet();
+/** Farben links/rechts: eigene Wahl vor Farbset; override = Farbset einer Themen-Map */
+export function colorPair(override?: string): [number, number] {
+  const s = currentSet(override);
   return [hex(settings.colorLeft) ?? s.left, hex(settings.colorRight) ?? s.right];
 }
 
@@ -56,7 +59,7 @@ export function shiftHue(c: number, deg: number): number {
 }
 
 // ---------- Block-Skins ----------
-export function blockSkins(): ContentItem[] { return content?.blocks?.length ? content.blocks : []; }
+export function blockSkins(): ContentItem[] { return contentList?.blocks?.length ? contentList.blocks : []; }
 export function currentBlock(): ContentItem | undefined {
   const list = blockSkins();
   return list.find((b) => b.id === settings.blockSkin) ?? list[0];
@@ -66,8 +69,8 @@ export const blockName = () => currentBlock()?.name ?? 'Neon-Würfel';
 
 const skinCache = new Map<string, Promise<BlockSkin>>();
 /** Form + Material des gewaehlten Skins (Modell wird einmal geladen; Fehler -> eingebauter Stil) */
-export function loadBlockSkin(): Promise<BlockSkin> {
-  const it = currentBlock();
+export function loadBlockSkin(override?: string): Promise<BlockSkin> {
+  const it = (override && blockSkins().find((b) => b.id === override)) || currentBlock();
   const key = it ? `${it.source}/${it.id}` : 'builtin';
   let p = skinCache.get(key);
   if (!p) {
@@ -79,7 +82,7 @@ export function loadBlockSkin(): Promise<BlockSkin> {
 }
 
 // ---------- Schwerter ----------
-export function saberSkins(): ContentItem[] { return content?.sabers?.length ? content.sabers : []; }
+export function saberSkins(): ContentItem[] { return contentList?.sabers?.length ? contentList.sabers : []; }
 export function currentSaber(): ContentItem | undefined {
   const list = saberSkins();
   return list.find((b) => b.id === settings.saberSkin) ?? list[0];
@@ -96,8 +99,8 @@ export async function buildSaber(color: number): Promise<SaberVisual> {
 }
 
 // ---------- Maps und Wand-Skins ----------
-export function mapItems(): ContentItem[] { return content?.maps?.length ? content.maps : []; }
-export function wallItems(): ContentItem[] { return content?.walls?.length ? content.walls : []; }
+export function mapItems(): ContentItem[] { return contentList?.maps?.length ? contentList.maps : []; }
+export function wallItems(): ContentItem[] { return contentList?.walls?.length ? contentList.walls : []; }
 const styleOf = (it: ContentItem | undefined, d: string) => (typeof it?.data.style === 'string' ? it.data.style : d);
 
 /** Anzeige im Menue */

@@ -4,10 +4,10 @@
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
 import { BUILD_INFO } from '../version';
-import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName } from '../look';
+import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName, content } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
-import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
+import { api, contentUrl, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
 import { settings, saveSettings } from '../settings';
 import { starString, starsFor, type ScoreKeeper } from '../game/score';
 
@@ -21,14 +21,17 @@ export interface MenuActions {
   applySettings(): void;
 }
 
-type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate';
+type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick';
+type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'walls';
+const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen', walls: 'Wände wählen' };
+const PICK_PER_PAGE = 9;
 
 const PER_PAGE = 6;
 
 type Tab = 'spiel' | 'aussehen' | 'audio' | 'komfort' | 'mehr';
 const TABS: [Tab, string][] = [['spiel', 'Spiel'], ['aussehen', 'Aussehen'], ['audio', 'Audio'], ['komfort', 'Komfort'], ['mehr', 'Mehr']];
 /** Bildschirme, bei denen die Lobby (Bestenliste links, Einstellungen rechts) mit angezeigt wird */
-const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate'];
+const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate', 'pick'];
 
 export class Menus {
   /** Mitte: Song-Auswahl, Song-Detail mit Starten, Pause, Ergebnis */
@@ -38,6 +41,9 @@ export class Menus {
   /** rechts: Einstellungen in Gruppen */
   side = new Panel(1.3);
   private tab: Tab = 'aussehen';
+  private pickKind: PickKind = 'maps';
+  private pickPage = 0;
+  private thumbs = new Map<string, HTMLImageElement>();
   screen: Screen = 'songs';
   songs: Song[] = [];
   private page = 0;
@@ -112,6 +118,38 @@ export class Menus {
     return img.complete && img.naturalWidth ? img : null;
   }
 
+  /** Vorschaubild eines Inhalts (aus content/<kategorie>/<name>/preview.*) */
+  private thumb(rel?: string): HTMLImageElement | null {
+    if (!rel) return null;
+    let img = this.thumbs.get(rel);
+    if (!img) { img = new Image(); img.onload = () => this.refresh(); img.src = contentUrl(rel); this.thumbs.set(rel, img); }
+    return img.complete && img.naturalWidth ? img : null;
+  }
+
+  /** Farbfeld fuer ein Farbset: links/rechts als zwei Haelften */
+  private swatch(l: number, r: number): HTMLCanvasElement {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d')!;
+    g.fillStyle = toHex(l); g.fillRect(0, 0, 32, 64); g.fillStyle = toHex(r); g.fillRect(32, 0, 32, 64);
+    return c;
+  }
+
+  /** Karten fuer die Auswahl: id, Name, Beschreibung, Bild, ausgewaehlt */
+  private pickCards(): { id: string; name: string; desc: string; img: CanvasImageSource | null; on: boolean }[] {
+    const k = this.pickKind;
+    if (k === 'colors') return colorSets().map((c) => ({ id: c.id, name: c.name, desc: content('colors', c.id)?.description ?? '', img: this.swatch(c.left, c.right), on: c.id === currentSet().id }));
+    if (k === 'maps') return [{ id: 'zufall', name: 'Zufällig', desc: 'Jeder Song bekommt eine zufällige Map.', img: null, on: settings.mapChoice === 'zufall' },
+      ...mapItems().map((m) => ({ id: m.id, name: m.name, desc: m.description, img: this.thumb(m.preview), on: settings.mapChoice === m.id }))];
+    if (k === 'walls') return [{ id: 'auto', name: 'Automatisch', desc: 'Die Wand, die zur Map passt.', img: null, on: settings.wallSkin === 'auto' },
+      ...wallItems().map((w) => ({ id: w.id, name: w.name, desc: w.description, img: this.thumb(w.preview), on: settings.wallSkin === w.id }))];
+    const list = k === 'blocks' ? blockSkins() : saberSkins();
+    const cur = k === 'blocks' ? currentBlock()?.id : currentSaber()?.id;
+    return list.map((b) => ({ id: b.id, name: b.name, desc: b.description, img: this.thumb(b.preview), on: b.id === cur }));
+  }
+
+  /** Auswahl-Menue oeffnen (mit Vorschaubildern) */
+  openPicker(kind: PickKind) { this.pickKind = kind; const i = this.pickCards().findIndex((c) => c.on); this.pickPage = Math.max(0, Math.floor(i / PICK_PER_PAGE)); this.go('pick'); }
+
   private visibleSongs(): Song[] {
     let l = this.songs.filter((s) => !s.hidden && (this.filter === 'all' || (this.filter === 'bundled' ? s.bundled : !s.bundled)));
     if (this.search) { const q = this.search.toLowerCase(); l = l.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(q)); }
@@ -176,12 +214,12 @@ export class Menus {
       full('name', `Name: ${settings.name}`),
     ];
     else if (this.tab === 'aussehen') items = [
-      half('cset', `Farben: ${currentSet().name} ⟳`), half('bskin', `Blöcke: ${blockName()} ⟳`),
+      half('cset', `Farben: ${currentSet().name} ›`), half('bskin', `Blöcke: ${blockName()} ›`),
       ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
       ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
       ...(settings.colorLeft || settings.colorRight ? [full('creset', 'Eigene Farben zurücksetzen')] : []),
-      full('sskin', `Schwert: ${saberName()} ⟳`),
-      half('mapc', `Map: ${mapName()} ⟳`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ⟳`),
+      full('sskin', `Schwert: ${saberName()} ›`),
+      half('mapc', `Map: ${mapName()} ›`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ›`),
       tog('glow', 'Leuchten'), { type: 'text', text: '', span: 10 },
       ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
     ];
@@ -224,12 +262,12 @@ export class Menus {
     if (m) step(m[1], m[2] === '+' ? 1 : -1);
     else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps' | 'missMute' | 'glow'; settings[k] = !settings[k]; }
     else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
-    else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
+    else if (id === 'cset') return this.openPicker('colors');
     else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
-    else if (id === 'mapc') { const ids = ['zufall', ...mapItems().map((x) => x.id)]; settings.mapChoice = ids[(ids.indexOf(settings.mapChoice) + 1) % ids.length]; }
-    else if (id === 'wallc') { const ids = ['auto', ...wallItems().map((w) => w.id)]; settings.wallSkin = ids[(ids.indexOf(settings.wallSkin) + 1) % ids.length]; }
-    else if (id === 'sskin') { const l = saberSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentSaber()?.id); settings.saberSkin = l[(i + 1) % l.length].id; } }
-    else if (id === 'bskin') { const l = blockSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentBlock()?.id); settings.blockSkin = l[(i + 1) % l.length].id; } }
+    else if (id === 'mapc') return this.openPicker('maps');
+    else if (id === 'wallc') return this.openPicker('walls');
+    else if (id === 'sskin') return this.openPicker('sabers');
+    else if (id === 'bskin') return this.openPicker('blocks');
     else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); this.act.applySettings(); });
     else if (id === 'floor') this.act.setFloor();
     else if (id === 'dir') this.act.setDirection();
@@ -279,6 +317,18 @@ export class Menus {
           { type: 'button', id: 'play', label: '▶  Starten', main: true, h: 120 },
         ];
         return { title: s.title, cols: C, items };
+      }
+      case 'pick': {
+        const cards = this.pickCards(), pages = Math.max(1, Math.ceil(cards.length / PICK_PER_PAGE));
+        this.pickPage = Math.min(this.pickPage, pages - 1);
+        const items: Item[] = cards.slice(this.pickPage * PICK_PER_PAGE, (this.pickPage + 1) * PICK_PER_PAGE).map((c) => ({
+          type: 'button', id: `pk:${c.id}`, label: `${c.on ? '✓ ' : ''}${c.name}`, img: c.img, on: c.on, h: 150,
+        }) as Item);
+        items.push({ type: 'gap', h: 4 });
+        if (pages > 1) items.push({ type: 'button', id: 'pkprev', label: '◀', disabled: this.pickPage === 0 }, { type: 'text', text: `${this.pickPage + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'pknext', label: '▶', disabled: this.pickPage >= pages - 1 });
+        items.push({ type: 'button', id: 'back', label: 'Fertig', main: true });
+        const cur = cards.find((c) => c.on);
+        return { title: PICK_TITLE[this.pickKind], subtitle: cur ? `${cur.name}: ${cur.desc}` : 'Antippen zum Auswählen', cols: 3, items };
       }
       case 'credits':
         if (!this.credits.length) api.credits().then((c) => { this.credits = c; this.refresh(); }).catch(() => {});
@@ -340,6 +390,19 @@ export class Menus {
     if (id.startsWith('L:')) return;
     const s = this.screen;
     if (id === 'back') return this.back();
+    if (s === 'pick') {
+      if (id === 'pkprev') { this.pickPage = Math.max(0, this.pickPage - 1); return this.refresh(); }
+      if (id === 'pknext') { this.pickPage++; return this.refresh(); }
+      if (!id.startsWith('pk:')) return;
+      const v = id.slice(3), k = this.pickKind;
+      if (k === 'colors') { settings.colorSet = v; settings.colorLeft = settings.colorRight = null; }
+      else if (k === 'maps') settings.mapChoice = v;
+      else if (k === 'walls') settings.wallSkin = v;
+      else if (k === 'blocks') settings.blockSkin = v;
+      else settings.saberSkin = v;
+      saveSettings(); this.act.applySettings(); this.refresh();
+      return;
+    }
     if (s === 'songs') {
       if (id.startsWith('f:')) { this.filter = id.slice(2) as typeof this.filter; this.page = 0; this.refresh(); }
       else if (id === 'sort') { this.sort = this.sort === 'new' ? 'title' : this.sort === 'title' ? 'bpm' : 'new'; this.refresh(); }

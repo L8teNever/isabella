@@ -1,0 +1,10 @@
+{
+  "name": "Halloween",
+  "description": "Vollmond, kahle Bäume, Grabsteine und leuchtende Kürbisse. Die Blöcke sind geschnitzte Kürbisse.",
+  "style": "halloween",
+  "wallSkin": "spuk-nebel",
+  "blockSkin": "kuerbis",
+  "colorSet": "halloween",
+  "order": 3,
+  "preview": "preview.jpg"
+}

@@ -3,5 +3,6 @@
   "description": "Glas-Bahn zwischen Sternen, Planet mit Ring, Orbit-Ringe.",
   "style": "space",
   "wallSkin": "stein-metall",
-  "order": 1
+  "order": 1,
+  "preview": "preview.jpg"
 }
