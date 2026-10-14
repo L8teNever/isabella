@@ -52,7 +52,11 @@ export interface SongAnalysis {
   /** Onsets je Band */
   onsets: Record<Band, Onset[]>;
   /** Onset-Staerke pro Beat-Unterteilung (1/4 Beat) je Band, 0..1 – fuer das Mapping */
-  grid: { step: number; bands: Record<Band, number[]> };
+  grid: { step: number; bands: Record<Band, number[]>; /** Gesang/Lead (neue Toene), fehlt bei alten Analysen */ vocal?: number[] };
+  /** Onsets von Gesang/Lead (neue Toene in melodischen Passagen). Fehlt bei alten Analysen. */
+  vocalOnsets?: Onset[];
+  /** Tempo ist fest und das Raster exakt auf die Kicks eingerastet (rigidGrid). Fehlt bei alten Analysen. */
+  fixedTempo?: boolean;
   /** Triolen-Neigung pro Beat 0..1 (1 = eher Triolen als 16tel) */
   triplet: number[];
   /** pro Beat: wie stark ein Klang gehalten wird (0..1; Melodie/Pad ohne neue Anschlaege) – fuer Orbit-Rails. Fehlt bei alten Analysen. */

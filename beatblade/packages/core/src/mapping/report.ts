@@ -1,5 +1,5 @@
 // Timing-Messung: liegen die Noten auf hoerbaren Sounds? (Werkzeug fuer scripts/timing-report.mjs und Tests)
-// Referenz sind die Onsets der vier Spektral-Baender aus der Analyse (unabhaengig vom Beat-Raster).
+// Referenz sind die Onsets der vier Spektral-Baender und (falls vorhanden) von Gesang/Lead – unabhaengig vom Beat-Raster.
 // Weil Musik sehr viele kleine Onsets hat (Hi-Hats: 15–20 pro Sekunde), gibt es zusaetzlich strengere Werte
 // und als Vergleich alle 1/4-Rasterpunkte ("Raster"): so oft traefe man auch ohne Musik-Bezug.
 import { BANDS, type SongAnalysis } from '../types.js';
@@ -24,7 +24,7 @@ export interface TimingReport {
 }
 
 export function timingReport(a: SongAnalysis, notes: { t: number; b: number }[]): TimingReport {
-  const refOf = (min: number) => BANDS.flatMap((band) => a.onsets[band].filter((o) => o.s >= min).map((o) => o.t)).sort((x, y) => x - y);
+  const refOf = (min: number) => [...BANDS.flatMap((band) => a.onsets[band]), ...(a.vocalOnsets ?? [])].filter((o) => o.s >= min).map((o) => o.t).sort((x, y) => x - y);
   const all = refOf(0.15), clear = refOf(0.5);
   const near = (ref: number[], t: number) => {
     let lo = 0, hi = ref.length - 1;

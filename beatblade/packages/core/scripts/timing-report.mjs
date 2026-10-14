@@ -1,5 +1,6 @@
 // Timing-Report: liegen die erzeugten Noten auf hoerbaren Sounds?
-// Aufruf (nach pnpm build):  node scripts/timing-report.mjs [--json out.json] [--label name] typ=datei.mp3 ...
+// Aufruf (nach pnpm build):  node scripts/timing-report.mjs [--json out.json] [--gen anderer/dist/index.js] typ=datei.mp3 ...
+// --gen: Noten mit einem anderen Generator-Stand erzeugen (z. B. main), Analyse und Messung bleiben gleich – fairer Vorher/Nachher-Vergleich.
 // Gibt je Song und Schwierigkeit aus: Anteil Noten mit Onset ±30 ms (alle / deutliche / ±15 ms), mittlere/90-%-Abweichung (ms),
 // Noten auf stillen Slots und als Vergleich den Anteil deutlicher Treffer aller 1/4-Rasterpunkte ("Raster").
 import { execFileSync } from 'node:child_process';
@@ -8,14 +9,16 @@ import path from 'node:path';
 import { analyze, generate, timingReport, DIFFICULTIES } from '../dist/index.js';
 
 const args = process.argv.slice(2);
-let json = null;
+let json = null, gen = null;
 const files = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--json') json = args[++i];
+  else if (args[i] === '--gen') gen = args[++i];
   else files.push(args[i]);
 }
 if (!files.length) { console.error('Aufruf: node scripts/timing-report.mjs [--json out.json] typ=datei.mp3 ...'); process.exit(1); }
 
+const generateWith = gen ? (await import(path.resolve(gen))).generate : generate;
 const out = [];
 const pad = (v, n) => String(v).padStart(n);
 const P = (v) => (v * 100).toFixed(1) + ' %';
@@ -27,7 +30,7 @@ for (const spec of files) {
   const a = analyze(pcm, 44100);
   const name = `${type}:${path.basename(file).replace(/\.\w+$/, '')}`.slice(0, 28);
   for (const d of DIFFICULTIES) {
-    const m = generate(a, d, 7);
+    const m = generateWith(a, d, 7);
     const r = timingReport(a, m.notes);
     out.push({ song: name, type, bpm: a.bpm, difficulty: d, ...r });
     console.log(`${name.padEnd(28)} ${d.padEnd(10)} ${pad(r.notes, 6)} ${pad(P(r.onsetHit), 9)} ${pad(P(r.clearHit), 10)} ${pad(P(r.tightHit), 8)} ${pad(r.meanDev, 6)} ${pad(r.p90Dev, 7)} ${pad(r.silent, 6)} ${pad(P(r.rasterClear), 8)}`);

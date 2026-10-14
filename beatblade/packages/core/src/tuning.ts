@@ -25,6 +25,8 @@ export const ANALYSIS = {
     delta: 0.04,
     /** Mindestabstand zweier Onsets im selben Band (Sekunden) */
     minGap: { sub: 0.09, lowmid: 0.07, highmid: 0.06, high: 0.05 } as Record<Band, number>,
+    /** Gesang/Lead-Onsets: Mindestabstand (Sekunden) */
+    vocalMinGap: 0.1,
   },
   tempo: {
     minBpm: 60,
@@ -157,6 +159,10 @@ export const MAPPING = {
   onsetWindow: 0.035,
   /** Melodie-Gewicht (fliessende Passagen) */
   melody: 0.25,
+  /** Gesang/Lead als Notenquelle: Abschnitte mit so viel Melodie (Mittel 0..1) folgen dem Gesang, sonst dem Schlagzeug */
+  vocalLeadMelody: 0.5,
+  /** Gewicht der Gesang-Onsets in Gesang-Abschnitten / sonst; Schlagzeug-Gewicht in Gesang-Abschnitten */
+  vocalLead: 0.8, vocalOther: 0.2, vocalLeadDrums: 0.7,
   /** Zeit ohne Noten vor einem Drop (Beats) */
   dropPause: 1,
   /** Parity-Reset: nach so viel Zeit darf eine Hand dieselbe Richtung wiederholen (s) */

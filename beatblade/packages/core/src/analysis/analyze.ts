@@ -3,7 +3,7 @@ import { ANALYSIS } from '../tuning.js';
 import { ANALYSIS_VERSION } from '../version.js';
 import { BANDS, type Band, type SongAnalysis, type Waveform } from '../types.js';
 import { computeFeatures } from './features.js';
-import { detectOnsets, normalize, percentile } from './onsets.js';
+import { detectOnsets, normalize, percentile, pickPeaks } from './onsets.js';
 import { estimateTempo, trackBeats, refineBeats, rigidGrid } from './tempo.js';
 import { beatFeatures, detectMeter } from './meter.js';
 import { segment } from './structure.js';
@@ -105,7 +105,7 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
   const melN = normalizeArr(bf.melody);
   // Raster: Onset-Staerke je Band an 1/24-Beat-Positionen (max. im +-20-ms-Fenster)
   const win = Math.max(1, Math.round(0.02 / f.dt));
-  const grid = { step: 1 / GRID_STEPS, bands: {} as Record<Band, number[]> };
+  const grid: SongAnalysis['grid'] = { step: 1 / GRID_STEPS, bands: {} as Record<Band, number[]> };
   for (const b of BANDS) {
     const c = on.curves[b], arr: number[] = [];
     for (let k = 0; k < beats.length - 1; k++) {
@@ -117,6 +117,26 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     }
     grid.bands[b] = arr;
   }
+  // Gesang/Lead als eigene Spur: neue Toene (positive Chroma-Aenderung) in melodischen Frames.
+  // Schlagzeug aendert die Chroma kaum, Silben und Lead-Toene schon.
+  const vocCurve = new Float32Array(f.n);
+  const melMax = percentile(f.melodic, 0.95) || 1;
+  for (let i = 2; i < f.n; i++) {
+    let d = 0;
+    for (let c = 0; c < 12; c++) d += Math.max(0, f.chroma[i * 12 + c] - f.chroma[(i - 2) * 12 + c]);
+    vocCurve[i] = d * Math.min(1, f.melodic[i] / melMax);
+  }
+  const vocN = normalize(vocCurve);
+  const vocalOnsets = pickPeaks(vocN, f, ANALYSIS.onset.vocalMinGap).map((o) => ({ t: Math.round(o.t * 1000) / 1000, s: Math.round(o.s * 1000) / 1000 }));
+  const vocalGrid: number[] = [];
+  for (let k = 0; k < beats.length - 1; k++) {
+    for (let s = 0; s < GRID_STEPS; s++) {
+      const t = beats[k] + ((beats[k + 1] - beats[k]) * s) / GRID_STEPS, i = frame(t);
+      let m = 0; for (let j = i - win; j <= i + win; j++) if (j >= 0 && j < f.n) m = Math.max(m, vocN[j]);
+      vocalGrid.push(Math.round(Math.min(1, m) * 1000) / 1000);
+    }
+  }
+  grid.vocal = vocalGrid;
   // Triolen-Neigung pro Beat: Onsets auf 1/3, 2/3 vs. 1/4, 1/2, 3/4
   const triplet: number[] = [];
   for (let k = 0; k < beats.length - 1; k++) {
@@ -156,7 +176,7 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     version: ANALYSIS_VERSION, duration, sampleRate: sr, bpm, bpmConfidence: Math.round(tempo.confidence * 100) / 100,
     beats: beats.map((t) => Math.round(t * 10000) / 10000), downbeatOffset: meter.offset, beatsPerBar: bpb,
     bars: bars.map((t) => Math.round(t * 10000) / 10000), barEnergy, melody: melN.map((v) => Math.round(v * 100) / 100),
-    onsets, grid, triplet, sustain, pitch, sections, energyCurve: ec, took: Date.now() - t0,
+    onsets, vocalOnsets, fixedTempo: !!rigid, grid, triplet, sustain, pitch, sections, energyCurve: ec, took: Date.now() - t0,
   };
 }
 

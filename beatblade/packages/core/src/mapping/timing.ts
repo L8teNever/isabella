@@ -15,8 +15,8 @@ export interface Slot {
   bar: number;
   inBar: number;      // Position im Takt in Beats
   sec: Section | undefined;
-  /** staerkster echter Onset am Rasterpunkt (Zeit, Staerke) */
-  onT?: number; onS?: number;
+  /** staerkster echter Onset am Rasterpunkt (Zeit, Staerke); voc = nur Gesang/Lead (nicht feineinrasten) */
+  onT?: number; onS?: number; voc?: boolean;
   /** Markierungen */
   drop?: boolean;     // erster Schlag eines Drops
   burst?: boolean;
@@ -92,6 +92,19 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
   // echte Onsets aller Baender: keine Note, wo nichts klingt
   const perc = onsetIndex(BANDS.flatMap((band) => a.onsets[band]));
   const realOnset = (t: number, win: number) => { const o = strongestNear(perc, t, Math.min(MAPPING.onsetWindow, win)); return o && o.s >= MAPPING.onsetMin ? o : null; };
+  // Gesang/Lead als eigene Spur: Abschnitte mit viel Melodie folgen dem Gesang (wie menschliche Mapper), sonst dem Schlagzeug
+  const vocIx = onsetIndex(a.vocalOnsets ?? []), vocGrid = a.grid.vocal;
+  const leadOf = new Map<Section | undefined, boolean>();
+  const vocalLead = (sec: Section | undefined) => {
+    let v = leadOf.get(sec);
+    if (v === undefined) {
+      let m = 0, n = 0;
+      if (sec && vocGrid) for (let k = 0; k < nBeats; k++) if (sectionAtBeat(a, k) === sec) { m += a.melody[k] ?? 0; n++; }
+      v = n > 0 && m / n >= MAPPING.vocalLeadMelody;
+      leadOf.set(sec, v);
+    }
+    return v;
+  };
   for (let k = 0; k < nBeats; k++) {
     const seen = new Set<number>();
     for (const s of subdivs) {
@@ -103,6 +116,7 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         seen.add(gi);
         const idx = k * STEPS + gi;
         const kick = at('sub', idx), snare = Math.max(at('lowmid', idx) * 0.6, at('highmid', idx)), hat = at('high', idx);
+        const sec = sectionAtBeat(a, k), lead = vocalLead(sec), voc = vocGrid?.[idx] ?? 0;
         const mel = a.melody[k] ?? 0;
         const bar = barOfBeat(a, k), inBar = ((k - a.downbeatOffset) % a.beatsPerBar + a.beatsPerBar) % a.beatsPerBar + j / s;
         // metrische Position
@@ -111,15 +125,22 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         else if (gi === 12) metric = MAPPING.metric.half;
         else if (gi === 6 || gi === 18) metric = MAPPING.metric.quarter;
         const bt = beatToTime(beats, k + gi / STEPS);
-        const on = realOnset(bt, (beats[k + 1] - beats[k]) / s / 2);
+        const win = (beats[k + 1] - beats[k]) / s / 2;
+        let on: { t: number; s: number } | null = realOnset(bt, win), vocOnly = false;
+        if (!on && lead) {
+          // im Gesang-Abschnitt zaehlt auch eine Silbe/ein Lead-Ton als Sound (auf das Raster gerundet = gemeinter Rhythmus)
+          const v = strongestNear(vocIx, bt, Math.min(MAPPING.onsetWindow * 1.5, win));
+          if (v && v.s >= MAPPING.onsetMin) { on = v; vocOnly = true; }
+        }
         if (!on) continue;
         const W = MAPPING.bandSalience;
-        let sal = W.sub * kick + W.lowmid * at('lowmid', idx) + W.highmid * at('highmid', idx) + W.high * hat + metric;
+        let sal = (W.sub * kick + W.lowmid * at('lowmid', idx) + W.highmid * at('highmid', idx) + W.high * hat) * (lead ? MAPPING.vocalLeadDrums : 1) + metric;
+        sal += (lead ? MAPPING.vocalLead : MAPPING.vocalOther) * voc;
         if (gi === 0 || gi === 12) sal += MAPPING.melody * mel;
         // feinere Unterteilungen brauchen einen echten Onset
-        if (s >= 4 && gi % 12 !== 0 && Math.max(kick, snare, hat) < 0.35) continue;
+        if (s >= 4 && gi % 12 !== 0 && Math.max(kick, snare, hat, lead ? voc : 0) < 0.35) continue;
         if (s === 8 && gi % 6 !== 0 && Math.max(snare, hat) < 0.5) continue;
-        slots.push({ b: k + gi / STEPS, t: bt, g: idx, sal, kick, snare, hat, mel, bar, inBar, sec: sectionAtBeat(a, k), onT: on.t, onS: on.s });
+        slots.push({ b: k + gi / STEPS, t: bt, g: idx, sal, kick, snare, hat, mel, bar, inBar, sec, onT: on.t, onS: on.s, voc: vocOnly });
       }
     }
   }
