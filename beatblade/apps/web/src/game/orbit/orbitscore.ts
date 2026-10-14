@@ -20,6 +20,11 @@ export const RAIL_DIST = 0.16;
 export const RAIL_MIN_SHARE = 0.8;
 /** Punkte je Sekunde auf der Rail (vor Multiplikator) */
 export const RAIL_POINTS_PER_SEC = 60;
+/** Gold-Rails (beide Haende) bringen so viel mehr Punkte */
+export const GOLD_RAIL_FACTOR = 2;
+/** Gruen: Laeufe, deren Noten weniger als so viele Sekunden auseinander liegen, gehoeren zusammen
+ *  (die erste beruehrende Hand gilt fuer den ganzen Lauf) */
+export const GREEN_RUN_GAP = 2;
 /** Gold: beide Haende muessen innerhalb dieses Zeitfensters (s) beruehren */
 export const GOLD_WINDOW = 0.18;
 
@@ -47,13 +52,13 @@ export class OrbitScore extends ScoreKeeper {
   }
 
   /** Rail beendet: share = gehaltener Anteil 0..1 */
-  rail(share: number, seconds: number): void {
+  rail(share: number, seconds: number, gold = false): void {
     if (share >= RAIL_MIN_SHARE) {
       this.railsHeld++;
       const before = this.rating;
       const mult = this.hit();                               // zaehlt wie ein Treffer (Combo)
       this.rating = Math.min(100, before + PERFECT_GAIN * share);
-      this.score += Math.round(RAIL_POINTS_PER_SEC * seconds * share) * mult;
+      this.score += Math.round(RAIL_POINTS_PER_SEC * seconds * share * (gold ? GOLD_RAIL_FACTOR : 1)) * mult;
     } else {
       this.railsLost++;
       this.miss();

@@ -53,6 +53,9 @@ export const ORBIT = {
   railRestBeats: 2,
   /** Gruen-Laeufe: 4..8 Noten, nur wenn Melodie hoch und Takt-Energie hoechstens im unteren Anteil (Quantil des Songs) */
   greenMin: 4, greenMax: 8, greenMelody: 0.5, greenEnergy: 0.6,
+  /** Gold-Rails (beide Haende nebeneinander): Chance je passender Rail in energiereichen Takten (nur Stufen mit Gold),
+   *  Mindestlaenge in Beats und Mindestabstand zwischen zwei Gold-Rails in Takten */
+  goldRailChance: 0.35, goldRailMinBeats: 3, goldRailGapBars: 16,
   /** Gold-Akzent: Kick-Staerke ab diesem Wert und Takt-Energie im oberen Anteil (Quantil des Songs) */
   goldKick: 0.8, goldEnergy: 0.7,
   /** schnelle Folge: unter diesem Abstand (s) wechseln die Haende ab */

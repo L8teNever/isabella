@@ -35,7 +35,11 @@ export function handPath(m: Pick<OrbitMap, 'notes' | 'rails'>, hand: 0 | 1): Han
     if (n.kind === 'gold') pts.push({ t: n.t, x: n.x + (hand === 0 ? -1 : 1) * ORBIT.goldHandOffset, y: n.y, note: n });
     else if (n.hand === hand && n.rail === undefined) pts.push({ t: n.t, x: n.x, y: n.y, note: n });
   }
-  m.rails.forEach((r, i) => { if (r.hand === hand) for (const p of r.points) pts.push({ t: p.t, x: p.x, y: p.y, rail: i }); });
+  m.rails.forEach((r, i) => {
+    // Gold-Rail: beide Haende links/rechts daneben
+    if (r.kind === 'gold') for (const p of r.points) pts.push({ t: p.t, x: p.x + (hand === 0 ? -1 : 1) * ORBIT.goldHandOffset, y: p.y, rail: i });
+    else if (r.hand === hand) for (const p of r.points) pts.push({ t: p.t, x: p.x, y: p.y, rail: i });
+  });
   return pts.sort((a, b) => a.t - b.t || (a.rail !== undefined ? -1 : 1));
 }
 

@@ -2,6 +2,7 @@
 // Eingebaute Stile werden prozedural gebaut; die Farbe kommt pro Note (InstancedMesh-Farbe) bzw. pro Hand.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { glowMaterial } from '../glow';
 import { pumpkinTexture } from '../blockskins';
 
@@ -102,4 +103,38 @@ export function buildHandOrb(style: string, color: number): HandOrbVisual {
     boost(l) { lvl = l; group.scale.setScalar(1 + l * 0.25); (halo.material as THREE.MeshBasicMaterial).opacity = 0.7 + l * 0.3; },
     update(dt) { if (spin) { spin.rotation.y += dt * (1.2 + lvl * 3); spin.rotation.x += dt * 0.5; } },
   };
+}
+
+const gltfCache = new Map<string, Promise<GLTF>>();
+/** Handkugel aus eigenem Modell (.glb): zentriert, auf Kugelgroesse skaliert, in Handfarbe getoent. Treffer-Zone bleibt gleich. */
+export async function handOrbFromModel(url: string, color: number): Promise<HandOrbVisual | null> {
+  try {
+    let p = gltfCache.get(url);
+    if (!p) { p = new GLTFLoader().loadAsync(url); gltfCache.set(url, p); }
+    const model = (await p).scene.clone(true);
+    const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+    const wrap = new THREE.Group(); wrap.add(model);
+    model.position.sub(center);
+    wrap.scale.setScalar((HAND_R * 2.2) / Math.max(size.x, size.y, size.z, 1e-6));
+    const group = new THREE.Group(); group.add(wrap);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMaterial(0.7, color));
+    halo.scale.setScalar(HAND_R * 6); halo.renderOrder = 2; group.add(halo);
+    const mats: THREE.MeshStandardMaterial[] = [];
+    model.traverse((o) => {
+      const m = o as THREE.Mesh; if (!m.isMesh) return;
+      if (!m.geometry.attributes.normal) { m.geometry = m.geometry.clone(); m.geometry.computeVertexNormals(); }
+      const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.3, roughness: 0.35, metalness: 0.3, map: (m.material as THREE.MeshStandardMaterial).map ?? null });
+      m.material = mat; mats.push(mat);
+    });
+    let lvl = 0;
+    return {
+      group, halo,
+      tint(c) { (halo.material as THREE.MeshBasicMaterial).color.setHex(c); for (const m of mats) { m.color.setHex(c); m.emissive.setHex(c); } },
+      boost(l) { lvl = l; group.scale.setScalar(1 + l * 0.25); (halo.material as THREE.MeshBasicMaterial).opacity = 0.7 + l * 0.3; },
+      update(dt) { wrap.rotation.y += dt * (0.8 + lvl * 2); },
+    };
+  } catch (e) {
+    console.warn('Handkugel-Modell konnte nicht geladen werden', url, e);
+    return null;
+  }
 }
