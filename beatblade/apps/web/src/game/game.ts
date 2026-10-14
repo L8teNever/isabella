@@ -15,7 +15,7 @@ interface BombState { b: Bomb; done: boolean; }
 export interface GameEvents {
   haptic(hand: 0 | 1, intensity: number, ms: number): void;
   slice(intensity: number): void;
-  finished(fail: boolean): void;
+  finished(): void;
 }
 
 const HIT_R = 0.4;            // Treffer-Radius um die Notenmitte (grosszuegig, wie in Rhythmus-Spielen ueblich)
@@ -41,7 +41,7 @@ export function prepareMap(bm: Beatmap): Beatmap {
 export class Game {
   notes: NoteState[] = []; bombs: BombState[] = []; walls: Obstacle[] = [];
   map: Beatmap | null = null;
-  score = new ScoreKeeper(false);
+  score = new ScoreKeeper();
   private look = 1.2; private speed = 16;
   private follows: FollowThrough[] = [];
   private i0 = 0; private b0 = 0;
@@ -59,7 +59,7 @@ export class Game {
     this.notes = bm.notes.slice().sort((a, b) => a.t - b.t).map((n) => ({ n, done: false }));
     this.bombs = bm.bombs.slice().sort((a, b) => a.t - b.t).map((b) => ({ b, done: false }));
     this.walls = bm.obstacles.slice();
-    this.score = new ScoreKeeper(settings.noFail);
+    this.score = new ScoreKeeper();
     this.score.total = this.notes.length;
     this.speed = bm.njs;
     this.look = lookahead(bm.njs, bm.bpm, bm.offset);
@@ -127,7 +127,7 @@ export class Game {
     for (const f of this.follows) f.update(now);
     this.follows = this.follows.filter((f) => !f.done);
     this.lastT = t;
-    if (!this.ended && (this.score.failed || t > this.endTime)) { this.ended = true; this.ev.finished(this.score.failed); }
+    if (!this.ended && t > this.endTime) { this.ended = true; this.ev.finished(); }
   }
 
   /** Swept-Collision: Klinge zwischen letztem und aktuellem Bild abtasten (schnelle Schlaege rutschen nicht durch) */

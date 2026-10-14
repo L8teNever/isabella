@@ -52,12 +52,19 @@ etwa einer Minute sind sie spielbar.
   Energie, Noten/Bomben/Wände und Lichtshow als Zeitleiste, mit Abspielen, Metronom- und Noten-Klick.
 - **Spielen** (`play.html`): *VR starten* (eigene Neon-Umgebung) oder *MR starten* (Passthrough, nur
   Blöcke und dezente Effekte). Menüs per Laserpointer (Abzug/Pinch = Klick), Thumbstick blättert.
-  Song-Detail: Schwierigkeit, Seed, Modifikatoren (No Fail, Schneller, Keine Wände, Keine Bomben),
+  Song-Detail: Schwierigkeit, Seed, Modifikatoren (Schneller, Keine Wände, Keine Bomben),
   Highscores. Einstellungen: Latenz, Schwert-Offset/-Winkel, Spielergröße, Lautstärke, Lichteffekte,
   Linkshänder, Komfortmodus, FPS-Anzeige, Name, MR: Boden/Richtung setzen. *Upload vom Handy* zeigt einen
   QR-Code. Pause: B/Y-Taste oder Brille absetzen/Systemmenü, Weiterspielen mit 3-s-Countdown.
 - **Desktop-Debugmodus**: Autoplay schneidet alle Noten (Taste `A` schaltet auf Maus-Steuerung des
   rechten Schwerts), `Esc` = Pause.
+
+## Wertung
+
+Kein Game Over: jeder Song läuft bis zum Ende. Die Genauigkeit startet pro Song bei 100 %; Treffer heben
+sie an (max. 100 %), verpasste Blöcke, Fehlschläge (falsche Richtung/Farbe), Bomben und Zeit in Wänden
+senken sie. Am Ende: Prozent + Sterne (5 ★ = 100 %, 4 ★ ab 90 %, 3 ★ ab 75 %, 2 ★ ab 50 %, 1 ★ ab 25 %).
+Alle Werte als Konstanten oben in `apps/web/src/game/score.ts`. Highscores werden nach Prozent sortiert.
 
 ## Architektur
 

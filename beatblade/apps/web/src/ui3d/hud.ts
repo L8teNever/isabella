@@ -2,7 +2,7 @@
 // FPS (abschaltbar), Countdown, Wand-Vignette.
 import * as THREE from 'three';
 import { rr } from './panel';
-import type { ScoreKeeper } from '../game/score';
+import { starString, type ScoreKeeper } from '../game/score';
 
 class Label extends THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
   canvas: HTMLCanvasElement; tex: THREE.CanvasTexture; ctx: CanvasRenderingContext2D;
@@ -18,7 +18,7 @@ export class Hud {
   group = new THREE.Group();
   private left = new Label(0.7, 0.45);
   private right = new Label(0.7, 0.45);
-  private energy = new Label(1.6, 0.08, 800);
+  private bar = new Label(1.6, 0.08, 800);
   private center = new Label(1.0, 0.5);
   fps = new Label(0.24, 0.08, 256);
   vignette: THREE.Mesh;
@@ -28,9 +28,9 @@ export class Hud {
   constructor(scene: THREE.Object3D, camera: THREE.Camera) {
     this.left.position.set(-1.75, 1.2, -3.2); this.left.rotation.y = 0.35;
     this.right.position.set(1.75, 1.2, -3.2); this.right.rotation.y = -0.35;
-    this.energy.position.set(0, 0.12, -2.4); this.energy.rotation.x = -0.9;
+    this.bar.position.set(0, 0.12, -2.4); this.bar.rotation.x = -0.9;
     this.center.position.set(0, 1.5, -3);
-    this.group.add(this.left, this.right, this.energy, this.center);
+    this.group.add(this.left, this.right, this.bar, this.center);
     this.group.visible = false; scene.add(this.group);
     this.fps.position.set(-0.22, -0.16, -0.6); this.fps.visible = false; camera.add(this.fps);
     // Vignette: Kugel um den Kopf, rot, nur sichtbar in Waenden
@@ -42,7 +42,7 @@ export class Hud {
 
   update(s: ScoreKeeper, dt: number, inWall: boolean) {
     this.t += dt;
-    const key = `${s.score}|${s.combo}|${s.mult}|${Math.round(s.accuracy * 10)}|${Math.round(s.energy * 50)}|${s.hits}|${s.misses + s.badCuts}`;
+    const key = `${s.score}|${s.combo}|${s.mult}|${Math.round(s.rating * 10)}|${s.hits}|${s.misses + s.badCuts}`;
     const v = this.vignette.material as THREE.MeshBasicMaterial;
     v.opacity += ((inWall ? 0.45 : 0) - v.opacity) * Math.min(1, dt * 10); this.vignette.visible = v.opacity > 0.01;
     if (key === this.last || this.t < 0.08) return;
@@ -55,16 +55,17 @@ export class Hud {
     this.left.tex.needsUpdate = true;
     c = this.right.ctx; W = this.right.canvas.width; H = this.right.canvas.height;
     c.clearRect(0, 0, W, H); c.textAlign = 'center';
-    c.fillStyle = '#fff'; c.font = '900 92px system-ui'; c.fillText(s.score.toLocaleString('de-DE'), W / 2, H * 0.45);
-    c.fillStyle = '#b8b0d6'; c.font = '700 50px system-ui'; c.fillText(`${s.accuracy.toFixed(1)} %  ${s.rank}`, W / 2, H * 0.7);
+    c.fillStyle = '#fff'; c.font = '900 110px system-ui'; c.fillText(`${s.rating.toFixed(1)} %`, W / 2, H * 0.42);
+    c.fillStyle = '#ffd23c'; c.font = '700 54px system-ui'; c.fillText(starString(s.stars), W / 2, H * 0.68);
     c.font = '600 36px system-ui'; c.fillStyle = '#9fe8c4'; c.fillText(`✓ ${s.hits}`, W * 0.3, H * 0.93);
     c.fillStyle = '#ff9db0'; c.fillText(`✗ ${s.misses + s.badCuts}`, W * 0.7, H * 0.93);
     this.right.tex.needsUpdate = true;
-    c = this.energy.ctx; W = this.energy.canvas.width; H = this.energy.canvas.height;
+    c = this.bar.ctx; W = this.bar.canvas.width; H = this.bar.canvas.height;
     c.clearRect(0, 0, W, H); c.fillStyle = 'rgba(255,255,255,0.15)'; rr(c, 0, 0, W, H, H / 2); c.fill();
-    c.fillStyle = s.energy < 0.25 ? '#ff4d4d' : s.energy > 0.75 ? '#4be3a0' : '#ffffff';
-    rr(c, 2, 2, Math.max(H, (W - 4) * s.energy), H - 4, (H - 4) / 2); c.fill();
-    this.energy.tex.needsUpdate = true;
+    // Balken = aktuelle Wertung in Prozent
+    c.fillStyle = s.rating >= 90 ? '#4be3a0' : s.rating >= 50 ? '#ffffff' : '#ff4d4d';
+    rr(c, 2, 2, Math.max(H, ((W - 4) * s.rating) / 100), H - 4, (H - 4) / 2); c.fill();
+    this.bar.tex.needsUpdate = true;
   }
 
   /** grosse Mitteilung (Countdown, "Fail"), leer = ausblenden */

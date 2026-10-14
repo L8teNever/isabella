@@ -68,7 +68,7 @@ let resumeAt = 0;
 const game = new Game(root, view, slicer, sabers, {
   haptic: (hand, v, ms) => pulse(hand, v, ms),
   slice: (v) => audio.slice(v),
-  finished: (fail) => finish(fail),
+  finished: () => finish(),
 });
 
 const menus = new Menus(root, {
@@ -170,15 +170,16 @@ function pauseGame() {
 
 function sendLog(reason: string) {
   const s = game.score;
-  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, energy: s.energy, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, noFail: settings.noFail, cuts: game.cutLog.slice(-60) });
+  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, rating: Math.round(s.rating * 10) / 10, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, cuts: game.cutLog.slice(-60) });
 }
 
-function finish(fail: boolean) {
-  sendLog(fail ? 'fail' : 'end');
-  if (fail) { audio.stop(); hud.message('Gescheitert', 'Zu viele Noten verpasst – No Fail im Song-Menü'); }
-  else { const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4); setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500); }
+function finish() {
+  sendLog('end');
+  // Musik ausblenden, dann Ergebnis (kein Game Over – jeder Song laeuft bis zum Ende)
+  const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
+  setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500);
   state = 'results';
-  setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d, fail); }, fail ? 1500 : 800);
+  setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d); }, 800);
 }
 
 function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); }

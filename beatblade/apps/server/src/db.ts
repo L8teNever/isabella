@@ -97,7 +97,7 @@ export const q = {
   openJobFor: db.prepare(`SELECT * FROM jobs WHERE song_id = ? AND status IN ('queued','running') LIMIT 1`),
   log: db.prepare('INSERT INTO logs (song_id, at, level, msg) VALUES (?, ?, ?, ?)'),
   logs: db.prepare('SELECT at, level, msg FROM logs WHERE song_id = ? ORDER BY id DESC LIMIT 300'),
-  scores: db.prepare('SELECT * FROM scores WHERE song_id = ? AND difficulty = ? ORDER BY score DESC, created_at ASC LIMIT ?'),
+  scores: db.prepare('SELECT * FROM scores WHERE song_id = ? AND difficulty = ? ORDER BY accuracy DESC, score DESC, created_at ASC LIMIT ?'),
   insertScore: db.prepare(`INSERT INTO scores (song_id, difficulty, name, score, accuracy, rank, max_combo, misses, modifiers, created_at)
     VALUES (@songId, @difficulty, @name, @score, @accuracy, @rank, @maxCombo, @misses, @modifiers, @createdAt)`),
 };
