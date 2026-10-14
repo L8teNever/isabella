@@ -29,5 +29,8 @@ export const config = {
   /** oeffentliche Adresse (fuer den QR-Code im Headset) */
   publicUrl: (env.PUBLIC_URL || '').replace(/\/+$/, ''),
   ffmpeg: env.FFMPEG_PATH || 'ffmpeg',
+  /** YouTube-Import: Pfad zu yt-dlp und maximale Videolaenge */
+  ytdlp: env.YTDLP_PATH || 'yt-dlp',
+  ytMaxMinutes: num(env.YT_MAX_MINUTES, 15),
   importSeeds: env.IMPORT_SEEDS !== 'false',
 };

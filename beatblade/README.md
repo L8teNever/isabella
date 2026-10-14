@@ -33,6 +33,8 @@ etwa einer Minute sind sie spielbar.
 | `PUBLIC_URL` | aus Request | Adresse für den QR-Code im Headset |
 | `IMPORT_SEEDS` | `true` | mitgelieferte Songs importieren |
 | `DATA_DIR` | `/data` | SQLite, Audio, Analysen, Levels (Volume) |
+| `YTDLP_PATH` | `yt-dlp` | Programm für den YouTube-Import (im Image enthalten, aktualisiert sich beim Start) |
+| `YT_MAX_MINUTES` | `15` | maximale Länge eines YouTube-Videos |
 
 ### Reverse-Proxy / Cloudflare
 
@@ -46,7 +48,9 @@ etwa einer Minute sind sie spielbar.
 - **Bibliothek** (`/beatblade/`): Upload per Drag & Drop oder Dateiauswahl (MP3, M4A, OGG, FLAC, WAV;
   Erkennung per Magic Bytes), Fortschritt pro Datei, danach Live-Status *In Warteschlange → Dekodieren →
   Analysieren → Level generieren → Fertig*. Tags/Cover werden ausgelesen und sind editierbar,
-  Duplikate (SHA-256) werden erkannt. Suchen, sortieren, filtern, neu generieren, neu analysieren,
+  Duplikate (SHA-256) werden erkannt. **YouTube-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
+  Vorschaubild als Cover) und importiert sie wie einen Upload; Fortschritt live in der Liste. Downloads laufen
+  nacheinander. Nur Inhalte laden, die du nutzen darfst – YouTube erlaubt Downloads laut Nutzungsbedingungen nicht. Suchen, sortieren, filtern, neu generieren, neu analysieren,
   ausblenden, löschen, Job-Log.
 - **Debug-Ansicht** (`debug.html?song=ID`): Wellenform, Beats/Takte, Onsets je Band, Abschnitte,
   Energie, Noten/Bomben/Wände und Lichtshow als Zeitleiste, mit Abspielen, Metronom- und Noten-Klick.

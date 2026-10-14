@@ -32,6 +32,8 @@ export const api = {
   login: (password: string) => j<{ ok: boolean }>('/login', json('POST', { password })),
   songs: () => j<Song[]>('/songs'),
   content: () => j<ContentList>('/content'),
+  /** YouTube-Link an den Server geben; Fortschritt kommt per SSE 'yt' */
+  youtube: (url: string) => j<{ job: string }>('/youtube', json('POST', { url })),
   song: (id: string) => j<Song>(`/songs/${id}`),
   patch: (id: string, f: Partial<Pick<Song, 'title' | 'artist' | 'album' | 'hidden'>>) => j<Song>(`/songs/${id}`, json('PATCH', f)),
   remove: (id: string) => j<{ ok: boolean }>(`/songs/${id}`, { method: 'DELETE' }),
@@ -70,13 +72,17 @@ export const api = {
 };
 
 /** Live-Updates: song (neu/geaendert) und deleted */
-export function subscribe(on: { song?: (s: Song) => void; deleted?: (id: string) => void; open?: () => void }): () => void {
+/** Status eines YouTube-Downloads (SSE-Ereignis 'yt') */
+export interface YtStatus { job: string; state: 'warten' | 'laden' | 'umwandeln' | 'import' | 'fertig' | 'fehler'; percent?: number; message?: string; song?: Song; duplicate?: boolean; title?: string }
+
+export function subscribe(on: { song?: (s: Song) => void; deleted?: (id: string) => void; open?: () => void; yt?: (s: YtStatus) => void }): () => void {
   let es: EventSource | null = null, stop = false;
   const connect = () => {
     if (stop) return;
     es = new EventSource(`${API}/events`, { withCredentials: true });
     es.addEventListener('song', (e) => on.song?.(JSON.parse((e as MessageEvent).data)));
     es.addEventListener('deleted', (e) => on.deleted?.(JSON.parse((e as MessageEvent).data).id));
+    es.addEventListener('yt', (e) => on.yt?.(JSON.parse((e as MessageEvent).data)));
     es.onopen = () => on.open?.();
     es.onerror = () => { es?.close(); setTimeout(connect, 3000); };
   };

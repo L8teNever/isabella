@@ -16,7 +16,11 @@ RUN node scripts/download-seeds.mjs seed-songs || true
 RUN rm -rf node_modules packages/*/node_modules apps/*/node_modules && CI=true pnpm install --prod --frozen-lockfile
 
 FROM node:22-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl && rm -rf /var/lib/apt/lists/*
+# YouTube-Import: yt-dlp als eigenstaendiges Programm (aktualisiert sich beim Serverstart selbst, yt-dlp -U)
+ARG TARGETARCH
+RUN set -e; case "${TARGETARCH:-amd64}" in arm64) f=yt-dlp_linux_aarch64 ;; *) f=yt-dlp_linux ;; esac; \
+    curl -fsSL -o /usr/local/bin/yt-dlp "https://github.com/yt-dlp/yt-dlp/releases/latest/download/$f" && chmod 755 /usr/local/bin/yt-dlp
 WORKDIR /app
 COPY --from=build /app /app
 ENV NODE_ENV=production DATA_DIR=/data SEED_DIR=/app/seed-songs WEB_DIR=/app/apps/web/dist PORT=3000 BASE_PATH=/beatblade

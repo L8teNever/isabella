@@ -1,7 +1,7 @@
 // 2D-Seite (mobil zuerst): Upload mit Fortschritt, Bibliothek mit Live-Status, Bearbeiten, Credits.
 import '../style.css';
 import { DIFFICULTY_LABEL, type Song } from '@beatblade/core';
-import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE } from '../api';
+import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE, type YtStatus } from '../api';
 import { BUILD_INFO } from '../version';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -18,7 +18,7 @@ async function boot() {
   if (info?.authMode === 'password' && !info.loggedIn) { $('login').hidden = false; return; }
   showTab(location.hash === '#credits' ? 'credits' : 'lib');
   await load();
-  subscribe({ song: upsert, deleted: (id) => { songs.delete(id); render(); }, open: () => load() });
+  subscribe({ song: upsert, deleted: (id) => { songs.delete(id); render(); }, open: () => load(), yt: ytUpdate });
 }
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -67,19 +67,47 @@ async function uploadOne(file: File) {
     if (res?.song) {
       upsert(res.song);
       st.textContent = res.duplicate ? 'Schon vorhanden' : 'Hochgeladen – wird verarbeitet';
-      row.dataset.song = res.song.id;
-      // Status der Verarbeitung in der Zeile mitlaufen lassen
-      const tick = () => {
-        const s = songs.get(res.song!.id); if (!s) return;
-        st.textContent = s.status === 'ready' ? 'Fertig ✓' : s.status === 'error' ? `Fehler: ${s.error}` : `${STATUS_LABEL[s.status]} ${Math.round(s.progress * 100)} %`;
-        st.style.color = s.status === 'ready' ? 'var(--ok)' : s.status === 'error' ? 'var(--err)' : '';
-        if (s.status !== 'ready' && s.status !== 'error') setTimeout(tick, 500); else setTimeout(() => row.remove(), s.status === 'ready' ? 8000 : 30000);
-      };
-      tick();
+      trackSong(row, res.song.id);
     }
   } catch (e) {
     st.textContent = (e as Error).message; st.style.color = 'var(--err)'; bar.style.background = 'var(--err)';
   }
+}
+
+/** Status der Verarbeitung (Analyse) in einer Upload-Zeile mitlaufen lassen */
+function trackSong(row: HTMLElement, id: string) {
+  const st = row.querySelector<HTMLElement>('.st')!;
+  row.dataset.song = id;
+  const tick = () => {
+    const s = songs.get(id); if (!s) return;
+    st.textContent = s.status === 'ready' ? 'Fertig ✓' : s.status === 'error' ? `Fehler: ${s.error}` : `${STATUS_LABEL[s.status]} ${Math.round(s.progress * 100)} %`;
+    st.style.color = s.status === 'ready' ? 'var(--ok)' : s.status === 'error' ? 'var(--err)' : '';
+    if (s.status !== 'ready' && s.status !== 'error') setTimeout(tick, 500); else setTimeout(() => row.remove(), s.status === 'ready' ? 8000 : 30000);
+  };
+  tick();
+}
+
+// ---------- YouTube-Link ----------
+const ytRows = new Map<string, HTMLElement>();
+$('yt-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const inp = $<HTMLInputElement>('yt-url'), url = inp.value.trim(); if (!url) return;
+  const row = document.createElement('div'); row.className = 'up';
+  row.innerHTML = `<div class="name">${esc(url)}</div><div class="st hint">An den Server geschickt …</div><div class="bar"><i></i></div>`;
+  $('uploads').prepend(row);
+  try { const r = await api.youtube(url); ytRows.set(r.job, row); inp.value = ''; }
+  catch (err) { const st = row.querySelector<HTMLElement>('.st')!; st.textContent = (err as Error).message; st.style.color = 'var(--err)'; setTimeout(() => row.remove(), 30000); }
+});
+const YT_TEXT: Record<YtStatus['state'], string> = { warten: 'Wartet …', laden: 'Lädt von YouTube', umwandeln: 'Wandelt in Audio um …', import: 'Wird übernommen …', fertig: 'Geladen – wird verarbeitet', fehler: 'Fehler' };
+function ytUpdate(s: YtStatus) {
+  const row = ytRows.get(s.job); if (!row) return;
+  const st = row.querySelector<HTMLElement>('.st')!, bar = row.querySelector<HTMLElement>('.bar i')!;
+  if (s.title) row.querySelector<HTMLElement>('.name')!.textContent = s.title;
+  st.textContent = s.state === 'laden' && s.percent !== undefined ? `${YT_TEXT.laden} ${s.percent} %` : s.state === 'fehler' ? s.message ?? 'Fehler' : YT_TEXT[s.state];
+  st.style.color = s.state === 'fehler' ? 'var(--err)' : '';
+  bar.style.width = `${s.state === 'laden' ? s.percent ?? 0 : ['umwandeln', 'import', 'fertig'].includes(s.state) ? 100 : 0}%`;
+  if (s.state === 'fehler') { bar.style.background = 'var(--err)'; ytRows.delete(s.job); setTimeout(() => row.remove(), 30000); }
+  if (s.state === 'fertig' && s.song) { upsert(s.song); ytRows.delete(s.job); if (s.duplicate) { st.textContent = 'Schon vorhanden'; setTimeout(() => row.remove(), 8000); } else trackSong(row, s.song.id); }
 }
 
 // ---------- Bibliothek ----------

@@ -13,6 +13,7 @@ import { contentByKind, contentFile, CONTENT_MIME } from './content.js';
 import { songRoutes } from './routes/songs.js';
 import { resumeAndUpgrade } from './queue.js';
 import { importSeeds, readCredits } from './seed.js';
+import { initYoutube } from './youtube.js';
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL || 'info' }, trustProxy: true, bodyLimit: 20 * 1024 * 1024 });
 const B = config.basePath, api = `${B}/api`;
@@ -64,3 +65,4 @@ app.log.info(`BeatBlade läuft auf :${config.port}${B || '/'} (Daten: ${config.d
 fs.mkdirSync(path.join(config.dataDir, 'songs'), { recursive: true });
 resumeAndUpgrade();
 importSeeds((m) => app.log.info(m)).catch((e) => app.log.error(e, 'Seed-Import fehlgeschlagen'));
+initYoutube((m) => app.log.info(m));

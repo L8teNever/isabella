@@ -7,6 +7,7 @@ import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
 import { config } from '../config.js';
+import { queueYoutube } from '../youtube.js';
 import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
 import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
 import { importFile } from '../songs-service.js';
@@ -41,6 +42,14 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     }
     const anyOk = results.some((r) => (r as { song?: unknown }).song);
     return reply.code(anyOk ? 200 : 400).send({ results });
+  });
+
+  // ---------- YouTube-Link -> Song (laeuft im Hintergrund, Status per SSE 'yt') ----------
+  app.post<{ Body: { url?: string } }>(`${api}/youtube`, { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    const url = typeof req.body?.url === 'string' ? req.body.url.slice(0, 500) : '';
+    const r = queueYoutube(url);
+    if ('error' in r) return reply.code(400).send(r);
+    return reply.code(202).send(r);
   });
 
   // ---------- Bearbeiten ----------
