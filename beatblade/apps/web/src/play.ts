@@ -169,7 +169,7 @@ function pauseGame() {
 }
 
 function finish(fail: boolean) {
-  if (fail) { audio.stop(); hud.message('Gescheitert', 'Energie leer'); }
+  if (fail) { audio.stop(); hud.message('Gescheitert', 'Zu viele Noten verpasst – No Fail im Song-Menü'); }
   else { const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4); setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500); }
   state = 'results';
   setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d, fail); }, fail ? 1500 : 800);

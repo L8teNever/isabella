@@ -21,14 +21,20 @@ const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  noFail: false, fastNotes: false, noWalls: false, noBombs: false, floorOffset: 0,
+  noFail: true, fastNotes: false, noWalls: false, noBombs: false, floorOffset: 0,
 };
 
+const SETTINGS_V = 2;
 export const settings: Settings = (() => {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return { ...DEFAULTS }; }
+  try {
+    const stored = JSON.parse(localStorage.getItem(KEY) || '{}');
+    // v2: No Fail standardmaessig an (Anfaenger flogen sonst nach wenigen Fehlern raus)
+    if ((stored.v ?? 1) < 2) stored.noFail = true;
+    return { ...DEFAULTS, ...stored };
+  } catch { return { ...DEFAULTS }; }
 })();
 
-export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify(settings)); } catch { /* privat/voll */ } }
+export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify({ ...settings, v: SETTINGS_V })); } catch { /* privat/voll */ } }
 
 export function modifiersLabel(s: Settings = settings): string {
   return [s.noFail && 'NF', s.fastNotes && 'FN', s.noWalls && 'NW', s.noBombs && 'NB'].filter(Boolean).join(',');

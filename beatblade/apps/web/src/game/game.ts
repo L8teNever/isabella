@@ -18,10 +18,10 @@ export interface GameEvents {
   finished(fail: boolean): void;
 }
 
-const HIT_R = 0.34;           // Treffer-Radius um die Notenmitte (grosszuegig, wie in Rhythmus-Spielen ueblich)
+const HIT_R = 0.4;            // Treffer-Radius um die Notenmitte (grosszuegig, wie in Rhythmus-Spielen ueblich)
 const BOMB_R = 0.2;
-const MIN_SPEED = 1.1;        // m/s Spitzengeschwindigkeit fuer einen gueltigen Schnitt
-const ANGLE_TOL = 60;         // Grad
+const MIN_SPEED = 0.7;        // m/s Spitzengeschwindigkeit fuer einen gueltigen Schnitt
+const ANGLE_TOL = 70;         // Grad
 
 /** Modifikatoren und Linkshaender-Spiegelung anwenden */
 export function prepareMap(bm: Beatmap): Beatmap {

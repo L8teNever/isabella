@@ -42,7 +42,7 @@ export class Hud {
 
   update(s: ScoreKeeper, dt: number, inWall: boolean) {
     this.t += dt;
-    const key = `${s.score}|${s.combo}|${s.mult}|${Math.round(s.accuracy * 10)}|${Math.round(s.energy * 50)}`;
+    const key = `${s.score}|${s.combo}|${s.mult}|${Math.round(s.accuracy * 10)}|${Math.round(s.energy * 50)}|${s.hits}|${s.misses + s.badCuts}`;
     const v = this.vignette.material as THREE.MeshBasicMaterial;
     v.opacity += ((inWall ? 0.45 : 0) - v.opacity) * Math.min(1, dt * 10); this.vignette.visible = v.opacity > 0.01;
     if (key === this.last || this.t < 0.08) return;
@@ -56,7 +56,9 @@ export class Hud {
     c = this.right.ctx; W = this.right.canvas.width; H = this.right.canvas.height;
     c.clearRect(0, 0, W, H); c.textAlign = 'center';
     c.fillStyle = '#fff'; c.font = '900 92px system-ui'; c.fillText(s.score.toLocaleString('de-DE'), W / 2, H * 0.45);
-    c.fillStyle = '#b8b0d6'; c.font = '700 54px system-ui'; c.fillText(`${s.accuracy.toFixed(1)} %  ${s.rank}`, W / 2, H * 0.78);
+    c.fillStyle = '#b8b0d6'; c.font = '700 50px system-ui'; c.fillText(`${s.accuracy.toFixed(1)} %  ${s.rank}`, W / 2, H * 0.7);
+    c.font = '600 36px system-ui'; c.fillStyle = '#9fe8c4'; c.fillText(`✓ ${s.hits}`, W * 0.3, H * 0.93);
+    c.fillStyle = '#ff9db0'; c.fillText(`✗ ${s.misses + s.badCuts}`, W * 0.7, H * 0.93);
     this.right.tex.needsUpdate = true;
     c = this.energy.ctx; W = this.energy.canvas.width; H = this.energy.canvas.height;
     c.clearRect(0, 0, W, H); c.fillStyle = 'rgba(255,255,255,0.15)'; rr(c, 0, 0, W, H, H / 2); c.fill();

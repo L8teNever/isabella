@@ -47,7 +47,7 @@ export class ScoreKeeper {
   miss(bad = false) {
     this.breakCombo(); this.judged++;
     if (bad) this.badCuts++; else this.misses++;
-    this.drain(0.15);
+    this.drain(0.1);
     this.advanceIdeal();
   }
 
