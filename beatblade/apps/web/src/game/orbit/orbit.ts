@@ -2,7 +2,7 @@
 // Gold = beide Haende, Gruen = eine Hand nach Wahl. Wertung Perfekt/Gut/Schlecht nach Abstand beim Beruehren.
 // Alle Noten als InstancedMesh (wenige Draw Calls); Rails als Roehren, deren gespielter Teil abgeschnitten wird.
 import * as THREE from 'three';
-import { ORBIT, railAt, type LightEvent, type OrbitMap, type OrbitNote, type OrbitRail } from '@beatblade/core';
+import { ORBIT, duckAt, goldToReach, railAt, toReach, type LightEvent, type OrbitMap, type OrbitNote, type OrbitRail } from '@beatblade/core';
 import type { GameMode } from '../mode';
 import { lookahead, rowY, smooth, COLORS } from '../layout';
 import type { NoteView } from '../notes';
@@ -17,7 +17,7 @@ import { GOLD_WINDOW, GRADE_COLOR, GRADE_LABEL, GREEN_RUN_GAP, RAIL_DIST, RAIL_M
 
 // ---------- Stellschrauben der Darstellung ----------
 /** Ebene, an der die Kugeln "auf dem Beat" sind (m vor dem Spieler) */
-export const ORB_HIT_Z = -0.45;
+export const ORB_HIT_Z = ORBIT.hitZ;
 export const GOLD_SCALE = 1.45;      // Gold-Kugel groesser
 /** Hoehe der Generator-Positionen bezieht sich auf diese Spielergroesse */
 const REF_HEIGHT = 1.75;
@@ -36,16 +36,28 @@ export interface OrbitEvents {
   muteNow(): void;
 }
 
-/** Modifikatoren, Spielergroesse und Linkshaender-Spiegelung anwenden */
+/** Modifikatoren, Spielergroesse (Hoehe UND Seite – die Armlaenge waechst mit) und Linkshaender-Spiegelung anwenden.
+ *  Danach jeden Punkt in die Armreichweite der skalierten Schultern ziehen (auch fuer aeltere, schon erzeugte Levels). */
 export function prepareOrbit(om: OrbitMap): OrbitMap {
   const m: OrbitMap = JSON.parse(JSON.stringify(om));
   const hs = settings.playerHeight / REF_HEIGHT;
   if (settings.noWalls) m.obstacles = [];
   if (settings.fastNotes) m.speed *= 1.25;
-  const fix = (p: { x: number; y: number }) => { p.y *= hs; if (settings.leftHanded) p.x = -p.x; };
-  for (const n of m.notes) { fix(n); if (settings.leftHanded) n.hand = (1 - n.hand) as 0 | 1; }
-  for (const r of m.rails) { r.points.forEach(fix); if (settings.leftHanded) r.hand = (1 - r.hand) as 0 | 1; }
   if (settings.leftHanded) for (const o of m.obstacles) o.x = 4 - o.x - o.w;
+  const fix = (p: { t: number; x: number; y: number }, hand: 0 | 1, gold: boolean) => {
+    p.y *= hs; p.x *= hs;
+    if (settings.leftHanded) p.x = -p.x;
+    const duck = duckAt(m.obstacles, p.t) * hs;
+    [p.x, p.y] = gold ? goldToReach(p.x, p.y, hs, duck, ORBIT.goldHandOffset) : toReach(p.x, p.y, hand, hs, duck);
+  };
+  for (const n of m.notes) {
+    if (settings.leftHanded) n.hand = (1 - n.hand) as 0 | 1;
+    fix(n, n.hand, n.kind === 'gold');
+  }
+  for (const r of m.rails) {
+    if (settings.leftHanded) r.hand = (1 - r.hand) as 0 | 1;
+    for (const p of r.points) fix(p, r.hand, r.kind === 'gold');
+  }
   return m;
 }
 
