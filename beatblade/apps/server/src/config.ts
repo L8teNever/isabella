@@ -1,11 +1,12 @@
 // Konfiguration aus Umgebungsvariablen (siehe .env.example)
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const env = process.env;
 const num = (v: string | undefined, d: number) => (v && !Number.isNaN(+v) ? +v : d);
 /** Wurzel des Repos (aus dist/ oder src/ gleich tief: apps/server/{src,dist} -> beatblade) */
-function repoRoot() { return path.resolve(new URL('.', import.meta.url).pathname, '../../..'); }
+function repoRoot() { return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..'); }
 const base = (env.BASE_PATH || '').replace(/\/+$/, '');
 
 export const config = {

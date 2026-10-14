@@ -9,7 +9,7 @@ import cookie from '@fastify/cookie';
 import { ANALYSIS_VERSION, MAPPING_VERSION } from '@beatblade/core';
 import { config } from './config.js';
 import { registerAuth, loggedIn } from './auth.js';
-import { contentByKind } from './content.js';
+import { contentByKind, contentFile, CONTENT_MIME } from './content.js';
 import { songRoutes } from './routes/songs.js';
 import { resumeAndUpgrade } from './queue.js';
 import { importSeeds, readCredits } from './seed.js';
@@ -33,6 +33,13 @@ app.get(`${api}/info`, async (req) => ({
 app.get(`${api}/credits`, async () => readCredits().map(({ title, artist, license, licenseUrl, source, attribution, genre }) => ({ title, artist, license, licenseUrl, source, attribution, genre })));
 app.get(`${api}/health`, async () => ({ ok: true }));
 app.get(`${api}/content`, async () => contentByKind());
+app.get<{ Params: { kind: string; id: string; file: string } }>(`${api}/content/:kind/:id/:file`, async (req, reply) => {
+  const { kind, id, file } = req.params;
+  const p = contentFile(kind, id, file);
+  if (!p) return reply.code(404).send({ error: 'Datei nicht gefunden' });
+  reply.type(CONTENT_MIME[path.extname(p).toLowerCase()] ?? 'application/octet-stream').header('Cache-Control', 'public, max-age=3600');
+  return reply.sendFile(path.basename(p), path.dirname(p));
+});
 // Fehlersuche: Spiel meldet Schnitt-Protokolle (letzte 300 Eintraege werden behalten)
 const debugLog: unknown[] = [];
 app.post(`${api}/debug`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {

@@ -8,6 +8,17 @@ export interface Info { name: string; authMode: 'open' | 'password' | 'cloudflar
 export interface Credit { title: string; artist: string; license: string; licenseUrl: string; source: string; attribution: string; genre?: string }
 export interface LogLine { at: number; level: string; msg: string }
 
+/** Inhalte aus content/ (Bloecke, Schwerter, Farben, Maps, Waende) */
+export type ContentKind = 'blocks' | 'sabers' | 'colors' | 'maps' | 'walls';
+export interface ContentItem {
+  kind: ContentKind; id: string; name: string; description: string;
+  data: Record<string, unknown>; files: Record<string, string>; preview?: string; model?: string;
+  source: 'builtin' | 'custom';
+}
+export type ContentList = Record<ContentKind, ContentItem[]>;
+/** volle URL einer Inhalts-Datei (preview/model/files sind relativ zu /api) */
+export const contentUrl = (rel: string) => API + rel;
+
 async function j<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(API + path, { credentials: 'same-origin', ...init });
   const body = r.headers.get('content-type')?.includes('json') ? await r.json() : await r.text();
@@ -20,6 +31,7 @@ export const api = {
   info: () => j<Info>('/info'),
   login: (password: string) => j<{ ok: boolean }>('/login', json('POST', { password })),
   songs: () => j<Song[]>('/songs'),
+  content: () => j<ContentList>('/content'),
   song: (id: string) => j<Song>(`/songs/${id}`),
   patch: (id: string, f: Partial<Pick<Song, 'title' | 'artist' | 'album' | 'hidden'>>) => j<Song>(`/songs/${id}`, json('PATCH', f)),
   remove: (id: string) => j<{ ok: boolean }>(`/songs/${id}`, { method: 'DELETE' }),
