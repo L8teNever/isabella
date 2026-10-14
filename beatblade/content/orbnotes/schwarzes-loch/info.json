@@ -1,0 +1,10 @@
+{
+  "name": "Schwarzes Loch",
+  "description": "Kleine schwarze Löcher mit leuchtendem Ring und Lichtstreifen; Rails als dünne, leuchtende Ströme.",
+  "style": "blackhole",
+  "railWidth": 0.014,
+  "railOpacity": 0.9,
+  "railGlow": true,
+  "order": 5,
+  "preview": "preview.jpg"
+}

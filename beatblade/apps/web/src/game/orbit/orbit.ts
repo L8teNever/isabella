@@ -97,6 +97,8 @@ export class OrbitGame implements GameMode {
   private paths: [{ t: number; x: number; y: number }[], { t: number; x: number; y: number }[]] = [[], []];
   private group = new THREE.Group();
   private orbs: THREE.InstancedMesh; private halos: THREE.InstancedMesh; private rings: THREE.InstancedMesh;
+  /** Leucht-Schicht eines Noten-Skins (z. B. Ring und Lichtstreifen des schwarzen Lochs), sonst unsichtbar */
+  private skinGlow: THREE.InstancedMesh;
   private hands: HandOrbVisual[] = [];
   private railMat: THREE.MeshBasicMaterial[] = [];
   private railLook: RailLook = DEFAULT_RAIL;
@@ -111,9 +113,11 @@ export class OrbitGame implements GameMode {
   constructor(public root: THREE.Object3D, public view: NoteView, public slicer: Slicer, public sabers: [Saber, Saber], public ev: OrbitEvents) {
     const skin = builtinOrbNote('neon');
     this.orbs = new THREE.InstancedMesh(skin.geo, skin.mat, MAX);
+    this.skinGlow = new THREE.InstancedMesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial(), MAX);
+    this.skinGlow.visible = false; this.skinGlow.renderOrder = 3;
     this.halos = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMaterial(GLOW.haloStrength), MAX);
     this.rings = new THREE.InstancedMesh(new THREE.TorusGeometry(NOTE_R * 1.25, 0.012, 6, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 }), MAX);
-    for (const m of [this.orbs, this.halos, this.rings]) {
+    for (const m of [this.orbs, this.halos, this.rings, this.skinGlow]) {
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.setColorAt(0, new THREE.Color()); m.count = 0; m.frustumCulled = false;
       this.group.add(m);
@@ -134,6 +138,8 @@ export class OrbitGame implements GameMode {
   /** Notenkugel-Skin (Form, Material, Rail-Aussehen) */
   setNoteSkin(skin: OrbNoteSkin) {
     this.orbs.geometry = skin.geo; this.orbs.material = skin.mat;
+    this.skinGlow.visible = !!skin.glow;
+    if (skin.glow) { this.skinGlow.geometry = skin.glow.geo; this.skinGlow.material = skin.glow.mat; }
     const rebuild = skin.rail.width !== this.railLook.width;
     this.railLook = skin.rail;
     if (rebuild) for (const rs of this.rails) { rs.mesh.geometry.dispose(); rs.mesh.geometry = this.railGeo(rs.r); }
@@ -296,6 +302,7 @@ export class OrbitGame implements GameMode {
       const c = nt.kind === 'gold' ? GOLD_COLOR : nt.kind === 'green' ? GREEN_COLOR : this.colors[nt.hand];
       pv.set(nt.x, nt.y, z); q.identity(); sc.setScalar(size);
       this.orbs.setMatrixAt(n, m4.compose(pv, q, sc)); this.orbs.setColorAt(n, col.setHex(c));
+      this.skinGlow.setMatrixAt(n, m4); this.skinGlow.setColorAt(n, col);
       sc.setScalar(size * NOTE_R * GLOW.haloSize * 2.2);
       this.halos.setMatrixAt(n, m4.compose(pv, q, sc)); this.halos.setColorAt(n, col.setHex(c));
       // Ring zeigt "auf einer Rail" (weiss) bzw. Gruen/Gold
@@ -305,8 +312,8 @@ export class OrbitGame implements GameMode {
       this.rings.setMatrixAt(n, m4.compose(pv, q, sc)); this.rings.setColorAt(n, col.setHex(nt.kind === 'normal' ? 0xffffff : lock !== undefined ? this.colors[lock] : c));
       n++;
     }
-    for (const m of [this.orbs, this.halos, this.rings]) { m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
-    this.halos.visible = settings.glow;
+    for (const m of [this.orbs, this.halos, this.rings, this.skinGlow]) { m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+    this.halos.visible = settings.glow && !this.skinGlow.visible;   // eigene Leucht-Schicht ersetzt den runden Schein
 
     // ---------- Rails ----------
     for (const rs of this.rails) {

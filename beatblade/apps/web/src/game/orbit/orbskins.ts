@@ -20,7 +20,60 @@ export interface RailLook {
 }
 export const DEFAULT_RAIL: RailLook = { width: 0.022, opacity: 0.75, glow: false };
 
-export interface OrbNoteSkin { geo: THREE.BufferGeometry; mat: THREE.Material; rail: RailLook }
+export interface OrbNoteSkin {
+  geo: THREE.BufferGeometry; mat: THREE.Material; rail: RailLook;
+  /** optionale Leucht-Schicht (additiv, Vertex-Farben, in Notenfarbe getoent) – z. B. Ring und Lichtstreifen des schwarzen Lochs */
+  glow?: { geo: THREE.BufferGeometry; mat: THREE.Material };
+}
+
+// ---------- Schwarzes Loch: schwarzer Kern, leuchtender Ring am Rand, weicher Schein, waagerechter Lichtstreifen ----------
+/** Band zwischen zwei Radien in der XY-Ebene (zum Spieler), Helligkeit innen a / aussen b */
+function band(r0: number, r1: number, a: number, b: number, seg = 48): THREE.BufferGeometry {
+  const pos: number[] = [], col: number[] = [], idx: number[] = [];
+  for (let i = 0; i <= seg; i++) {
+    const t = (i / seg) * Math.PI * 2, c = Math.cos(t), s = Math.sin(t);
+    pos.push(c * r0, s * r0, 0, c * r1, s * r1, 0); col.push(a, a, a, b, b, b);
+    if (i < seg) { const k = i * 2; idx.push(k, k + 1, k + 3, k, k + 3, k + 2); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx);
+  return g;
+}
+/** waagerechter Lichtstreifen um den Ring (zum Spieler, Loch in der Mitte): innen Kreis r0, aussen Ellipse rx/ry,
+ *  links und rechts am hellsten, nach aussen ausgeblendet – der Kern bleibt schwarz */
+function streak(r0: number, rx: number, ry: number, seg = 48): THREE.BufferGeometry {
+  const pos: number[] = [], col: number[] = [], idx: number[] = [], rings = 4;
+  for (let j = 0; j <= rings; j++) {
+    const u = j / rings, v = Math.pow(1 - u, 1.8);
+    for (let i = 0; i <= seg; i++) {
+      const t = (i / seg) * Math.PI * 2, c = Math.cos(t), sn = Math.sin(t);
+      pos.push(c * (r0 + (rx - r0) * u), sn * (r0 + (ry - r0) * u), -0.002);
+      const side = Math.pow(Math.abs(c), 1.5);
+      col.push(v * side, v * side, v * side);
+    }
+  }
+  for (let j = 0; j < rings; j++) for (let i = 0; i < seg; i++) {
+    const a = j * (seg + 1) + i, b = a + seg + 1;
+    idx.push(a, b, a + 1, a + 1, b, b + 1);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx);
+  return g;
+}
+/** Leucht-Teile eines schwarzen Lochs mit Kern-Radius r (eine Geometrie) */
+export function blackHoleGlow(r: number): THREE.BufferGeometry {
+  const ring = new THREE.TorusGeometry(r * 1.06, r * 0.1, 8, 48);
+  ring.setAttribute('color', new THREE.Float32BufferAttribute(new Array(ring.attributes.position.count * 3).fill(1), 3));
+  const parts = [
+    ring.toNonIndexed(),
+    band(r * 1.12, r * 1.6, 0.45, 0).toNonIndexed(),                 // weicher Schein um den Ring
+    streak(r * 1.12, r * 3.6, r * 0.42).toNonIndexed(),              // waagerechter Lichtstreifen
+  ];
+  for (const p of parts) { if (!p.attributes.uv) continue; p.deleteAttribute('uv'); }
+  for (const p of parts) if (!p.attributes.normal) p.computeVertexNormals();
+  return mergeGeometries(parts) ?? parts[0];
+}
+const blackHoleGlowMat = () => new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
 
 /** Rail-Aussehen aus info.json (railWidth, railOpacity, railGlow) */
 export function railLook(data: Record<string, unknown> | undefined): RailLook {
@@ -64,6 +117,12 @@ export function builtinOrbNote(style: string, rail: RailLook = DEFAULT_RAIL): Or
       const geo = mergeGeometries([ball.toNonIndexed(), cap.toNonIndexed(), loop.toNonIndexed()], false) ?? ball;
       return { rail, geo, mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.12, metalness: 0.75, emissive: 0x303030 }) };
     }
+    case 'blackhole': {
+      // Kern tiefschwarz (Notenfarbe x Schwarz = schwarz), Leuchten als eigene Schicht in Notenfarbe
+      const core = new THREE.IcosahedronGeometry(NOTE_R * 0.8, 2);
+      core.setAttribute('color', new THREE.Float32BufferAttribute(new Array(core.attributes.position.count * 3).fill(0), 3));
+      return { rail, geo: core, mat: new THREE.MeshBasicMaterial({ color: 0x000000 }), glow: { geo: blackHoleGlow(NOTE_R * 0.8), mat: blackHoleGlowMat() } };
+    }
     default:
       return { rail, geo: new THREE.IcosahedronGeometry(NOTE_R, 3),
         mat: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.1, emissive: 0x3a3a3a, transparent: true, opacity: 0.95 }) };
@@ -79,7 +138,7 @@ export function buildHandOrb(style: string, color: number): HandOrbVisual {
   halo.scale.setScalar(HAND_R * 6); halo.renderOrder = 2;
   group.add(halo);
   const tinted: (THREE.MeshBasicMaterial | THREE.MeshStandardMaterial)[] = [halo.material as THREE.MeshBasicMaterial];
-  let spin: THREE.Object3D | null = null;
+  let spin: THREE.Object3D | null = null, blackHoleHalo = false;
   if (style === 'ring') {
     const core = new THREE.Mesh(new THREE.IcosahedronGeometry(HAND_R * 0.55, 2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
     const ringMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.5 });
@@ -87,6 +146,14 @@ export function buildHandOrb(style: string, color: number): HandOrbVisual {
     const ring2 = ring.clone(); ring2.rotation.y = Math.PI / 2;
     const r = new THREE.Group(); r.add(ring, ring2); spin = r;
     group.add(core, r); tinted.push(ringMat);
+  } else if (style === 'blackhole') {
+    // schwarzes Loch an der Hand: Kern schwarz, Ring + Schein + Lichtstreifen in Handfarbe; die Streifen-Scheibe dreht sich langsam
+    halo.visible = false;
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(HAND_R * 0.85, 2), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    const mat = blackHoleGlowMat(); mat.color.setHex(color);
+    const glow = new THREE.Mesh(blackHoleGlow(HAND_R * 0.85), mat); glow.renderOrder = 3;
+    group.add(core, glow); tinted.push(mat);
+    blackHoleHalo = true;
   } else if (style === 'crystal') {
     const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.05, metalness: 0.3, flatShading: true, transparent: true, opacity: 0.9 });
     const m = new THREE.Mesh(new THREE.OctahedronGeometry(HAND_R * 1.25, 0), mat);
@@ -100,7 +167,7 @@ export function buildHandOrb(style: string, color: number): HandOrbVisual {
   return {
     group, halo,
     tint(c) { for (const m of tinted) { m.color.setHex(c); if ('emissive' in m) m.emissive.setHex(c); } },
-    boost(l) { lvl = l; group.scale.setScalar(1 + l * 0.25); (halo.material as THREE.MeshBasicMaterial).opacity = 0.7 + l * 0.3; },
+    boost(l) { lvl = l; group.scale.setScalar(1 + l * 0.25); (halo.material as THREE.MeshBasicMaterial).opacity = blackHoleHalo ? 0 : 0.7 + l * 0.3; },
     update(dt) { if (spin) { spin.rotation.y += dt * (1.2 + lvl * 3); spin.rotation.x += dt * 0.5; } },
   };
 }

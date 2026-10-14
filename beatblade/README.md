@@ -128,8 +128,8 @@ content/
   maps/<name>/info.json      Maps             style: neon-runway | space | synthwave | halloween | christmas | underwater
                                               | neon-city | volcano; wallSkin: <Wand-Ordner>; optional blockSkin, colorSet
   walls/<name>/info.json     Wand-Skins       style: neon-glass | energy | stone-metal | ice | mist
-  orbs/<name>/info.json      Orbit-Handkugeln style: glow | ring | crystal   oder  model: datei.glb
-  orbnotes/<name>/info.json  Orbit-Noten      style: neon | crystal | ring | pumpkin | ornament   oder  model: datei.glb
+  orbs/<name>/info.json      Orbit-Handkugeln style: glow | ring | crystal | blackhole   oder  model: datei.glb
+  orbnotes/<name>/info.json  Orbit-Noten      style: neon | crystal | ring | pumpkin | ornament | blackhole   oder  model: datei.glb
                                               Rail-Aussehen: railWidth (m, 0,008–0,06), railOpacity (0,2–1), railGlow (true/false)
 ```
 
