@@ -1,7 +1,8 @@
 // Spielablauf: Noten/Bomben/Waende nach Songzeit bewegen, Treffer (Swept-Collision) erkennen,
 // Richtung pruefen, schneiden, Punkte/Energie fuehren, Fehlschlaege und Wand-Kollision werten.
 import * as THREE from 'three';
-import { Cut, cutVector, type Beatmap, type Note, type Bomb, type Obstacle } from '@beatblade/core';
+import { Cut, cutVector, type Beatmap, type Note, type Bomb, type Obstacle, type LightEvent } from '@beatblade/core';
+import type { GameMode } from './mode';
 import { HIT_Z, laneX, rowY, COLORS, lookahead, NOTE_SIZE, ARRIVE_PART, smooth } from './layout';
 import { NoteView } from './notes';
 import { Slicer, ERROR_COLOR } from './slicer';
@@ -43,7 +44,8 @@ export function prepareMap(bm: Beatmap): Beatmap {
   return m;
 }
 
-export class Game {
+export class Game implements GameMode {
+  readonly id = 'schnitt' as const;
   notes: NoteState[] = []; bombs: BombState[] = []; walls: Obstacle[] = [];
   map: Beatmap | null = null;
   score = new ScoreKeeper();
@@ -72,6 +74,21 @@ export class Game {
     this.follows = []; this.cutLog = []; this.i0 = 0; this.b0 = 0; this.ended = false; this.inWall = false;
     this.applyColors();
     this.slicer.clear();
+  }
+
+  get lights(): LightEvent[] { return this.map?.lights ?? []; }
+
+  debugLog(): unknown[] { return this.cutLog.slice(-60); }
+
+  /** Autoplay: Schwertspitze faehrt in Schnittrichtung durch die Mitte der naechsten Note dieser Farbe */
+  autoTarget(hand: 0 | 1, t: number): THREE.Vector3 | null {
+    if (!this.map) return null;
+    const n = this.notes.find((s) => !s.done && s.n.c === hand && s.n.t > t - 0.15)?.n;
+    if (!n || n.t - t >= 0.5) return null;
+    const [vx, vy] = n.d === Cut.Any ? [0, -1] : cutVector(n.d);
+    const u = Math.max(-1, Math.min(1, (t - n.t) / 0.09));
+    const zc = HIT_Z - (n.t - t) * this.map.njs;
+    return new THREE.Vector3(laneX(n.x) + vx * u * 0.45, rowY(n.y) + vy * u * 0.45, Math.max(zc, HIT_Z - 0.25));
   }
 
   /** Farben aus Farbset/eigener Wahl auf Bloecke und Schwerter (Linkshaender: Seiten getauscht) */

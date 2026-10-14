@@ -13,8 +13,8 @@ import { NoteView } from './game/notes';
 import { Slicer } from './game/slicer';
 import { Saber } from './game/sabers';
 import { Game, prepareMap } from './game/game';
-import { HIT_Z, laneX, rowY, lookahead } from './game/layout';
-import { cutVector, Cut } from '@beatblade/core';
+import type { GameMode } from './game/mode';
+import { HIT_Z, lookahead } from './game/layout';
 import { Menus } from './ui3d/menus';
 import { Hud } from './ui3d/hud';
 import { COMBO_MILESTONES, COMBO_BREAK_MIN, comboLevel, comboColor } from './game/combo';
@@ -76,6 +76,9 @@ const game = new Game(root, view, slicer, sabers, {
   finished: () => finish(),
   muteNow: () => audio.muteNow(),
 });
+/** laufender Spielmodus (Schnitt oder Orbit) */
+let gm: GameMode = game;
+
 
 const menus = new Menus(root, {
   play: (s, d, seed) => startSong(s, d, seed),
@@ -217,8 +220,8 @@ function pauseGame(why = 'knopf') {
 }
 
 function sendLog(reason: string) {
-  const s = game.score;
-  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, rating: Math.round(s.rating * 10) / 10, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, cuts: game.cutLog.slice(-60) });
+  const s = gm.score;
+  api.debug({ reason, song: current?.song.title, d: current?.d, ua: navigator.userAgent, songT: Math.round(audio.songTime() * 100) / 100, rating: Math.round(s.rating * 10) / 10, hits: s.hits, misses: s.misses, badDir: s.badDir, badColor: s.badColor, bombs: s.bombs, wallTime: Math.round(s.wallTime * 100) / 100, outputLatency: audio.ctx.outputLatency, baseLatency: audio.ctx.baseLatency, latencyMs: settings.latencyMs, mode: gm.id, cuts: gm.debugLog() });
 }
 
 function finish() {
@@ -227,7 +230,7 @@ function finish() {
   const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
   setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500);
   state = 'results';
-  setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d); }, 800);
+  setTimeout(() => { hud.show(false); if (current) menus.results(gm.score, current.song, current.d); }, 800);
 }
 
 function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
@@ -370,17 +373,17 @@ renderer.setAnimationLoop((_t, frame) => {
   if (menus.visible) menus.setHover(hover);
 
   // Spiel
-  if (state === 'playing') game.update(songT, dt, headLocal, false);
-  else if (state === 'paused' || state === 'resuming') game.update(songT, 0, headLocal, true);
+  if (state === 'playing') gm.update(songT, dt, headLocal, false);
+  else if (state === 'paused' || state === 'resuming') gm.update(songT, 0, headLocal, true);
   if (state === 'resuming') {
     const left = Math.ceil((resumeAt - performance.now()) / 1000);
     hud.message(String(Math.max(1, left)));
     if (performance.now() >= resumeAt) { hud.message(''); audio.resumeFrom(0); state = 'playing'; }
   }
-  if (state === 'playing' || state === 'resuming') hud.update(game.score, dt, game.inWall);
+  if (state === 'playing' || state === 'resuming') hud.update(gm.score, dt, gm.inWall);
   // Combo-Effekte: Staerke waechst mit der Serie, Meilensteine feiern, Fehler beendet sie sofort
   if (state === 'playing') {
-    const c = game.score.combo;
+    const c = gm.score.combo;
     if (c < lastCombo && lastCombo >= COMBO_BREAK_MIN) { hud.popup('Combo vorbei', '#ff4d6d', 1.1); audio.comboBreak(); }
     const m = COMBO_MILESTONES.find((x) => lastCombo < x && c >= x);
     if (m) {
@@ -399,7 +402,7 @@ renderer.setAnimationLoop((_t, frame) => {
   slicer.update(dt);
   // MR: neue Leucht-Materialien (Map-Wechsel, Skins, Funken) regelmaessig passthrough-tauglich machen
   if (mode === 'ar' && (mrFixT += dt) > 0.5) { mrFixT = 0; mrSafeBlending(scene); }
-  env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? game.map?.lights ?? [] : []);
+  env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? gm.lights : []);
   // Schwerter im Menue ausblenden (Laser), im Spiel zeigen
   if (xr) for (const s of sabers) { s.group.visible = playingLike && s.active; s.trail.visible = s.group.visible; }
 
@@ -416,15 +419,9 @@ function desktopSabers(t: number) {
     const sb = sabers[hand];
     const restHilt = new THREE.Vector3(hand === 0 ? -0.3 : 0.3, 1.0, -0.2);
     let tipTarget = new THREE.Vector3(hand === 0 ? -0.4 : 0.4, 1.3, -1.1);
-    if (autoplay && game.map) {
-      // naechste Note dieser Farbe: Spitze faehrt in Schnittrichtung durch die Notenmitte
-      const n = game.notes.find((s) => !s.done && s.n.c === hand && s.n.t > t - 0.15)?.n;
-      if (n && n.t - t < 0.5) {
-        const [vx, vy] = n.d === Cut.Any ? [0, -1] : cutVector(n.d);
-        const u = Math.max(-1, Math.min(1, (t - n.t) / 0.09));
-        const zc = HIT_Z - (n.t - t) * (game.map.njs);
-        tipTarget = new THREE.Vector3(laneX(n.x) + vx * u * 0.45, rowY(n.y) + vy * u * 0.45, Math.max(zc, HIT_Z - 0.25));
-      }
+    if (autoplay) {
+      const target = gm.autoTarget(hand, t);
+      if (target) tipTarget = target;
     } else if (hand === 1 && mouseIn) {
       raycaster.setFromCamera(mouse, camera);
       const tt = (HIT_Z - raycaster.ray.origin.z) / raycaster.ray.direction.z;
