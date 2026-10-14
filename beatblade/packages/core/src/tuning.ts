@@ -40,11 +40,22 @@ export const ANALYSIS = {
     /** Ellis-DP: wie stark Abweichungen vom Tempo bestraft werden */
     tightness: 120,
   },
+  /** Starres Raster (Techno, House, alles mit festem Tempo aus dem Computer): Tempo auf die Kicks einrasten */
+  rigid: {
+    /** Suchbereich um das erkannte Tempo (Anteil) und Schrittweite (BPM) */
+    range: 0.06, step: 0.01,
+    /** Mindest-Schaerfe der gefalteten Kick-Kurve (max/mittel) – darunter kein festes Tempo erkennbar */
+    minSharpness: 1.5,
+    /** nur ersetzen, wenn das beste starre Tempo deutlich schaerfer ist als das erkannte (dann lag das Tempo daneben) */
+    minGain: 1.15,
+  },
   structure: {
     /** Kernel-Groesse (Takte) der Checkerboard-Novelty */
     kernelBars: 8,
     /** minimale Abschnittslaenge in Takten */
     minBars: 4,
+    /** ... bei festem Tempo (Techno, House, elektronisch produziert) */
+    minBarsFixed: 8,
     /** Peaks der Novelty ueber diesem Anteil des Maximums werden Grenzen */
     peakRel: 0.25,
     /** Aehnlichkeit (Cosinus) ab der zwei Abschnitte als Wiederholung gelten */

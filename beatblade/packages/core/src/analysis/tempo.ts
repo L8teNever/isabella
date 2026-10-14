@@ -178,3 +178,36 @@ export function refineBeats(frames: number[], dt: number, t0: number, duration: 
   while (beats[beats.length - 1] + p1 < duration) beats.push(beats[beats.length - 1] + p1);
   return { beats, bpm: Math.round(bpm * 100) / 100, steady };
 }
+
+/**
+ * Starres Raster: Anschlags-Kurve fuer jedes Tempo in der Naehe modulo Beat-Periode falten.
+ * Das Tempo mit der schaerfsten Faltung ist das exakte feste Tempo, die Spitze die Phase.
+ * Ersetzt die getrackten Beats nur, wenn das Raster die Kicks mindestens so gut trifft (Techno/House:
+ * schon 0,5 % Tempofehler verschieben die Bloecke nach ein paar Minuten um einen halben Beat).
+ */
+export function rigidGrid(beats: number[], bpm: number, kick: Float32Array, dt: number, t0: number, duration: number): { beats: number[]; bpm: number; sharpness: number } | null {
+  const R = ANALYSIS.rigid, n = kick.length;
+  if (beats.length < 32 || n < 100) return null;
+  // Faecher nicht feiner als ein Analyse-Schritt (sonst Aliasing: Perioden nahe einem Vielfachen von dt wirken kuenstlich scharf)
+  const BINS = Math.max(12, Math.min(32, Math.floor(60 / bpm / dt / 1.5)));
+  const fold = (b: number): { sharp: number; phase: number } => {
+    const P = 60 / b, h = new Float64Array(BINS);
+    // jeden Wert anteilig auf die zwei naechsten Faecher verteilen
+    for (let i = 0; i < n; i++) { const x = (((t0 + i * dt) % P) / P) * BINS, k = Math.floor(x), w = x - k; h[k % BINS] += kick[i] * (1 - w); h[(k + 1) % BINS] += kick[i] * w; }
+    let best = 0, arg = 0, sum = 0;
+    for (let k = 0; k < BINS; k++) { const v = h[(k + BINS - 1) % BINS] + h[k] + h[(k + 1) % BINS]; sum += v; if (v > best) { best = v; arg = k; } }
+    return { sharp: best / (sum / BINS || 1), phase: ((arg + 0.5) / BINS) * P };
+  };
+  const detected = fold(bpm);
+  let bestBpm = bpm, best = detected;
+  for (let b = bpm * (1 - R.range); b <= bpm * (1 + R.range); b += R.step) { const r = fold(b); if (r.sharp > best.sharp) { best = r; bestBpm = b; } }
+  // feiner: +-0.02 BPM in 0.002er Schritten
+  const coarse = bestBpm;
+  for (let b = coarse - 0.02; b <= coarse + 0.02; b += 0.002) { const r = fold(b); if (r.sharp > best.sharp) { best = r; bestBpm = b; } }
+  // nur bei klar festem Tempo, und nur wenn das erkannte Tempo spuerbar unschaerfer war (sonst passen die
+  // getrackten Beats schon – sie folgen den Anschlaegen ohnehin einzeln)
+  if (best.sharp < R.minSharpness || best.sharp < detected.sharp * R.minGain) return null;
+  const P = 60 / bestBpm, grid: number[] = [];
+  for (let t = best.phase % P; t < duration; t += P) grid.push(t);
+  return { beats: grid, bpm: bestBpm, sharpness: best.sharp };
+}

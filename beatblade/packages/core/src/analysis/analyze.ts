@@ -4,7 +4,7 @@ import { ANALYSIS_VERSION } from '../version.js';
 import { BANDS, type Band, type SongAnalysis, type Waveform } from '../types.js';
 import { computeFeatures } from './features.js';
 import { detectOnsets, normalize, percentile } from './onsets.js';
-import { estimateTempo, trackBeats, refineBeats } from './tempo.js';
+import { estimateTempo, trackBeats, refineBeats, rigidGrid } from './tempo.js';
 import { beatFeatures, detectMeter } from './meter.js';
 import { segment } from './structure.js';
 
@@ -51,6 +51,10 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
   const lowRatio = Math.min(even, odd) / (Math.max(even, odd) || 1);
   const halve = beats.length > 8 && ((bpm >= 140 && lowRatio < 0.6) || (bpm > 162 && lowRatio < 0.85 && acfAt(bpm / 2) >= 0.85 * acfAt(bpm)));
   if (halve) { const ph = odd > even ? 1 : 0; beats = beats.filter((_, k) => k % 2 === ph); bpm /= 2; }
+  // festes Tempo (Techno, House, elektronisch produziert): exakt auf die Kicks einrasten
+  // (gesamte Anschlags-Kurve: verzerrte Hard-Techno-Kicks liegen nicht nur im Sub-Band)
+  const rigid = rigidGrid(beats, bpm, on.envelope, f.dt, f.t0, duration);
+  if (rigid) { beats = rigid.beats; bpm = rigid.bpm; }
   bpm = Math.round(bpm * 100) / 100;
   onProgress?.('meter', 0);
   const bf = beatFeatures(f, beats, on.curves.sub);
@@ -94,7 +98,9 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     return Math.round((w.reduce((s, v) => s + v, 0) / w.length) * 1000) / 1000;
   });
   onProgress?.('structure', 0);
-  const sections = segment({ vec: barVec, energy: barEnergy }, bars, duration);
+  // festes Tempo (eingerastetes Raster oder gleichmaessig getrackt): ruhigere Abschnitte in 8er-Phrasen
+  const fixedTempo = !!rigid || ref.steady;
+  const sections = segment({ vec: barVec, energy: barEnergy }, bars, duration, fixedTempo ? { minBars: ANALYSIS.structure.minBarsFixed, phrase: 8 } : {});
   // Melodie pro Beat (0..1)
   const melN = normalizeArr(bf.melody);
   // Raster: Onset-Staerke je Band an 1/24-Beat-Positionen (max. im +-20-ms-Fenster)

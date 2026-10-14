@@ -28,8 +28,13 @@ export function novelty(ssm: number[][], K: number): number[] {
   return out;
 }
 
-export function segment(bf: BarFeatures, barTimes: number[], duration: number): Section[] {
-  const { kernelBars, minBars, peakRel, repeatSim } = ANALYSIS.structure;
+/**
+ * opts.minBars / opts.phrase: bei festem Tempo (elektronisch produziert, z. B. Techno) sind Abschnitte
+ * mindestens 8 Takte lang und rasten auf 8er-Phrasen ein – sonst springen Muster und Lichtshow zu hektisch.
+ */
+export function segment(bf: BarFeatures, barTimes: number[], duration: number, opts: { minBars?: number; phrase?: number } = {}): Section[] {
+  const { kernelBars, peakRel, repeatSim } = ANALYSIS.structure;
+  const minBars = opts.minBars ?? ANALYSIS.structure.minBars, phrase = opts.phrase ?? 4;
   const n = bf.vec.length;
   if (n === 0) return [];
   const ssm = bf.vec.map((a) => bf.vec.map((b) => cosine(a, b)));
@@ -43,8 +48,8 @@ export function segment(bf: BarFeatures, barTimes: number[], duration: number): 
     const before = (bf.energy[i - 1] + bf.energy[i - 2]) / 2, after = (bf.energy[i] + bf.energy[i + 1]) / 2;
     if (Math.abs(after - before) > 0.28) cand.push({ bar: i, s: 0.8 + Math.abs(after - before) });
   }
-  // auf 4er-Phrasen einrasten, wenn nah dran
-  for (const c of cand) { const r = Math.round(c.bar / 4) * 4; if (Math.abs(r - c.bar) <= 1 && r > 0 && r < n) c.bar = r; }
+  // auf Phrasen (4 bzw. 8 Takte) einrasten, wenn nah dran
+  for (const c of cand) { const r = Math.round(c.bar / phrase) * phrase; if (Math.abs(r - c.bar) <= phrase / 4 && r > 0 && r < n) c.bar = r; }
   // staerkste zuerst, Mindestabstand
   cand.sort((a, b) => b.s - a.s);
   const bounds: number[] = [];
