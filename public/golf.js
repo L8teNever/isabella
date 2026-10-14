@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { RoomScan } from '/room-scan.js';
 import { Course, TYPES, BALL_R } from '/golf-course.js';
 import { initSound, cheer, hit } from '/sound.js';
+import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 
 const $ = (id) => document.getElementById(id);
 const MAX_STROKES = 8;
@@ -121,26 +122,94 @@ const ttex = new THREE.CanvasTexture(tcanvas); ttex.colorSpace = THREE.SRGBColor
 const toolbar = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85 * tcanvas.height / TW), new THREE.MeshBasicMaterial({ map: ttex, transparent: true, depthTest: false }));
 toolbar.renderOrder = 10; toolbar.visible = false; scene.add(toolbar);
 let toolHover = null;
-function drawToolbar() {
-  const c = tcanvas.getContext('2d'); c.clearRect(0, 0, TW, tcanvas.height);
-  const w = TW / COLS;
-  tools().forEach((t, k) => {
-    const x = (k % COLS) * w, y = STATUS + Math.floor(k / COLS) * ROW;
-    const on = toolHover === t.id || (mode === 'build' && tool === t.id);
-    c.fillStyle = on ? 'rgba(255,122,182,0.95)' : 'rgba(24,18,34,0.88)';
-    c.beginPath(); c.roundRect ? c.roundRect(x + 4, y + 4, w - 8, ROW - 8, 20) : c.rect(x + 4, y + 4, w - 8, ROW - 8); c.fill();
-    if (TYPES[t.id]) { c.fillStyle = '#' + TYPES[t.id].color.toString(16).padStart(6, '0'); c.beginPath(); c.arc(x + 26, y + ROW / 2, 9, 0, Math.PI * 2); c.fill(); }
-    c.fillStyle = on ? '#2a0f1f' : '#fbe9f2'; c.font = '600 25px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText(t.label, x + w / 2 + (TYPES[t.id] ? 8 : 0), y + ROW / 2);
-  });
-  const s = note || (mode === 'build'
-    ? (tool === 'move' ? `Bauen · Karte ${mapIdx + 1} · Element greifen zum Verschieben${scan.scanned ? '' : ' · kein Raum-Scan: nur Boden'}` : `${TYPES[tool]?.label || ''}: auf Boden oder Tisch zielen und drücken`)
-    : 'Controller/Hand nach unten halten = Schläger · durch die Kugel schwingen');
-  c.font = '500 22px system-ui, sans-serif'; const sw = Math.min(TW - 10, c.measureText(s).width + 30);
-  c.fillStyle = 'rgba(24,18,34,0.88)'; c.beginPath(); c.roundRect ? c.roundRect((TW - sw) / 2, 4, sw, 36, 18) : c.rect((TW - sw) / 2, 4, sw, 36); c.fill();
-  c.fillStyle = '#fbe9f2'; c.fillText(s, TW / 2, 23, TW - 30);
-  ttex.needsUpdate = true;
+function drawToolbar() { if (note) { toast(note); note = ''; } }
+
+/* ---------- Schritt-Tafel und Uhr-Menue ---------- */
+const wizard = new Panel(0.6); scene.add(wizard);
+const toastP = new Panel(0.42); scene.add(toastP);
+const wrist = new WristMenu(scene);
+wrist.setItems([{ id: 'ball', label: 'Kugel zurück' }, { id: 'skip', label: 'Loch aufgeben' }, { id: 'restart', label: 'Neue Runde' },
+  { id: 'edit', label: 'Bahn bearbeiten' }, { id: 'map', label: 'Andere Bahn' }, { id: 'players', label: 'Spieler' }, { id: 'exit', label: 'Beenden', main: true }]);
+let step = null, startStep = null, toastT = 0, editHole = 1;
+const OBST = ['ramp', 'loop', 'boost', 'wall', 'bumper', 'sand'];
+function toast(msg, sec = 3) {
+  if (!renderer.xr.isPresenting || phone) { $('gscore').textContent = msg; return; }
+  toastP.show({ text: msg, buttons: [] }); toastP.place(renderer.xr.getCamera(), 0.7); toastP.position.y -= 0.2; toastT = sec;
 }
+const holeCount = (m) => new Set((m.items || []).filter((o) => o.t === 'tee').map((o) => o.h)).size;
+function showStep(id) {
+  step = id;
+  if (id === 'tee') tool = 'tee'; else if (id === 'cup') tool = 'cup'; else if (id === 'obst') { if (!OBST.includes(tool)) tool = 'ramp'; } else tool = 'move';
+  if (phone || !renderer.xr.isPresenting) { wizard.hide(); return; }
+  const n = course.holes().length;
+  if (id === 'players') wizard.show({ title: 'Wer spielt?', text: names.join(', ') + '\n(Namen änderst du auf der Startseite)',
+    buttons: [{ id: 'minus', label: '– Spieler' }, { id: 'plus', label: '+ Spieler' }, { id: 'next', label: 'Weiter', main: true }], cols: 2 });
+  else if (id === 'map') {
+    const b = maps.map((m, i) => ({ id: 'm' + i, label: `Bahn ${i + 1} · ${holeCount(m)} Löcher` })).filter((x, i) => holeCount(maps[i]) > 0).slice(-4);
+    wizard.show({ title: 'Welche Bahn?', text: b.length ? 'Eine gespeicherte Bahn spielen oder eine neue bauen.' : 'Noch keine Bahn gespeichert – bau eine oder lass eine zufällig erstellen.',
+      buttons: [...b, { id: 'new', label: 'Neue Bahn bauen' }, { id: 'random', label: 'Zufallsbahn' }], cols: 2 });
+  } else if (id === 'tee') wizard.show({ title: `Loch ${editHole}: Start`, text: 'Zeig auf den Boden oder einen Tisch, wo der Ball starten soll, und drück (Daumen + Zeigefinger oder Abzug).',
+    buttons: [{ id: 'back', label: 'Zurück' }, ...(n ? [{ id: 'play', label: 'Doch gleich spielen' }] : [])], cols: 2 });
+  else if (id === 'cup') wizard.show({ title: `Loch ${editHole}: Loch`, text: 'Jetzt das Loch setzen – dort muss der Ball rein.', buttons: [{ id: 'undo', label: 'Start neu setzen' }] });
+  else if (id === 'obst') wizard.show({ title: `Loch ${editHole}: Hindernisse`, text: 'Wähle ein Element und setze es auf Boden oder Tisch. Element greifen = verschieben (Stick dreht). Alles optional.',
+    buttons: [...OBST.map((t) => ({ id: t, label: TYPES[t].label, on: tool === t })), { id: 'rotate', label: 'Auswahl drehen' }, { id: 'delete', label: 'Auswahl löschen' }, { id: 'random', label: 'Zufällig' },
+      { id: 'done', label: `Fertig mit Loch ${editHole}`, main: true }], cols: 3 });
+  else if (id === 'more') wizard.show({ title: 'Noch ein Loch?', text: `Die Bahn hat ${n} Loch${n === 1 ? '' : 'er'}.`,
+    buttons: [{ id: 'yes', label: 'Ja, noch eins' }, { id: 'play', label: 'Nein – spielen!', main: true }], cols: 2 });
+  else if (id === 'ready') wizard.show({ title: `Bahn ${mapIdx + 1}`, text: `${n} Loch${n === 1 ? '' : 'er'} · ${names.length} Spieler`,
+    buttons: [{ id: 'edit', label: 'Bearbeiten' }, { id: 'map', label: 'Andere Bahn' }, { id: 'play', label: "Los geht's!", main: true }], cols: 2 });
+  else wizard.hide();
+  if (wizard.visible) wizard.place(renderer.xr.getCamera(), 0.8);
+}
+function startPlay() {
+  if (!newRound()) { showStep('tee'); return; }
+  mode = 'play'; board.visible = true; placeBoard(); showStep(null);
+  toast('Schläger: Controller oder Hand nach unten halten und durch den Ball schwingen.\nMenü: auf dein linkes Handgelenk schauen.', 6);
+}
+function editCourse() {
+  mode = 'build'; round = null; course.hideBall(); board.visible = false;
+  editHole = Math.max(1, ...course.holes().map((h) => h.n));
+  showStep(course.holes().length ? 'obst' : 'tee');
+}
+function stepButton(id) {
+  const n = course.holes().length;
+  if (step === 'players') {
+    if (id === 'minus' && names.length > 1) { names.pop(); savePlayers(); showStep('players'); }
+    else if (id === 'plus' && names.length < 8) { names.push(`Spieler ${names.length + 1}`); savePlayers(); showStep('players'); }
+    else if (id === 'next') { if (round && !round.over && mode === 'play') { newRound(); showStep(null); } else showStep(n ? 'ready' : 'map'); }
+  } else if (step === 'map') {
+    if (id.startsWith('m')) { saveMap(); mapIdx = +id.slice(1); loadMap(); showStep(course.holes().length ? 'ready' : 'tee'); }
+    else if (id === 'new') { saveMap(); maps.push({ items: [] }); mapIdx = maps.length - 1; loadMap(); editHole = 1; showStep('tee'); }
+    else if (id === 'random') { saveMap(); maps.push({ items: [] }); mapIdx = maps.length - 1; loadMap(); randomCourse(); showStep(course.holes().length ? 'ready' : 'map'); }
+  } else if (step === 'tee') { if (id === 'back') showStep(n ? 'more' : 'map'); else if (id === 'play') startPlay(); }
+  else if (step === 'cup') { if (id === 'undo') { const t = course.items.find((x) => x.type === 'tee' && x.hole === editHole); if (t) course.remove(t); saveMap(); showStep('tee'); } }
+  else if (step === 'obst') {
+    if (OBST.includes(id)) { tool = id; showStep('obst'); }
+    else if (id === 'rotate' && selected) { course.move(selected, selected.obj.position, selected.obj.rotation.y + Math.PI / 4); saveMap(); }
+    else if (id === 'delete' && selected) { course.remove(selected); selected = null; saveMap(); drawBoard(''); }
+    else if (id === 'random') randomObstacles();
+    else if (id === 'done') showStep('more');
+  } else if (step === 'more') { if (id === 'yes') { editHole = course.nextHoleNumber('tee'); showStep('tee'); } else if (id === 'play') startPlay(); }
+  else if (step === 'ready') { if (id === 'play') startPlay(); else if (id === 'edit') editCourse(); else if (id === 'map') showStep('map'); }
+}
+function wristButton(id) {
+  if (id === 'edit') editCourse();
+  else if (id === 'map') { useTool('build'); showStep('map'); }
+  else if (id === 'players') showStep('players');
+  else useTool(id);
+}
+function savePlayers() { try { localStorage.setItem(PLAYERS_KEY, JSON.stringify(names)); } catch {} }
+// ein paar Hindernisse zwischen Start und Loch des aktuellen Lochs
+function randomObstacles() {
+  const h = course.holes().find((x) => x.n === editHole); if (!h) return;
+  const a = h.tee.obj.position, b = h.cup.obj.position, dir = b.clone().sub(a).setY(0).normalize(), side = new THREE.Vector3(-dir.z, 0, dir.x);
+  for (let k = 0; k < 3; k++) {
+    const p = a.clone().lerp(b, 0.3 + Math.random() * 0.45).addScaledVector(side, (Math.random() - 0.5) * 0.5);
+    course.add(['ramp', 'wall', 'bumper', 'sand', 'boost'][Math.floor(Math.random() * 5)], p, Math.atan2(dir.x, dir.z) + (Math.random() - 0.5));
+  }
+  saveMap();
+}
+
 const toolAt = (uv) => {
   const x = uv.x * TW, y = (1 - uv.y) * tcanvas.height;
   if (y < STATUS) return null;
@@ -220,11 +289,12 @@ function yawToward(p) { const v = viewer(); return Math.atan2(p.x - v.x, p.z - v
 function press(inp, kind) {
   if (!inp.mode) return;
   setRay(inp);
-  if (toolbar.visible) { const h = raycaster.intersectObject(toolbar)[0]; if (h) { useTool(toolAt(h.uv)); return; } }
-  if (mode === 'play') { clubHand = inp; return; }        // die drueckende Hand haelt den Schlaeger
+  for (const [pn, fn] of [[wizard, stepButton], [wrist.panel, wristButton]]) { const i = pn.pick(raycaster); if (i >= 0) { fn(pn.idAt(i)); return; } }
+  if (mode === 'play') { clubHand = inp; return; }
+  if (!['tee', 'cup', 'obst'].includes(step) && !phone) return;        // die drueckende Hand haelt den Schlaeger
   // Bauen: vorhandenes Element greifen?
   const ih = raycaster.intersectObjects(itemMeshes(), false)[0];
-  if (ih && (tool === 'move' || tool === 'rotate' || tool === 'delete')) {
+  if (ih && step !== 'tee' && step !== 'cup') {
     const it = course.items.find((x) => x.obj === ih.object.userData.item);
     if (!it) return;
     selected = it;
@@ -234,10 +304,17 @@ function press(inp, kind) {
   }
   if (kind !== 'select' || !TYPES[tool]) return;
   const p = surfaceHit(); if (!p) { note = 'Kein Boden/Möbel getroffen'; drawToolbar(); return; }
-  const hole = tool === 'tee' || tool === 'cup' ? course.nextHoleNumber(tool) : undefined;
-  selected = course.add(tool, p, yawToward(p), hole);
-  if (tool === 'tee' || tool === 'cup') tool = tool === 'tee' ? 'cup' : 'move';   // nach Start gleich das Loch
-  note = ''; drawToolbar(); saveMap(); drawBoard('');
+  if (tool === 'tee' || tool === 'cup') {
+    const old = course.items.find((x) => x.type === tool && x.hole === editHole); if (old) course.remove(old);
+    let yaw = yawToward(p);
+    if (tool === 'cup') { const t = course.items.find((x) => x.type === 'tee' && x.hole === editHole); if (t) { yaw = Math.atan2(p.x - t.obj.position.x, p.z - t.obj.position.z); t.obj.rotation.y = yaw; } }
+    selected = course.add(tool, p, yaw, editHole);
+    saveMap(); drawBoard('');
+    showStep(tool === 'tee' ? 'cup' : 'obst');
+    return;
+  }
+  selected = course.add(tool, p, yawToward(p));
+  note = ''; saveMap(); drawBoard('');
 }
 
 function useTool(id) {
@@ -350,7 +427,7 @@ renderer.setAnimationLoop((t, frame) => {
     // Anker holen, dann gespeicherte Karte an ihren Platz
     if (anchorStep === 'start') { anchorStep = 'busy'; initAnchor(frame, session).finally(() => { anchorStep = 'wait'; }); }
     if (anchor) { const pose = frame.getPose(anchor.anchorSpace, ref); if (pose) { anchorM.fromArray(pose.transform.matrix); anchored = true; } }
-    if (anchorStep === 'wait' && (anchored || now - t0 > 2500)) { anchorStep = 'done'; loadMap(); drawToolbar(); }
+    if (anchorStep === 'wait' && (anchored || now - t0 > 2500)) { anchorStep = 'done'; loadMap(); startStep = 'players'; }
   }
   const pend = pending; pending = [];
   for (const e of pend) {
@@ -373,15 +450,21 @@ renderer.setAnimationLoop((t, frame) => {
     for (const inp of inputs) {
       if (!inp.mode) continue;
       setRay(inp);
-      const th = toolbar.visible && raycaster.intersectObject(toolbar)[0];
-      if (th) hover = toolAt(th.uv);
+      for (const pn of [wizard, wrist.panel]) pn.setHover(pn.pick(raycaster));
       if (inp.line.visible) {
-        const h = raycaster.intersectObjects([toolbar, ...itemMeshes(), ...scan.targets], false)[0];
+        const h = raycaster.intersectObjects([...[wizard, wrist.panel].filter((o) => o.visible), ...itemMeshes(), ...scan.targets], false)[0];
         inp.line.scale.z = h ? h.distance : 3;
       }
     }
-    if (hover !== toolHover) { toolHover = hover; drawToolbar(); }
-    placeToolbar();
+    void hover;
+    if (startStep) { showStep(startStep); startStep = null; }
+    const cam = renderer.xr.getCamera(), head = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+    wrist.enabled = !step && !phone && mode === 'play';
+    wrist.update(inputs, head, dt);
+    if (wizard.visible) wizard.place(cam, 0.8, true);
+    if (toastP.visible) { toastT -= dt; if (toastT <= 0) toastP.hide(); }
+    const pk = pokeAll([wizard, wrist.panel], inputs, {});
+    if (pk) (pk.panel === wizard ? stepButton : wristButton)(pk.id);
   }
   for (const it of course.items) it.obj.children.forEach((m) => { if (m.isMesh && m.material.emissive) m.material.emissive.setHex(it === selected && mode === 'build' ? 0x333333 : (it.type === 'boost' ? 0x332200 : it.type === 'bumper' ? 0x330010 : 0)); });
   updateClub(dt);
@@ -439,7 +522,7 @@ async function start(kind) {
   session.addEventListener('end', () => {
     saveMap(); session = null; anchor = null; anchored = false; anchorStep = null;
     $('gstart').hidden = false; $('goverlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d);
-    toolbar.visible = false; club.visible = false; board.visible = false; course.hideBall(); held = null;
+    toolbar.visible = false; club.visible = false; board.visible = false; course.hideBall(); held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null;
   });
 }
 

@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { Lane, BALL_R } from '/bowling.js';
 import { Game, drawBoard, boardHeight, BOARD_W } from '/score.js';
 import { initSound, cheer } from '/sound.js';
+import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 
 const $ = (id) => document.getElementById(id);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -99,7 +100,50 @@ const ttex = new THREE.CanvasTexture(tcanvas); ttex.colorSpace = THREE.SRGBColor
 const toolbar = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.8 * TH / TW), new THREE.MeshBasicMaterial({ map: ttex, transparent: true, depthTest: false }));
 toolbar.renderOrder = 10; toolbar.visible = false; scene.add(toolbar);
 let toolHover = null, placing = false, note = '';
+// Schritt-Tafel (Einrichtung nacheinander), Uhr-Menue am Handgelenk, kurze Hinweise
+const wizard = new Panel(0.56); scene.add(wizard);
+const toastP = new Panel(0.42); scene.add(toastP);
+const wrist = new WristMenu(scene);
+let step = null, toastT = 0, startStep = null;
+const WRIST_ITEMS = [{ id: 'reset', label: 'Neu aufstellen' }, { id: 'place', label: 'Kegel versetzen' }, { id: 'new', label: 'Neues Spiel' },
+  { id: 'players', label: 'Spieler' }, { id: 'ball', label: 'Kugel holen' }, { id: 'exit', label: 'Beenden' }];
+wrist.setItems(WRIST_ITEMS);
+function toast(msg, sec = 3) {
+  if (!renderer.xr.isPresenting || phone) return;
+  toastP.show({ text: msg, buttons: [] }); toastP.place(renderer.xr.getCamera(), 0.7); toastP.position.y -= 0.18; toastT = sec;
+}
+function showStep(id) {
+  step = id; placing = id === 'place';
+  if (phone || !renderer.xr.isPresenting) { wizard.hide(); return; }
+  if (id === 'players') wizard.show({ title: 'Wer spielt?', text: names.join(', ') + `\n(Namen änderst du auf der Startseite)`,
+    buttons: [{ id: 'minus', label: '– Spieler' }, { id: 'plus', label: '+ Spieler' }, { id: 'next', label: 'Weiter', main: true }], cols: 2 });
+  else if (id === 'place') wizard.show({ title: 'Kegel aufstellen', text: 'Zeig mit dem Strahl auf den Boden, wo der erste Kegel stehen soll, und drück (Daumen + Zeigefinger oder Abzug).',
+    buttons: [{ id: 'back', label: 'Zurück' }] });
+  else if (id === 'confirm') wizard.show({ title: 'Passt das so?', text: 'Das Dreieck zeigt von dir weg. Du kannst die Kegel später über das Uhr-Menü versetzen.',
+    buttons: [{ id: 'go', label: "Los geht's!", main: true }, { id: 'again', label: 'Neu setzen' }] });
+  else { wizard.hide(); }
+  if (wizard.visible) wizard.place(renderer.xr.getCamera(), 0.75);
+}
+function stepButton(id) {
+  if (step === 'players') {
+    if (id === 'minus' && names.length > 1) { names.pop(); savePlayers(); showStep('players'); }
+    else if (id === 'plus' && names.length < 8) { names.push(`Spieler ${names.length + 1}`); savePlayers(); showStep('players'); }
+    else if (id === 'next') showStep(lane.placed ? null : 'place');
+  } else if (step === 'place' && id === 'back') showStep('players');
+  else if (step === 'confirm') {
+    if (id === 'go') { showStep(null); toast('Kugel greifen: Hand an die leuchtende Kugel, Daumen + Zeigefinger zusammen, schwingen, loslassen.\nMenü: auf dein linkes Handgelenk schauen.', 6); }
+    else if (id === 'again') showStep('place');
+  }
+}
+function savePlayers() { try { localStorage.setItem(PLAYERS_KEY, JSON.stringify(names)); } catch {} newGame(); }
+function wristButton(id) {
+  if (id === 'place') { showStep('place'); return; }
+  if (id === 'players') { showStep('players'); return; }
+  tool(id);
+}
 function drawToolbar() {
+  if (note) { toast(note); note = ''; }
+  return;
   const c = tcanvas.getContext('2d'); c.clearRect(0, 0, TW, TH);
   const w = TW / TOOLS.length;
   TOOLS.forEach((t, k) => {
@@ -182,6 +226,10 @@ function grabTarget(inp) {
 
 function press(inp, kind) {
   if (!inp.mode) return;
+  setRay(inp);
+  for (const [pn, fn] of [[wizard, stepButton], [wrist.panel, wristButton]]) {
+    const i = pn.pick(raycaster); if (i >= 0) { fn(pn.idAt(i)); return; }
+  }
   // 1) Kugel greifen hat Vorrang (sonst faengt die Werkzeugleiste den Griff ab)
   const g = !placing && grabTarget(inp);
   if (g) {
@@ -246,7 +294,7 @@ function placePins(p) {
   const dir = p.clone().sub(v).setY(0);
   if (dir.lengthSq() < 0.01) dir.set(0, 0, -1);
   lane.place(p, dir.normalize());
-  placing = false; ring.visible = false;
+  ring.visible = false; if (!phone && renderer.xr.isPresenting) showStep('confirm'); else showStep(null);
   // Tafel ueber den hinteren Kegeln, zum Spieler gedreht
   board.position.copy(p).addScaledVector(dir, 1.3).setY(lane.floorY + 0.75 + (board.userData.h || 0.4) / 2);
   board.lookAt(v.x, board.position.y, v.z); board.visible = true;
@@ -258,7 +306,7 @@ function placePins(p) {
 
 function tool(id) {
   if (!id) return;
-  if (id === 'place') { placing = !placing; ring.visible = false; }
+  if (id === 'place') { if (placing) showStep(null); else showStep('place'); ring.visible = false; }
   else if (id === 'reset') { if (lane.placed) lane.resetPins(); }
   else if (id === 'new') { newGame(); if (lane.placed) lane.resetPins(); }
   else if (id === 'ball') lane.ballToHome(ballHome());
@@ -370,14 +418,21 @@ renderer.setAnimationLoop((t, frame) => {
     for (const inp of inputs) {
       if (!inp.mode) continue;
       setRay(inp);
-      if (toolbar.visible) { const h = raycaster.intersectObject(toolbar)[0]; if (h) hover = TOOLS[Math.floor(h.uv.x * TOOLS.length)]?.id; }
+      for (const pn of [wizard, wrist.panel]) pn.setHover(pn.pick(raycaster));
       if (placing && !ringAt) ringAt = floorHit(raycaster.ray);
-      if (inp.line.visible) { const h = raycaster.intersectObjects([toolbar, lane.ball])[0]; inp.line.scale.z = h ? h.distance : placing ? 4 : 0.5; }
+      if (inp.line.visible) { const h = raycaster.intersectObjects([wizard, wrist.panel, lane.ball].filter((o) => o.visible))[0]; inp.line.scale.z = h ? h.distance : placing ? 4 : 0.5; }
     }
     if (arHit && placing) ringAt = arHit;
     ring.visible = !!ringAt; if (ringAt) ring.position.copy(ringAt).setY(lane.floorY + 0.005);
-    if (hover !== toolHover) { toolHover = hover; drawToolbar(); }
-    placeToolbar();
+    void hover;
+    if (startStep) { showStep(startStep); startStep = null; }
+    const cam = renderer.xr.getCamera(), head = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+    wrist.enabled = !step && !phone;
+    wrist.update(inputs, head, dt);
+    if (wizard.visible) wizard.place(cam, 0.75, true);
+    if (toastP.visible) { toastT -= dt; if (toastT <= 0) toastP.hide(); }
+    const pk = pokeAll([wizard, wrist.panel], inputs, {});
+    if (pk) (pk.panel === wizard ? stepButton : wristButton)(pk.id);
   }
   // wartende Kugel bleibt in Reichweite, auch wenn man herumlaeuft
   if (xr && lane.ballState === 'rest' && lane.placed) {
@@ -460,10 +515,11 @@ async function start(mode) {
     const viewer = await session.requestReferenceSpace('viewer');
     hitSource = await session.requestHitTestSource?.({ space: viewer }) || null;
   } catch { hitSource = null; }
-  placing = true; tYaw = undefined; note = '';
+  tYaw = undefined; note = ''; toolbar.visible = false;
+  if (phone) showStep('place'); else { step = null; startStep = 'players'; }
   lane.setVisible(lane.placed);
   drawToolbar(); drawScore('');
-  session.addEventListener('end', () => { hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); toolbar.visible = false; ring.visible = false; held = null; });
+  session.addEventListener('end', () => { hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); toolbar.visible = false; ring.visible = false; held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null; });
 }
 
 $('btn-ar').addEventListener('click', () => start('ar').catch((e) => alert(`Mixed Reality ging nicht: ${e.message}`)));

@@ -18,13 +18,16 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 
 ## Spielen
 
-- **Kegel aufstellen:** „Kegel hier“ und auf den Boden zielen – dort steht der Kopfkegel, das
-  Dreieck (10 Kegel, Originalabstand 30,5 cm) zeigt von dir weg. Beim ersten Start ist das
-  Aufstellen schon aktiv.
+- **Einrichtung Schritt für Schritt (Brille):** Nach dem Start erscheint eine Tafel vor dir und
+  führt nacheinander durch alles: Spieler (Anzahl) → Kegel aufstellen (auf den Boden zielen und
+  drücken, das Dreieck mit 10 Kegeln zeigt von dir weg) → „Passt das so?“ → Los geht's. Knöpfe per
+  Strahl oder einfach mit dem Zeigefinger antippen.
+- **Uhr-Menü am linken Handgelenk:** Während des Spiels gibt es keine feste Leiste mehr. Schau auf
+  dein linkes Handgelenk (oder dreh den linken Controller zu dir) – dort erscheint ein kleines
+  Menü: Neu aufstellen, Kegel versetzen, Neues Spiel, Spieler, Kugel holen, Beenden.
 - **Werfen (Brille):** Die Kugel schwebt rechts vor dir auf Hüfthöhe und leuchtet, sobald du sie
   greifen kannst. Greifen mit der Hand (Daumen + Zeigefinger zusammen, bis 20 cm neben der Kugel)
-  oder dem Controller (Grifftaste oder Abzug, auch per Strahl aus der Ferne). Greifen hat Vorrang
-  vor der Werkzeugleiste. Arm schwingen und loslassen:
+  oder dem Controller (Grifftaste oder Abzug, auch per Strahl aus der Ferne). Arm schwingen und loslassen:
   Richtung und Tempo kommen aus den letzten ~90 ms der Handbewegung. Nur loslassen ohne Schwung
   legt die Kugel zurück.
 - **Handy:** auf den Boden tippen zum Aufstellen, dann nach oben wischen – je schneller, desto
@@ -34,8 +37,7 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
   einen ganzen Frame, dann ist der Nächste dran – Brille oder Handy einfach weitergeben. Die Tafel
   zeigt alle Spieler, wer dran ist, und am Ende den Sieger. Namen werden gemerkt.
 - Gespielt wird in jedem Raum mit etwas freiem Boden – die Kegel stehen dort, wo man sie hinstellt.
-- Werkzeugleiste (Brille, schwebt unten): Kegel hier, Neu aufstellen, Neues Spiel, Kugel holen,
-  Beenden. Die Kugel schwebt nach jedem Wurf wieder rechts vor dir.
+- Die Kugel schwebt nach jedem Wurf wieder rechts vor dir.
 
 ## Minigolf (`/golf.html`)
 
@@ -43,12 +45,13 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
   detection) werden zu festen Physik-Körpern – die Kugel rollt auf dem Tisch, fällt an der Kante
   runter und prallt an Wänden und Möbeln ab. Außerhalb des gescannten Bodens ist sie „aus“
   (+1 Schlag, zurück an die letzte Stelle).
-- **Bauen:** Element in der Leiste wählen und auf Boden oder Möbel zielen: Start, Loch (Fahne),
-  Rampe (Sprung), Looping (braucht Schwung – Boost davor), Boost (schießt die Kugel an), Wand,
-  Bumper (federnd), Sand (bremst stark). Mehrere Löcher: einfach weitere Start/Loch-Paare setzen.
-  „Bewegen“ greift ein Element (Controller-Stick dreht), „Drehen“ dreht um 45°, „Löschen“,
-  „Zufall“ baut eine Bahn mit Hindernissen vor dir, „Karte ▸“ wechselt zwischen Karten.
-  Karten werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
+- **Einrichtung Schritt für Schritt:** Spieler → Bahn wählen (gespeicherte Bahn, neue Bahn bauen
+  oder Zufallsbahn) → Start setzen → Loch setzen → Hindernisse (Rampe, Looping, Boost, Wand,
+  Bumper, Sand; drehen, löschen, zufällig verteilen) → weiteres Loch oder „Fertig, spielen“.
+  Ziel ist jeweils Boden oder Möbel. Looping braucht Schwung – Boost davor.
+  Bahnen werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
+- **Uhr-Menü am linken Handgelenk:** Kugel zurück, Loch aufgeben, Neue Runde, Bahn bearbeiten,
+  Andere Bahn, Spieler, Beenden.
 - **Spielen:** Controller oder Hand nach unten halten = Schläger, durch die Kugel schwingen
   (Schlagstärke aus der Schwunggeschwindigkeit). Handy/Bildschirm: wischen. Maximal 8 Schläge
   pro Loch, „Loch aufgeben“ setzt 8.
