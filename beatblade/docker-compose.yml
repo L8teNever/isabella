@@ -1,0 +1,12 @@
+# BeatBlade starten: docker compose up -d
+services:
+  beatblade:
+    image: ghcr.io/l8tenever/beatblade:latest
+    build: .
+    container_name: beatblade
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${BIND:-127.0.0.1}:${HOST_PORT:-3000}:3000"
+    volumes:
+      - ./data:/data

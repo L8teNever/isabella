@@ -3,7 +3,7 @@ name: Isabella-Image bauen
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md"]
+    paths-ignore: ["**.md", "beatblade/**", ".github/workflows/beatblade.yml"]
   workflow_dispatch:
 
 permissions:

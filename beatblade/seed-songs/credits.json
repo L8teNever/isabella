@@ -1,0 +1,101 @@
+{
+  "note": "Mitgelieferte Songs: nur CC0/CC-BY. Die MP3s werden beim Docker-Build bzw. mit \"pnpm seed:download\" geladen.",
+  "songs": [
+    {
+      "file": "Local Forecast - Elevator.mp3",
+      "title": "Local Forecast - Elevator",
+      "artist": "Kevin MacLeod",
+      "genre": "Lounge / Jazz, ruhig",
+      "bpm": 82,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1300012",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Local%20Forecast%20-%20Elevator.mp3",
+      "attribution": "\"Local Forecast - Elevator\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Funkorama.mp3",
+      "title": "Funkorama",
+      "artist": "Kevin MacLeod",
+      "genre": "Funk, mittel",
+      "bpm": 101,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100474",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Funkorama.mp3",
+      "attribution": "\"Funkorama\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Digital Lemonade.mp3",
+      "title": "Digital Lemonade",
+      "artist": "Kevin MacLeod",
+      "genre": "Electronica, entspannt",
+      "bpm": 120,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1700010",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Digital%20Lemonade.mp3",
+      "attribution": "\"Digital Lemonade\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Voxel Revolution.mp3",
+      "title": "Voxel Revolution",
+      "artist": "Kevin MacLeod",
+      "genre": "Electro, mittel",
+      "bpm": 122,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN2000025",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Voxel%20Revolution.mp3",
+      "attribution": "\"Voxel Revolution\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Rhinoceros.mp3",
+      "title": "Rhinoceros",
+      "artist": "Kevin MacLeod",
+      "genre": "Rock/Action, treibend",
+      "bpm": 126,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1500040",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Rhinoceros.mp3",
+      "attribution": "\"Rhinoceros\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Ouroboros.mp3",
+      "title": "Ouroboros",
+      "artist": "Kevin MacLeod",
+      "genre": "Electro, aggressiv",
+      "bpm": 130,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400007",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Ouroboros.mp3",
+      "attribution": "\"Ouroboros\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Cipher2.mp3",
+      "title": "Cipher",
+      "artist": "Kevin MacLeod",
+      "genre": "Electro/EDM, schnell",
+      "bpm": 150,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1100844",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Cipher2.mp3",
+      "attribution": "\"Cipher\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "file": "Volatile Reaction.mp3",
+      "title": "Volatile Reaction",
+      "artist": "Kevin MacLeod",
+      "genre": "Rock, schnell & hart",
+      "bpm": 155,
+      "license": "CC BY 4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1400039",
+      "url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Volatile%20Reaction.mp3",
+      "attribution": "\"Volatile Reaction\" Kevin MacLeod (incompetech.com), Licensed under Creative Commons: By Attribution 4.0 License, http://creativecommons.org/licenses/by/4.0/"
+    }
+  ]
+}

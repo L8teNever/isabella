@@ -1,0 +1,15 @@
+{
+  "name": "beatblade",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --filter @beatblade/core build && pnpm -r --filter @beatblade/server build && pnpm -r --filter @beatblade/web build",
+    "dev:server": "pnpm --filter @beatblade/server dev",
+    "dev:web": "pnpm --filter @beatblade/web dev",
+    "test": "pnpm --filter @beatblade/core test",
+    "seed:download": "node scripts/download-seeds.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "packageManager": "pnpm@10.28.0"
+}

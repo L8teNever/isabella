@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>BeatBlade – Bibliothek</title>
+  <meta name="theme-color" content="#0b0a12" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='6' y='28' width='52' height='8' rx='4' fill='%23ff3d6e' transform='rotate(-35 32 32)'/%3E%3Crect x='6' y='28' width='52' height='8' rx='4' fill='%233db8ff' transform='rotate(35 32 32)'/%3E%3C/svg%3E" />
+</head>
+<body>
+  <header class="top">
+    <div class="logo">Beat<b>Blade</b></div>
+    <nav class="tabs">
+      <a href="#" data-tab="lib" class="on">Bibliothek</a>
+      <a href="./play.html">Spielen ▸</a>
+      <a href="#" data-tab="credits">Credits</a>
+    </nav>
+  </header>
+  <main>
+    <section id="login" class="card" hidden>
+      <h2>Anmelden</h2>
+      <form id="login-form" class="form">
+        <label>Passwort <input type="password" id="pw" autocomplete="current-password" required /></label>
+        <div class="row"><button class="primary">Anmelden</button></div>
+        <p id="login-err" class="hint"></p>
+      </form>
+    </section>
+
+    <section id="lib" hidden>
+      <div class="card">
+        <div id="drop" class="drop">
+          <strong>Musik hinzufügen</strong>
+          <p>Dateien hierher ziehen oder</p>
+          <button id="pick" class="primary">Dateien auswählen</button>
+          <input id="file" type="file" accept=".mp3,.m4a,.ogg,.oga,.flac,.wav,audio/*" multiple hidden />
+          <p class="hint">MP3, M4A, OGG, FLAC oder WAV · max. <span id="maxmb">50</span> MB · mehrere gleichzeitig.
+            Die Analyse läuft auf dem Server weiter, du kannst die Seite schließen.</p>
+          <p class="hint">⚠️ Für hochgeladene Musik bist du selbst verantwortlich (Urheberrecht). Nur Songs hochladen, die du nutzen darfst.</p>
+        </div>
+        <div id="uploads" class="uploads"></div>
+      </div>
+
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Suchen: Titel, Artist, Album …" />
+        <select id="sort">
+          <option value="new">Neueste</option><option value="title">Titel</option><option value="artist">Artist</option><option value="bpm">BPM</option>
+        </select>
+        <select id="filter">
+          <option value="all">Alle</option><option value="uploaded">Hochgeladen</option><option value="bundled">Mitgeliefert</option><option value="hidden">Ausgeblendet</option>
+        </select>
+      </div>
+      <div id="songs" class="songs"></div>
+    </section>
+
+    <section id="credits" hidden class="card">
+      <h2>Credits</h2>
+      <p class="hint">Mitgelieferte Musik (frei lizenziert). Spielprinzip angelehnt an Rhythmus-Spiele mit Lichtschwertern – eigenes Design, keine fremden Assets.</p>
+      <ul id="credit-list" class="credits"></ul>
+    </section>
+  </main>
+
+  <dialog id="dlg"></dialog>
+  <script type="module" src="./src/pages/library.ts"></script>
+</body>
+</html>

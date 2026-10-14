@@ -1,0 +1,362 @@
+// BeatBlade – Spiel (WebXR VR/MR, Desktop-Debugmodus).
+import './style.css';
+import * as THREE from 'three';
+import type { Difficulty, Song } from '@beatblade/core';
+import { api, subscribe } from './api';
+import { settings, saveSettings } from './settings';
+import { AudioPlayer } from './audio/player';
+import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
+import { Environment } from './game/environment';
+import { NoteView } from './game/notes';
+import { Slicer } from './game/slicer';
+import { Saber } from './game/sabers';
+import { Game, prepareMap } from './game/game';
+import { HIT_Z, laneX, rowY, lookahead } from './game/layout';
+import { cutVector, Cut } from '@beatblade/core';
+import { Menus } from './ui3d/menus';
+import { Hud } from './ui3d/hud';
+
+type State = 'menu' | 'loading' | 'playing' | 'paused' | 'resuming' | 'results' | 'calibrating' | 'floor';
+type XRMode = 'vr' | 'ar' | 'desktop';
+
+const app = document.getElementById('app')!;
+app.innerHTML = `
+<div id="start" style="min-height:100vh;display:grid;place-items:center;padding:16px">
+  <div class="card" style="max-width:560px;width:100%;text-align:center">
+    <div class="logo" style="font-size:40px">Beat<b>Blade</b></div>
+    <p class="hint">Blöcke im Takt in Pfeilrichtung zerschneiden – rot links, blau rechts.</p>
+    <div style="display:grid;gap:10px;margin:18px 0">
+      <button id="b-vr" class="primary" hidden>VR starten</button>
+      <button id="b-ar" class="primary" hidden>MR starten (Passthrough)</button>
+      <button id="b-desk">Am Bildschirm testen (Debug)</button>
+    </div>
+    <p id="hint" class="hint"></p>
+    <p class="hint"><a href="./">Bibliothek & Upload</a></p>
+  </div>
+</div>`;
+const $ = (id: string) => document.getElementById(id)!;
+
+// ---------- Renderer / Szene ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.localClippingEnabled = true;
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+renderer.xr.setFoveation?.(1);
+renderer.domElement.style.cssText = 'position:fixed;inset:0;display:none';
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.03, 150);
+camera.position.set(0, 1.6, 0.25);
+scene.add(camera);
+const root = new THREE.Group();            // Spielfeld (kalibrierbar: Richtung/Boden)
+scene.add(root);
+
+const audio = new AudioPlayer();
+let mode: XRMode = 'desktop';
+let env: Environment | null = null;
+const view = new NoteView(root, false);
+const slicer = new Slicer(root, view.cubeGeo, view.arrows.geometry);
+const sabers: [Saber, Saber] = [new Saber(0, root), new Saber(1, root)];
+const hud = new Hud(root, camera);
+let state: State = 'menu';
+let current: { song: Song; d: Difficulty; seed: number } | null = null;
+let resumeAt = 0;
+
+const game = new Game(root, view, slicer, sabers, {
+  haptic: (hand, v, ms) => pulse(hand, v, ms),
+  slice: (v) => audio.slice(v),
+  finished: (fail) => finish(fail),
+});
+
+const menus = new Menus(root, {
+  play: (s, d, seed) => startSong(s, d, seed),
+  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); },
+  restart: () => { if (current) startSong(current.song, current.d, current.seed); },
+  quitToMenu: () => { audio.stop(); toMenu(); },
+  exitXR: () => renderer.xr.getSession()?.end(),
+  calibrateLatency: () => calibrate(),
+  setFloor: () => { state = 'floor'; floorMin = Infinity; floorUntil = performance.now() + 4000; },
+  setDirection: () => setDirection(),
+  isMR: () => mode === 'ar',
+  inXR: () => renderer.xr.isPresenting,
+  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; },
+});
+
+// ---------- Eingaben (Controller / Haende / Maus) ----------
+interface Input { i: number; ray: THREE.Group; grip: THREE.Group; line: THREE.Line; source: XRInputSource | null; prevButtons: boolean[]; scrollT: number }
+const inputs: Input[] = [0, 1].map((i) => {
+  const ray = renderer.xr.getController(i), grip = renderer.xr.getControllerGrip(i);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }));
+  line.scale.z = 2; ray.add(line);
+  const inp: Input = { i, ray, grip, line, source: null, prevButtons: [], scrollT: 0 };
+  ray.addEventListener('connected', (e) => { inp.source = (e as unknown as { data: XRInputSource }).data; });
+  ray.addEventListener('disconnected', () => { inp.source = null; });
+  ray.addEventListener('selectstart', () => onSelect(inp));
+  scene.add(ray, grip);
+  return inp;
+});
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2(); let mouseIn = false;
+
+function setRayFrom(o: THREE.Object3D) {
+  const m = new THREE.Matrix4().extractRotation(o.matrixWorld);
+  raycaster.ray.origin.setFromMatrixPosition(o.matrixWorld);
+  raycaster.ray.direction.set(0, 0, -1).applyMatrix4(m);
+}
+
+function onSelect(inp: Input) {
+  tapTimes.push(audio.ctx.currentTime);
+  if (!menus.visible) return;
+  setRayFrom(inp.ray);
+  const id = menus.panel.pick(raycaster);
+  if (id) { pulse(inp.source?.handedness === 'left' ? 0 : 1, 0.3, 20); menus.click(id); }
+}
+
+function pulse(hand: 0 | 1, v: number, ms: number) {
+  const src = inputs.find((x) => x.source?.handedness === (hand === 0 ? 'left' : 'right'))?.source;
+  const act = src?.gamepad?.hapticActuators?.[0] as unknown as { pulse?: (v: number, ms: number) => void } | undefined;
+  try { act?.pulse?.(v, ms); } catch { /* keine Haptik */ }
+}
+
+// Maus (Desktop)
+renderer.domElement.addEventListener('pointermove', (e) => { mouse.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); mouseIn = true; });
+renderer.domElement.addEventListener('pointerdown', () => {
+  tapTimes.push(audio.ctx.currentTime);
+  if (!menus.visible) return;
+  raycaster.setFromCamera(mouse, camera);
+  const id = menus.panel.pick(raycaster); if (id) menus.click(id);
+});
+renderer.domElement.addEventListener('wheel', (e) => { if (menus.visible) menus.scroll(e.deltaY > 0 ? 1 : -1); });
+addEventListener('keydown', (e) => {
+  if (mode !== 'desktop') return;
+  if (e.key === 'Escape' && state === 'playing') pauseGame();
+  if (e.key === 'a') autoplay = !autoplay;
+  if (e.key === ' ') tapTimes.push(audio.ctx.currentTime);
+});
+let autoplay = true;
+
+// ---------- Ablauf ----------
+async function startSong(song: Song, d: Difficulty, seed: number) {
+  current = { song, d, seed };
+  audio.stop(); hud.show(false); slicer.clear();
+  state = 'loading'; menus.loading('Audio laden …', 0);
+  try {
+    await audio.resume();
+    const data = await loadAudio(song, (p) => menus.loading('Audio laden …', p * 0.7));
+    menus.loading('Dekodieren …', 0.75);
+    await audio.decode(data);
+    menus.loading('Level laden …', 0.9);
+    const bm = prepareMap(await loadBeatmap(song, d, seed));
+    game.start(bm);
+    env?.reset();
+    menus.hide(); hud.show(true); hud.message('');
+    // Vorlauf: Noten der ersten Sekunden sind schon unterwegs, bevor die Musik einsetzt
+    const lead = Math.max(1.5, lookahead(bm.njs, bm.bpm, bm.offset) - (bm.notes[0]?.t ?? 3) + 0.5);
+    audio.play(0, lead);
+    state = 'playing';
+  } catch (e) {
+    menus.loading(`Fehler: ${(e as Error).message}`, 0);
+    setTimeout(() => toMenu(), 3000);
+  }
+}
+
+function pauseGame() {
+  if (state !== 'playing') return;
+  audio.pause(); state = 'paused'; hud.message(''); menus.pause();
+}
+
+function finish(fail: boolean) {
+  if (fail) { audio.stop(); hud.message('Gescheitert', 'Energie leer'); }
+  else { const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4); setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500); }
+  state = 'results';
+  setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d, fail); }, fail ? 1500 : 800);
+}
+
+function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); }
+
+// ---------- Latenz-Kalibrierung ----------
+let tapTimes: number[] = [];
+async function calibrate(): Promise<number | null> {
+  await audio.resume();
+  state = 'calibrating';
+  const bpm = 100, n = 20, start = audio.ctx.currentTime + 1, spb = 60 / bpm;
+  const clicks: number[] = [];
+  for (let k = 0; k < n; k++) { const t = start + k * spb; clicks.push(t); audio.click(t, k % 4 === 0 ? 1500 : 1000, 0.5); }
+  tapTimes = [];
+  await new Promise((r) => setTimeout(r, (1 + n * spb + 0.5) * 1000));
+  state = 'menu';
+  // Abweichung jedes Drucks zum gehoerten Klick (Klick erklingt erst nach der Ausgabe-Latenz)
+  const outLat = audio.ctx.outputLatency || audio.ctx.baseLatency || 0;
+  const devs = tapTimes.slice(2).map((t) => { let best = Infinity; for (const c of clicks) { const d = t - (c + outLat); if (Math.abs(d) < Math.abs(best)) best = d; } return best; })
+    .filter((d) => Math.abs(d) < spb / 2);
+  if (devs.length < 8) return null;
+  devs.sort((a, b) => a - b);
+  return Math.round(devs[devs.length >> 1] * 1000);
+}
+
+// ---------- Kalibrierung Spielfeld (MR: Boden/Richtung) ----------
+let floorMin = Infinity, floorUntil = 0;
+function setDirection() {
+  const cam = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+  const p = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld)); fwd.y = 0; fwd.normalize();
+  root.position.x = p.x; root.position.z = p.z;
+  root.rotation.y = Math.atan2(-fwd.x, -fwd.z);
+  placeMenu();
+}
+function placeMenu() { menus.panel.position.set(0, 1.45, -1.6); menus.panel.rotation.set(0, 0, 0); }
+
+// ---------- Start ----------
+async function startXR(m: 'vr' | 'ar') {
+  const session = await navigator.xr!.requestSession(m === 'ar' ? 'immersive-ar' : 'immersive-vr', {
+    requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'plane-detection', 'hit-test'],
+  });
+  setup(m);
+  await renderer.xr.setSession(session);
+  session.addEventListener('end', () => { audio.stop(); state = 'menu'; $('start').hidden = false; renderer.domElement.style.display = 'none'; });
+  session.addEventListener('visibilitychange', () => { if (session.visibilityState !== 'visible') pauseGame(); });
+  if (m === 'ar') { renderer.setClearAlpha(0); scene.background = null; scene.fog = null; }
+}
+
+function setup(m: XRMode) {
+  mode = m;
+  $('start').hidden = true; renderer.domElement.style.display = 'block';
+  if (!env) env = new Environment(scene, m === 'ar');
+  root.position.y = m === 'ar' ? settings.floorOffset : 0;
+  hud.fps.visible = settings.showFps;
+  audio.resume();
+  menus.go('main', false); menus.show();
+}
+
+$('b-vr').addEventListener('click', () => startXR('vr').catch((e) => alert(`VR ging nicht: ${e.message}`)));
+$('b-ar').addEventListener('click', () => startXR('ar').catch((e) => alert(`MR ging nicht: ${e.message}`)));
+$('b-desk').addEventListener('click', () => { setup('desktop'); camera.position.set(0, 1.6, 0.3); camera.lookAt(0, 1.3, -3); });
+(async () => {
+  const xr = navigator.xr;
+  const [vr, ar] = await Promise.all([xr?.isSessionSupported('immersive-vr').catch(() => false), xr?.isSessionSupported('immersive-ar').catch(() => false)]);
+  $('b-vr').hidden = !vr; $('b-ar').hidden = !ar;
+  if (!vr && !ar) $('hint').textContent = 'Dieses Gerät kann kein WebXR. Für VR/MR die Seite im Meta-Quest-Browser öffnen (HTTPS nötig). Hier geht nur der Debug-Modus.';
+})();
+
+// Songs + Live-Updates
+(async () => {
+  const info = await api.info().catch(() => null);
+  menus.setQr(info?.publicUrl ? `${info.publicUrl}/` : location.href.replace(/play\.html.*$/, ''));
+  menus.setSongs(await api.songs().catch(() => []));
+  const want = new URLSearchParams(location.search).get('song');
+  if (want) { const s = menus.songs.find((x) => x.id === want); if (s) { menus.click('songs'); menus.click(`s:${s.id}`); } }
+  subscribe({
+    song: (s) => { const old = menus.songs.find((x) => x.id === s.id); if (old && old.updatedAt !== s.updatedAt) pruneSong(s.id, s.updatedAt); menus.upsertSong(s); },
+    deleted: (id) => menus.removeSong(id),
+    open: async () => menus.setSongs(await api.songs().catch(() => menus.songs)),
+  });
+})();
+
+// ---------- Bild-Schleife ----------
+const clock = new THREE.Clock();
+let fpsN = 0, fpsT = 0;
+const headLocal = new THREE.Vector3();
+renderer.setAnimationLoop((_t, frame) => {
+  const dt = Math.min(0.05, clock.getDelta());
+  const xr = renderer.xr.isPresenting;
+  const cam = xr ? renderer.xr.getCamera() : camera;
+  root.updateMatrixWorld();
+  // Kopf in Spielfeld-Koordinaten
+  headLocal.setFromMatrixPosition(cam.matrixWorld); root.worldToLocal(headLocal);
+  const songT = audio.songTime();
+
+  // Schwerter: Controller-Pose -> Spielfeld
+  const playingLike = state === 'playing' || state === 'resuming' || state === 'paused';
+  if (xr) {
+    for (const inp of inputs) {
+      const src = inp.source; const hand = src?.handedness === 'left' ? 0 : src?.handedness === 'right' ? 1 : -1;
+      const gp = src?.gamepad;
+      if (hand < 0 || !gp || src?.hand) continue;
+      const pos = new THREE.Vector3().setFromMatrixPosition(inp.grip.matrixWorld); root.worldToLocal(pos);
+      const q = new THREE.Quaternion().setFromRotationMatrix(inp.ray.matrixWorld).premultiply(root.getWorldQuaternion(new THREE.Quaternion()).invert());
+      const sb = sabers[hand as 0 | 1];
+      sb.setPose(pos, q, songT);
+      // Pause: B/Y
+      const b = !!gp.buttons[5]?.pressed;
+      if (b && !inp.prevButtons[5] && state === 'playing') pauseGame();
+      inp.prevButtons[5] = b;
+      // Menue blaettern: Stick
+      const ay = gp.axes[3] ?? 0;
+      if (menus.visible && Math.abs(ay) > 0.7 && performance.now() > inp.scrollT) { menus.scroll(ay > 0 ? 1 : -1); inp.scrollT = performance.now() + 400; }
+    }
+  } else if (mode === 'desktop' && playingLike) desktopSabers(songT);
+  if (state === 'floor') {
+    for (const inp of inputs) if (inp.source) { const y = new THREE.Vector3().setFromMatrixPosition(inp.grip.matrixWorld).y; floorMin = Math.min(floorMin, y); }
+    const left = Math.ceil((floorUntil - performance.now()) / 1000);
+    menus.loading(`Controller auf den Boden legen … ${Math.max(0, left)}`, 1 - left / 4);
+    if (performance.now() > floorUntil) {
+      if (floorMin < 1) { settings.floorOffset = Math.round((root.position.y - (floorMin - 0.025)) * 1000) / 1000; root.position.y = settings.floorOffset; saveSettings(); }
+      state = 'menu'; menus.go('settings', false);
+    }
+  }
+
+  // Menue-Laser: nur sichtbar, wenn Menue offen
+  let hover: string | null = null;
+  for (const inp of inputs) {
+    inp.line.visible = xr && menus.visible && !!inp.source;
+    if (!inp.line.visible) continue;
+    setRayFrom(inp.ray);
+    const id = menus.panel.pick(raycaster); if (id) hover = id;
+    const d = menus.panel.hits(raycaster); inp.line.scale.z = d ?? 2;
+  }
+  if (!xr && mouseIn && menus.visible) { raycaster.setFromCamera(mouse, camera); hover = menus.panel.pick(raycaster); }
+  if (menus.visible) menus.panel.setHover(hover);
+
+  // Spiel
+  if (state === 'playing') game.update(songT, dt, headLocal, false);
+  else if (state === 'paused' || state === 'resuming') game.update(songT, 0, headLocal, true);
+  if (state === 'resuming') {
+    const left = Math.ceil((resumeAt - performance.now()) / 1000);
+    hud.message(String(Math.max(1, left)));
+    if (performance.now() >= resumeAt) { hud.message(''); audio.resumeFrom(0); state = 'playing'; }
+  }
+  if (state === 'playing' || state === 'resuming') hud.update(game.score, dt, game.inWall);
+  slicer.update(dt);
+  env?.update(state === 'playing' ? songT : -1, dt, state === 'playing' ? game.map?.lights ?? [] : []);
+  // Schwerter im Menue ausblenden (Laser), im Spiel zeigen
+  if (xr) for (const s of sabers) { s.group.visible = playingLike && s.active; s.trail.visible = s.group.visible; }
+
+  // FPS
+  fpsN++; fpsT += dt;
+  if (fpsT >= 1) { if (settings.showFps) hud.setFps(fpsN / fpsT); fpsN = 0; fpsT = 0; }
+  void frame;
+  renderer.render(scene, camera);
+});
+
+// ---------- Desktop-Debug: Autoplay (Taste A) oder Maus fuehrt das rechte Schwert ----------
+function desktopSabers(t: number) {
+  for (const hand of [0, 1] as const) {
+    const sb = sabers[hand];
+    const restHilt = new THREE.Vector3(hand === 0 ? -0.3 : 0.3, 1.0, -0.2);
+    let tipTarget = new THREE.Vector3(hand === 0 ? -0.4 : 0.4, 1.3, -1.1);
+    if (autoplay && game.map) {
+      // naechste Note dieser Farbe: Spitze faehrt in Schnittrichtung durch die Notenmitte
+      const n = game.notes.find((s) => !s.done && s.n.c === hand && s.n.t > t - 0.15)?.n;
+      if (n && n.t - t < 0.5) {
+        const [vx, vy] = n.d === Cut.Any ? [0, -1] : cutVector(n.d);
+        const u = Math.max(-1, Math.min(1, (t - n.t) / 0.09));
+        const zc = HIT_Z - (n.t - t) * (game.map.njs);
+        tipTarget = new THREE.Vector3(laneX(n.x) + vx * u * 0.45, rowY(n.y) + vy * u * 0.45, Math.max(zc, HIT_Z - 0.25));
+      }
+    } else if (hand === 1 && mouseIn) {
+      raycaster.setFromCamera(mouse, camera);
+      const tt = (HIT_Z - raycaster.ray.origin.z) / raycaster.ray.direction.z;
+      tipTarget = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, tt);
+    }
+    const dir = tipTarget.clone().sub(restHilt).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), dir);
+    const hilt = tipTarget.clone().addScaledVector(dir, -1.06);
+    sb.setPose(hilt, q, t);
+  }
+}
+
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, get state() { return state; } };
