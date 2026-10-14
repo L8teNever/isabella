@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
 import { BUILD_INFO } from '../version';
+import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
 import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
@@ -145,6 +146,11 @@ export class Menus {
         const row = (id: string, label: string, value: string): Item[] => [
           { type: 'button', id: `${id}-`, label: '−', h: 70 }, { type: 'text', text: `${label}: ${value}`, align: 'center', size: 28, span: 2 }, { type: 'button', id: `${id}+`, label: '+', h: 70 },
         ];
+        const colorRow = (id: string, label: string, c: number, custom: boolean): Item[] => [
+          { type: 'button', id: `${id}-`, label: '◀', h: 70 },
+          { type: 'text', text: `■■  ${label}${custom ? ' (eigene)' : ''}  ■■`, color: toHex(c), align: 'center', size: 30, span: 2 },
+          { type: 'button', id: `${id}+`, label: '▶', h: 70 },
+        ];
         const tog = (id: keyof typeof settings, label: string): Item => ({ type: 'button', id: `t:${id}`, label: `${label} ${settings[id] ? '✓' : '✗'}`, on: !!settings[id], span: 2, h: 70 });
         return { title: 'Einstellungen', cols: 4, items: [
           ...row('lat', 'Latenz', `${settings.latencyMs} ms`),
@@ -154,6 +160,11 @@ export class Menus {
           ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
           ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
           { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, on: settings.arrows === 'egal', span: 4, h: 70 },
+          // Farben: Farbset durchschalten, links/rechts frei im Farbton drehen
+          { type: 'button', id: 'cset', label: `Farben: ${currentSet().name}  ⟳`, span: 4, h: 70 },
+          ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
+          ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
+          ...(settings.colorLeft || settings.colorRight ? [{ type: 'button', id: 'creset', label: 'Eigene Farben zurücksetzen', span: 4, h: 60 } as Item] : []),
           tog('missMute', 'Verfehlt = stumm'), tog('glow', 'Leuchten'), tog('leftHanded', 'Linkshänder'), tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
           { type: 'button', id: 'name', label: `Name: ${settings.name}`, span: 2, h: 70 },
           ...(this.act.isMR() ? [{ type: 'button', id: 'floor', label: 'Boden setzen', span: 2, h: 70 } as Item, { type: 'button', id: 'dir', label: 'Richtung setzen', span: 2, h: 70 } as Item]
@@ -249,12 +260,16 @@ export class Menus {
         if (k === 'ang') settings.saberAngle = Math.max(-45, Math.min(60, settings.saberAngle + d * 5));
         if (k === 'hgt') settings.playerHeight = Math.round(Math.max(1.2, Math.min(2.2, settings.playerHeight + d * 0.05)) * 100) / 100;
         if (k === 'vol') settings.volume = Math.round(Math.max(0, Math.min(1, settings.volume + d * 0.1)) * 10) / 10;
+        if (k === 'cl') settings.colorLeft = toHex(shiftHue(colorPair()[0], d * HUE_STEP));
+        if (k === 'cr') settings.colorRight = toHex(shiftHue(colorPair()[1], d * HUE_STEP));
         if (k === 'lgt') settings.lightIntensity = Math.round(Math.max(0, Math.min(1, settings.lightIntensity + d * 0.1)) * 10) / 10;
       };
       const m = id.match(/^(\w+)([+-])$/);
       if (m) step(m[1], m[2] === '+' ? 1 : -1);
       else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps' | 'missMute' | 'glow'; settings[k] = !settings[k]; }
       else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
+      else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
+      else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
       else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
       else if (id === 'floor') this.act.setFloor();
       else if (id === 'dir') this.act.setDirection();

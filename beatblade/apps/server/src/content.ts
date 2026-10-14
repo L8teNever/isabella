@@ -95,7 +95,9 @@ export function reloadContent(): ContentItem[] { cache = null; return loadConten
 export function contentByKind(): Record<ContentKind, ContentItem[]> {
   const out = Object.fromEntries(CONTENT_KINDS.map((k) => [k, [] as ContentItem[]])) as Record<ContentKind, ContentItem[]>;
   for (const item of loadContent()) out[item.kind].push(item);
-  for (const k of CONTENT_KINDS) out[k].sort((a, b) => (a.source === b.source ? 0 : a.source === 'builtin' ? -1 : 1));
+  // Reihenfolge: mitgelieferte zuerst, dann Feld "order" aus info.json, dann Name
+  const ord = (i: ContentItem) => (typeof i.data.order === 'number' ? i.data.order : 999);
+  for (const k of CONTENT_KINDS) out[k].sort((a, b) => (a.source !== b.source ? (a.source === 'builtin' ? -1 : 1) : ord(a) - ord(b) || a.name.localeCompare(b.name)));
   return out;
 }
 

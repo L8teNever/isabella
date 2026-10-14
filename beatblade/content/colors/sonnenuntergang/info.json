@@ -1,0 +1,7 @@
+{
+  "name": "Sonnenuntergang",
+  "description": "Orange links, Violett rechts.",
+  "left": "#ff8a3d",
+  "right": "#b04dff",
+  "order": 1
+}

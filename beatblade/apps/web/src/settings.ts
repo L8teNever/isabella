@@ -20,6 +20,8 @@ export interface Settings {
   missMute: boolean;
   /** Leuchten (Halos, Bodenlicht) – auf schwacher Hardware abschaltbar */
   glow: boolean;
+  /** Farbset (Ordnername in content/colors) und eigene Farben links/rechts (#rrggbb, null = aus dem Set) */
+  colorSet: string; colorLeft: string | null; colorRight: string | null;
   floorOffset: number;        // MR: Bodenkorrektur (m)
 }
 
@@ -27,7 +29,7 @@ const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, floorOffset: 0,
+  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, floorOffset: 0,
 };
 
 const SETTINGS_V = 2;

@@ -9,6 +9,7 @@ import { Saber, FollowThrough } from './sabers';
 import { ScoreKeeper } from './score';
 import { comboLevel } from './combo';
 import { settings } from '../settings';
+import { colorPair } from '../look';
 
 interface NoteState { n: Note; done: boolean; }
 interface BombState { b: Bomb; done: boolean; }
@@ -69,9 +70,15 @@ export class Game {
     this.speed = bm.njs;
     this.look = lookahead(bm.njs, bm.bpm, bm.offset);
     this.follows = []; this.cutLog = []; this.i0 = 0; this.b0 = 0; this.ended = false; this.inWall = false;
-    this.colors = settings.leftHanded ? [COLORS.right, COLORS.left] : [COLORS.left, COLORS.right];
-    this.sabers[0].setColor(this.colors[0]); this.sabers[1].setColor(this.colors[1]);
+    this.applyColors();
     this.slicer.clear();
+  }
+
+  /** Farben aus Farbset/eigener Wahl auf Bloecke und Schwerter (Linkshaender: Seiten getauscht) */
+  applyColors() {
+    const [l, r] = colorPair();
+    this.colors = settings.leftHanded ? [r, l] : [l, r];
+    this.sabers[0].setColor(this.colors[0]); this.sabers[1].setColor(this.colors[1]);
   }
 
   /** z-Position fuer ein Objekt mit Zeit tt bei Songzeit t */

@@ -3,6 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
+import { loadLook } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
@@ -85,7 +86,7 @@ const menus = new Menus(root, {
   setDirection: () => setDirection(),
   isMR: () => mode === 'ar',
   inXR: () => renderer.xr.isPresenting,
-  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; },
+  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); },
 });
 
 // ---------- Eingaben (Controller / Haende / Maus) ----------
@@ -258,6 +259,7 @@ $('b-desk').addEventListener('click', () => { setup('desktop'); camera.position.
 (async () => {
   const info = await api.info().catch(() => null);
   menus.setQr(info?.publicUrl ? `${info.publicUrl}/` : location.href.replace(/play\.html.*$/, ''));
+  await loadLook(); game.applyColors();
   menus.setSongs(await api.songs().catch(() => []));
   const want = new URLSearchParams(location.search).get('song');
   if (want) { const s = menus.songs.find((x) => x.id === want); if (s) { menus.click('songs'); menus.click(`s:${s.id}`); } }

@@ -1,0 +1,7 @@
+{
+  "name": "Gift",
+  "description": "Giftgrün links, Lila rechts.",
+  "left": "#7cff4d",
+  "right": "#b04dff",
+  "order": 2
+}

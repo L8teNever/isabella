@@ -1,5 +1,6 @@
 {
   "name": "Neon-Glas",
   "description": "Die heutige rote Wand mit hellem Rand.",
-  "style": "neon-glass"
+  "style": "neon-glass",
+  "order": 0
 }

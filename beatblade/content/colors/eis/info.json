@@ -1,0 +1,7 @@
+{
+  "name": "Eis",
+  "description": "Eisweiß links, Tiefblau rechts.",
+  "left": "#d8f3ff",
+  "right": "#2f7bff",
+  "order": 3
+}
