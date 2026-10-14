@@ -76,7 +76,7 @@ const game = new Game(root, view, slicer, sabers, {
 
 const menus = new Menus(root, {
   play: (s, d, seed) => startSong(s, d, seed),
-  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); },
+  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); if (renderer.xr.isPresenting) setDirection(); },
   restart: () => { if (current) startSong(current.song, current.d, current.seed); },
   quitToMenu: () => { audio.stop(); toMenu(); },
   exitXR: () => renderer.xr.getSession()?.end(),
@@ -154,6 +154,8 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     menus.loading('Level laden …', 0.9);
     const bm = prepareMap(await loadBeatmap(song, d, seed));
     game.start(bm);
+    // Bahn direkt vor dir ausrichten: Mitte unter dem Kopf, Richtung = Blickrichtung (Hoehe/Boden bleibt)
+    if (renderer.xr.isPresenting) setDirection();
     lastCombo = 0;
     env?.reset();
     menus.hide(); hud.show(true); hud.message('');
