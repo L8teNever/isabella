@@ -34,7 +34,11 @@ app.get(`${api}/health`, async () => ({ ok: true }));
 
 songRoutes(app, api);
 
-if (B) app.get(B, async (_req, reply) => reply.redirect(`${B}/`));
+if (B) {
+  app.get(B, async (_req, reply) => reply.redirect(`${B}/`));
+  // eigene Domain (z. B. beat.kulbarts.com): Wurzel fuehrt direkt ins Spiel
+  app.get('/', async (_req, reply) => reply.redirect(`${B}/play.html`));
+}
 
 await app.listen({ port: config.port, host: config.host });
 app.log.info(`BeatBlade läuft auf :${config.port}${B || '/'} (Daten: ${config.dataDir}, Worker: ${config.concurrency}, Auth: ${config.authMode})`);
