@@ -216,7 +216,8 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
       // vor Drops (ab Expert): Ausweich-Wand im letzten Takt des Build-ups
       if (sec.type === 'buildup' && (difficulty === 'expert' || difficulty === 'expertplus') && len >= 2) {
         const b = beatOfBar(a, sec.endBar - 1), t = beatToTime(beats, b), te = beatToTime(beats, b + barBeats - MAPPING.dropPause);
-        if (t > startT && te > t + 0.3) obstacles.push({ b: round(b), t: round(t), dur: round(te - t), x: side % 2 === 0 ? 1 : 2, w: 1, kind: 'full' });
+        // ganze Haelfte (2 Spalten) zu – nie eine einzelne Wand in der Mitte; Bloecke kommen dann alle auf der freien Seite
+        if (t > startT && te > t + 0.3) obstacles.push({ b: round(b), t: round(t), dur: round(te - t), x: side % 2 === 0 ? 0 : 2, w: 2, kind: 'full' });
         side++;
       }
     }
@@ -226,8 +227,10 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
   const freeX = (hand: 0 | 1, x: number, t: number): number => {
     const blocked = (c: number) => obstacles.some((o) => o.kind === 'full' && t >= o.t - 0.2 && t <= o.t + o.dur + 0.1 && c >= o.x && c < o.x + o.w);
     if (!blocked(x)) return x;
-    const order = hand === 0 ? [1, 0, 2] : [2, 3, 1];
-    return order.find((c) => !blocked(c)) ?? x;
+    // freie Spalten: rot nimmt die linkeste, blau die rechteste – so bleiben beide Farben auf derselben (freien) Seite ohne Kreuzen
+    const free = [0, 1, 2, 3].filter((c) => !blocked(c));
+    if (!free.length) return x;
+    return hand === 0 ? free[0] : free[free.length - 1];
   };
   const crouchAt = (t: number) => obstacles.some((o) => o.kind === 'crouch' && t >= o.t - 0.2 && t <= o.t + o.dur + 0.1);
 

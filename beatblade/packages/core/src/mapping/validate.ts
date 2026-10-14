@@ -17,11 +17,19 @@ export function validate(bm: Beatmap, a: SongAnalysis): void {
   const before = notes.length;
 
   // 1) Noten in Waenden: in eine freie Spalte schieben, sonst entfernen; unter Duck-Waenden nur unten
-  for (const o of bm.obstacles) {
-    const t0 = o.t - 0.15, t1 = o.t + o.dur + 0.05;
+  const fitWalls = () => { for (const o of bm.obstacles) {
+    const t0 = o.t - 0.2, t1 = o.t + o.dur + 0.1;
     for (const n of notes) {
       if (n.t < t0 || n.t > t1) continue;
       if (o.kind === 'crouch') { if (n.y > 0) { n.y = 0; bump('crouchWall'); } continue; }
+      if (o.w >= 2) {
+        // halbe Bahn zu: alle Bloecke auf die freie Seite, rot links, blau rechts (kein Kreuzen, nichts in der Wand)
+        const free = [0, 1, 2, 3].filter((x) => x < o.x || x >= o.x + o.w);
+        if (!free.length) { n.t = -1; continue; }
+        const want = n.c === 0 ? free[0] : free[free.length - 1];
+        if (n.x !== want) { if (n.x >= o.x && n.x < o.x + o.w) bump('wallBlock'); n.x = want; }
+        continue;
+      }
       if (n.x >= o.x && n.x < o.x + o.w) {
         bump('wallBlock');
         // Ausweichen zur eigenen Seite
@@ -30,7 +38,8 @@ export function validate(bm: Beatmap, a: SongAnalysis): void {
         if (free !== undefined) n.x = free; else n.t = -1;
       }
     }
-  }
+  } };
+  fitWalls();
   notes = notes.filter((n) => n.t >= 0);
 
   // 2) Abstand derselben Hand (Slider-Ketten ausgenommen)
@@ -101,6 +110,10 @@ export function validate(bm: Beatmap, a: SongAnalysis): void {
       }
     }
   }
+
+  // Kreuzungs-Korrektur darf nichts zurueck in eine Wand schieben
+  fitWalls();
+  notes = notes.filter((n) => n.t >= 0);
 
   // 6) Sichtblock: Mitte (x 1/2, y 1) mit schneller Folge -> nach unten
   for (let i = 0; i < notes.length; i++) {
