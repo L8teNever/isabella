@@ -13,14 +13,15 @@ const DECK = 0.79 + 0.35;     // Kegel-Dreieck + Rand dahinter
 export const MAX_DIST = 18.29;
 export const MIN_DIST = 1.2;
 
-export function findLanes(scan, viewer, fwd) {
+// Freiraum-Feld: at(x, z) = Abstand zum naechsten Hindernis in Metern (0 = belegt/ausserhalb)
+export function clearanceField(scan) {
   const pts = [];
   if (scan.floorPoly) pts.push(...scan.floorPoly);
   for (const w of scan.walls) pts.push(...w);
-  if (pts.length < 3) return [];
+  if (pts.length < 3) return null;
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
-  if (x1 - x0 > 40 || z1 - z0 > 40) return [];
+  if (x1 - x0 > 40 || z1 - z0 > 40) return null;
   const nx = Math.ceil((x1 - x0) / CELL) + 1, nz = Math.ceil((z1 - z0) / CELL) + 1;
   const free = new Uint8Array(nx * nz);
   const boxes = scan.boxes.filter((b) => b.center.y - b.size.y / 2 < scan.floorY + 0.5).map((b) => {
@@ -45,6 +46,12 @@ export function findLanes(scan, viewer, fwd) {
     const i = Math.round((x - x0) / CELL), j = Math.round((z - z0) / CELL);
     return i < 0 || j < 0 || i >= nx || j >= nz ? 0 : clear[j * nx + i];
   };
+  return { at, x0, x1, z0, z1 };
+}
+
+export function findLanes(scan, viewer, fwd) {
+  const f = clearanceField(scan); if (!f) return [];
+  const { at, x0, x1, z0, z1 } = f;
 
   const cands = [];
   const step = 0.25;

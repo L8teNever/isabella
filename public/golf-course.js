@@ -18,35 +18,63 @@ export const TYPES = {
   boost: { label: 'Boost', color: 0xffd23c },
   wall: { label: 'Wand', color: 0x7cc4ff },
   bumper: { label: 'Bumper', color: 0xff5470 },
-  sand: { label: 'Sand', color: 0xe8cf94 },
+  sand: { label: 'Sand', color: 0xe8cf94, zone: true },
+  water: { label: 'Wasser', color: 0x3aa0ff, zone: true },
+  hill: { label: 'Hügel', color: 0x55c46a },
+  spinner: { label: 'Drehkreuz', color: 0xffa94d },
+  tunnel: { label: 'Tunnel', color: 0xb98cff },
 };
+export const ZONES = ['sand', 'water'];
 
 const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.5, ...o });
 
-// Rampe: Keil 0.5 lang, 0.3 breit, hinten 0.1 hoch
-function rampShape() {
-  const L = 0.5, W = 0.15, H = 0.1;
+function noiseTex(base, dots, n = 900, alpha = 0.35) {
+  const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d');
+  x.fillStyle = base; x.fillRect(0, 0, 128, 128);
+  for (let i = 0; i < n; i++) { x.fillStyle = dots[i % dots.length]; x.globalAlpha = Math.random() * alpha; x.fillRect(Math.random() * 128, Math.random() * 128, 2, 2); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 4); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+let SAND_TEX = null, WATER_TEX = null, STRIPE_TEX = null;
+function stripeTex() {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64; const x = c.getContext('2d');
+  x.fillStyle = '#ff7ab6'; x.fillRect(0, 0, 64, 64); x.fillStyle = '#ffffff'; x.globalAlpha = 0.55;
+  for (let i = -64; i < 128; i += 22) { x.beginPath(); x.moveTo(i, 0); x.lineTo(i + 10, 0); x.lineTo(i + 74, 64); x.lineTo(i + 64, 64); x.fill(); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+// Rampe: Keil (Laenge L, halbe Breite W, Hoehe H)
+function rampShape(L, W, H) {
   const v = [[-W, 0, -L / 2], [W, 0, -L / 2], [W, 0, L / 2], [-W, 0, L / 2], [-W, H, L / 2], [W, H, L / 2]].map((p) => new CANNON.Vec3(...p));
   const faces = [[0, 3, 2, 1], [0, 1, 5, 4], [2, 3, 4, 5], [0, 4, 3], [1, 2, 5]].map((f) => f.reverse());   // gegen den Uhrzeigersinn von aussen
   return { shape: new CANNON.ConvexPolyhedron({ vertices: v, faces }), verts: v, faces };
 }
 
 // Looping: Bahn als Band (Innenseite), seitlich versetzt, damit Ein- und Ausfahrt nebeneinander liegen
-function loopGeometry() {
-  const R = 0.16, W = 0.13, SHIFT = 0.15, N = 56, pos = [], idx = [], rail = 0.03;
+function loopGeometry(k = 1) {
+  const R = 0.16 * k, W = 0.13 * Math.max(0.8, k), SHIFT = 0.15 * Math.max(0.8, k), N = 56, pos = [], idx = [], rail = 0.03;
   const ring = (t) => { const th = t * Math.PI * 2; return [SHIFT * t, R - R * Math.cos(th), R * Math.sin(th), th]; };   // Einfahrt bei x=0, Ausfahrt bei x=SHIFT
-  // Querschnitt: Lippe links, Bahn, Lippe rechts (U-Form), Normale zeigt zur Kreismitte
   for (let i = 0; i <= N; i++) {
-    const [x, y, z, th] = ring(i / N), nx = 0, ny = Math.cos(th), nz = -Math.sin(th);
+    const [x, y, z, th] = ring(i / N), ny = Math.cos(th), nz = -Math.sin(th);
     for (const [dx, up] of [[-W / 2, rail], [-W / 2, 0], [W / 2, 0], [W / 2, rail]]) pos.push(x + dx, y + ny * up, z + nz * up);
   }
-  for (let i = 0; i < N; i++) for (let k = 0; k < 3; k++) {
-    const a = i * 4 + k, b = a + 1, c = a + 4, d = a + 5;
+  for (let i = 0; i < N; i++) for (let q = 0; q < 3; q++) {
+    const a = i * 4 + q, b = a + 1, c = a + 4, d = a + 5;
     idx.push(a, c, b, b, c, d);
   }
-  // Einfahrt und Ausfahrt: flache Zungen
   return { pos, idx };
 }
+
+// Punkt in Polygon [[x,z]]
+export function inPoly(P, x, z) {
+  let inside = false;
+  for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+    const [xi, zi] = P[i], [xj, zj] = P[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// Standard-Form einer Zone (Ellipse), wenn nichts gezeichnet wurde
+function ellipse(rx, rz, n = 28) { return Array.from({ length: n }, (_, i) => { const a = (i / n) * Math.PI * 2; return [Math.cos(a) * rx, Math.sin(a) * rz]; }); }
 
 export class Course {
   constructor(scene, scan) {
@@ -90,62 +118,121 @@ export class Course {
   }
 
   /* ---------- Elemente ---------- */
-  add(type, pos, yaw, hole) {
+  // opts: { s: [breit, hoch, lang] (Faktoren), shape: [[x,z]] lokale Zonen-Form (Sand/Wasser) }
+  add(type, pos, yaw, hole, opts = {}) {
     const g = new THREE.Group(); g.position.copy(pos); g.rotation.y = yaw;
     g.userData = { type, hole };
-    let body = null;
+    const sc = (opts.s || [1, 1, 1]).map((v) => Math.min(4, Math.max(0.3, v)));
+    const [sx, sy, sz] = sc;
+    let body = null; const extra = {};
     const T = TYPES[type];
+    const kin = () => new CANNON.Body({ mass: 0, material: this.mBump });
     if (type === 'tee') {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.006, 32), mat(T.color, { transparent: true, opacity: 0.85 })); m.position.y = 0.003; g.add(m);
+      const mk = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.03, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff })); mk.position.y = 0.007; g.add(mk);
       g.add(label(`Start ${hole}`, 0.18));
     } else if (type === 'cup') {
       const ring = new THREE.Mesh(new THREE.RingGeometry(CUP_R, CUP_R + 0.025, 40).rotateX(-Math.PI / 2), mat(0xffffff)); ring.position.y = 0.003; g.add(ring);
-      const hole_ = new THREE.Mesh(new THREE.CircleGeometry(CUP_R, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x050505 })); hole_.position.y = 0.002; g.add(hole_);
+      const green = new THREE.Mesh(new THREE.RingGeometry(CUP_R + 0.025, 0.22, 48).rotateX(-Math.PI / 2), mat(0x3fa45a, { transparent: true, opacity: 0.55, roughness: 1 })); green.position.y = 0.002; g.add(green);
+      const hole_ = new THREE.Mesh(new THREE.CircleGeometry(CUP_R, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x050505 })); hole_.position.y = 0.0025; g.add(hole_);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.55, 8), mat(0xeeeeee)); pole.position.set(0, 0.275, 0); g.add(pole);
       const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.09), mat(0xff7ab6, { side: THREE.DoubleSide })); flag.position.set(0.07, 0.5, 0); g.add(flag);
+      extra.flag = flag;
       g.add(label(`Loch ${hole}`, 0.62));
     } else if (type === 'ramp') {
-      const { shape, verts, faces } = rampShape();
-      const geo = new THREE.BufferGeometry(), p = [];
-      for (const f of faces) for (let k = 1; k < f.length - 1; k++) for (const i of [f[0], f[k], f[k + 1]]) p.push(verts[i].x, verts[i].y, verts[i].z);
-      geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat(T.color, { side: THREE.DoubleSide })); m.castShadow = true; g.add(m);
+      const L = 0.5 * sz, W = 0.15 * sx, H = 0.1 * sy;
+      const { shape, verts, faces } = rampShape(L, W, H);
+      const geo = new THREE.BufferGeometry(), p = [], uv = [];
+      for (const f of faces) for (let k = 1; k < f.length - 1; k++) for (const i of [f[0], f[k], f[k + 1]]) { p.push(verts[i].x, verts[i].y, verts[i].z); uv.push(verts[i].x * 6, verts[i].z * 6); }
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(p, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.computeVertexNormals();
+      STRIPE_TEX ??= stripeTex();
+      const m = new THREE.Mesh(geo, mat(0xffffff, { map: STRIPE_TEX, side: THREE.DoubleSide })); m.castShadow = true; g.add(m);
+      g.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x5a1838 })));
       body = new CANNON.Body({ mass: 0, material: this.mGround }); body.addShape(shape);
     } else if (type === 'loop') {
-      const { pos: P, idx } = loopGeometry();
+      const { pos: P, idx } = loopGeometry(sx);
       const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); geo.setIndex(idx); geo.computeVertexNormals();
-      const m = new THREE.Mesh(geo, mat(T.color, { side: THREE.DoubleSide, transparent: true, opacity: 0.9 })); m.castShadow = true; g.add(m);
+      const m = new THREE.Mesh(geo, mat(T.color, { side: THREE.DoubleSide, transparent: true, opacity: 0.9, metalness: 0.2 })); m.castShadow = true; g.add(m);
       body = new CANNON.Body({ mass: 0, material: this.mGround });
       body.addShape(new CANNON.Trimesh(P, idx));
     } else if (type === 'boost') {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.006, 0.3), mat(T.color, { emissive: 0x332200 })); m.position.y = 0.003; g.add(m);
+      const w = 0.2 * sx, l = 0.3 * sz;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.006, l), mat(0x2a2236)); m.position.y = 0.003; g.add(m);
+      extra.arrows = [];
       for (let k = 0; k < 3; k++) {
-        const a = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.06, 3).rotateX(Math.PI / 2), mat(0xff7a00)); a.position.set(0, 0.012, -0.08 + k * 0.08); a.scale.y = 0.3; g.add(a);
+        const a = new THREE.Mesh(new THREE.ConeGeometry(0.045 * sx, 0.07, 3).rotateX(Math.PI / 2), mat(T.color, { emissive: 0xff7a00, emissiveIntensity: 0.5 }));
+        a.position.set(0, 0.01, (-0.33 + k * 0.33) * l); a.scale.y = 0.25; g.add(a); extra.arrows.push(a);
       }
+      extra.half = [w / 2, l / 2];
     } else if (type === 'wall') {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 0.04), mat(T.color)); m.position.y = 0.04; m.castShadow = true; g.add(m);
-      body = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Box(new CANNON.Vec3(0.25, 0.04, 0.02)) });
-      body.shapeOffsets[0].set(0, 0.04, 0);
+      const L = 0.5 * sx, H = 0.08 * sy;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(L, H, 0.04), mat(T.color)); m.position.y = H / 2; m.castShadow = true; g.add(m);
+      for (const e of [-1, 1]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, H + 0.01, 16), mat(0xffffff)); c.position.set(e * L / 2, (H + 0.01) / 2, 0); g.add(c); }
+      body = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Box(new CANNON.Vec3(L / 2, H / 2, 0.02)) });
+      body.shapeOffsets[0].set(0, H / 2, 0);
     } else if (type === 'bumper') {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.08, 24), mat(T.color, { emissive: 0x330010 })); m.position.y = 0.04; m.castShadow = true; g.add(m);
-      body = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Cylinder(0.06, 0.06, 0.08, 16) });
-      body.shapeOffsets[0].set(0, 0.04, 0);
-    } else if (type === 'sand') {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.006, 40), mat(T.color, { roughness: 1 })); m.position.y = 0.003; m.scale.z = 0.8; g.add(m);
+      const r = 0.06 * sx, h = 0.08 * sy;
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 28), mat(T.color, { emissive: 0x330010 })); m.position.y = h / 2; m.castShadow = true; g.add(m);
+      const top = new THREE.Mesh(new THREE.TorusGeometry(r * 0.8, 0.008, 8, 28).rotateX(Math.PI / 2), mat(0xffffff, { emissive: 0xff5470, emissiveIntensity: 0.6 })); top.position.y = h + 0.002; g.add(top);
+      extra.glow = top;
+      body = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Cylinder(r, r, h, 16) });
+      body.shapeOffsets[0].set(0, h / 2, 0);
+    } else if (type === 'sand' || type === 'water') {
+      const base = opts.shape?.length >= 3 ? opts.shape : type === 'sand' ? ellipse(0.25, 0.2) : ellipse(0.3, 0.22);
+      const P = base.map(([x, z]) => [x * sx, z * sz]);
+      const sh = new THREE.Shape(P.map(([x, z]) => new THREE.Vector2(x, -z)));
+      const geo = new THREE.ShapeGeometry(sh).rotateX(-Math.PI / 2);
+      let m;
+      if (type === 'sand') { SAND_TEX ??= noiseTex('#e8cf94', ['#b8935a', '#fff1cc', '#a0784a']); m = new THREE.Mesh(geo, mat(0xffffff, { map: SAND_TEX, roughness: 1 })); }
+      else { WATER_TEX ??= noiseTex('#2f86d6', ['#9ed4ff', '#1b5fa8'], 500, 0.5); m = new THREE.Mesh(geo, mat(0xffffff, { map: WATER_TEX, roughness: 0.05, metalness: 0.2, transparent: true, opacity: 0.85 })); extra.water = WATER_TEX; }
+      m.position.y = type === 'water' ? 0.004 : 0.003; m.receiveShadow = true; g.add(m);
+      const edge = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(P.map(([x, z]) => new THREE.Vector3(x, 0.005, z))), new THREE.LineBasicMaterial({ color: type === 'sand' ? 0x9b7a48 : 0xd8f0ff }));
+      g.add(edge);
+      extra.poly = P; extra.shape = base;
+    } else if (type === 'hill') {
+      const r = 0.3 * sx, h = 0.06 * sy, R = (r * r + h * h) / (2 * h), th = Math.asin(Math.min(1, r / R));
+      const m = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 16, 0, Math.PI * 2, 0, th), mat(T.color, { roughness: 0.9 }));
+      m.position.y = h - R; m.receiveShadow = true; m.castShadow = true; g.add(m);
+      body = new CANNON.Body({ mass: 0, material: this.mGround, shape: new CANNON.Sphere(R) });
+      body.shapeOffsets[0].set(0, h - R, 0);
+    } else if (type === 'spinner') {
+      const L = 0.42 * sx, h = 0.05;
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.12, 16), mat(0xffffff)); post.position.y = 0.06; g.add(post);
+      const blades = new THREE.Group(); blades.position.y = 0;
+      for (const a of [0, Math.PI / 2]) { const b = new THREE.Mesh(new THREE.BoxGeometry(L, h, 0.025), mat(T.color, { emissive: 0x331800 })); b.rotation.y = a; b.position.y = h / 2 + 0.004; b.castShadow = true; blades.add(b); }
+      g.add(blades); extra.blades = blades; extra.angle = 0; extra.w = 1.4;
+      body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: this.mBump });
+      for (const a of [0, Math.PI / 2]) { const q = new CANNON.Quaternion(); q.setFromEuler(0, a, 0); body.addShape(new CANNON.Box(new CANNON.Vec3(L / 2, h / 2, 0.0125)), new CANNON.Vec3(0, h / 2 + 0.004, 0), q); }
+    } else if (type === 'tunnel') {
+      const L = 0.45 * sz, gap = 0.13 * sx, H = 0.09 * sy, t = 0.02;
+      const m = mat(T.color, { transparent: true, opacity: 0.92 });
+      for (const e of [-1, 1]) { const w = new THREE.Mesh(new THREE.BoxGeometry(t, H, L), m); w.position.set(e * (gap / 2 + t / 2), H / 2, 0); w.castShadow = true; g.add(w); }
+      const roof = new THREE.Mesh(new THREE.CylinderGeometry(gap / 2 + t, gap / 2 + t, L, 24, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2), mat(T.color, { side: THREE.DoubleSide, transparent: true, opacity: 0.6 }));
+      roof.position.y = H; g.add(roof);
+      body = new CANNON.Body({ mass: 0, material: this.mBump });
+      for (const e of [-1, 1]) body.addShape(new CANNON.Box(new CANNON.Vec3(t / 2, H / 2, L / 2)), new CANNON.Vec3(e * (gap / 2 + t / 2), H / 2, 0));
+      body.addShape(new CANNON.Box(new CANNON.Vec3(gap / 2 + t, 0.01, L / 2)), new CANNON.Vec3(0, H + 0.02, 0));
     }
-    g.traverse((o) => { if (o.isMesh) o.userData.item = g; });
+    g.traverse((o) => { if (o.isMesh || o.isLine) o.userData.item = g; });
     this.group.add(g);
-    const it = { type, obj: g, body, hole };
+    const it = { type, obj: g, body, hole, s: sc, ...extra };
     if (body) { body.updateBoundingRadius?.(); this.world.addBody(body); }
     this.items.push(it);
     this._place(it);
     return it;
   }
 
+  // Element mit neuer Groesse neu bauen (gleiche Stelle, gleiche Drehung)
+  resize(it, s) {
+    const n = this.add(it.type, it.obj.position.clone(), it.obj.rotation.y, it.hole, { s, shape: it.shape });
+    this.remove(it);
+    return n;
+  }
+
   _place(it) {
     if (!it.body) return;
     it.body.position.set(it.obj.position.x, it.obj.position.y, it.obj.position.z);
-    it.body.quaternion.setFromEuler(0, it.obj.rotation.y, 0);
+    it.body.quaternion.setFromEuler(0, it.obj.rotation.y + (it.angle || 0), 0);
     it.body.aabbNeedsUpdate = true;
   }
 
@@ -153,7 +240,7 @@ export class Course {
 
   remove(it) {
     this.group.remove(it.obj);
-    it.obj.traverse((o) => { if (o.isMesh) { o.geometry.dispose(); o.material.map?.dispose(); o.material.dispose(); } });
+    it.obj.traverse((o) => { if (o.isMesh || o.isLine || o.isSprite) { o.geometry?.dispose(); if (o.isSprite) o.material.map?.dispose(); o.material.dispose(); } });
     if (it.body) this.world.removeBody(it.body);
     this.items = this.items.filter((x) => x !== it);
   }
@@ -175,6 +262,18 @@ export class Course {
     for (const it of this.items) if (it.type === 'tee' || it.type === 'cup') { const h = m.get(it.hole) || {}; h[it.type] = 1; m.set(it.hole, h); }
     for (const [n, h] of [...m].sort((a, b) => a[0] - b[0])) if (!h[type]) return n;
     return (Math.max(0, ...m.keys())) + 1;
+  }
+
+  // Bewegte Teile (Drehkreuz, Boost-Pfeile, Wasser, Fahne) – jedes Bild, auch ohne Kugel
+  animate(dt) {
+    const t = performance.now() / 1000;
+    for (const it of this.items) {
+      if (it.blades) { it.angle = (it.angle + it.w * dt) % (Math.PI * 2); it.blades.rotation.y = it.angle; this._place(it); it.body.angularVelocity.set(0, it.w, 0); }
+      if (it.arrows) it.arrows.forEach((a, k) => { a.material.emissiveIntensity = 0.3 + 0.7 * Math.max(0, Math.sin(t * 6 - k * 1.2)); });
+      if (it.flag) it.flag.rotation.y = Math.sin(t * 2) * 0.25;
+      if (it.glow) it.glow.material.emissiveIntensity = 0.4 + 0.3 * Math.sin(t * 3);
+    }
+    if (WATER_TEX) WATER_TEX.offset.set(Math.sin(t * 0.4) * 0.05, t * 0.03);
   }
 
   /* ---------- Kugel ---------- */
@@ -203,19 +302,20 @@ export class Course {
   step(dt, cup) {
     if (!this.ballIn) return null;
     const b = this.ballBody, p = b.position;
-    // Zonen: Sand bremst, Boost schiesst an
-    let damp = DAMP;
+    // Zonen: Sand bremst, Wasser = Aus, Boost schiesst an
+    let damp = DAMP, wet = false;
     for (const it of this.items) {
-      if (it.type !== 'sand' && it.type !== 'boost') continue;
+      if (!it.poly && !it.half) continue;
       const l = it.obj.worldToLocal(new THREE.Vector3(p.x, p.y, p.z));
       if (Math.abs(l.y) > 0.05) continue;
-      if (it.type === 'sand' && (l.x / 0.25) ** 2 + (l.z / 0.2) ** 2 < 1) damp = SAND_DAMP;
-      if (it.type === 'boost' && Math.abs(l.x) < 0.1 && Math.abs(l.z) < 0.15) {
+      if (it.poly && inPoly(it.poly, l.x, l.z)) { if (it.type === 'sand') damp = SAND_DAMP; else wet = true; }
+      if (it.half && Math.abs(l.x) < it.half[0] && Math.abs(l.z) < it.half[1]) {
         const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(it.obj.quaternion);
         const along = b.velocity.x * dir.x + b.velocity.z * dir.z;
         if (along < 4) { b.velocity.x += dir.x * (4 - along); b.velocity.z += dir.z * (4 - along); hit(2, 'ball'); }
       }
     }
+    if (wet && !this.sunk) return 'water';
     b.linearDamping = damp;
     this.world.step(1 / 240, Math.min(dt, 0.05), 12);
     rolling(this.speed, true);
@@ -248,7 +348,10 @@ export class Course {
     return this.items.map((it) => {
       const m = new THREE.Matrix4().compose(it.obj.position, it.obj.quaternion, new THREE.Vector3(1, 1, 1)).premultiply(inv);
       const p = new THREE.Vector3(), q = new THREE.Quaternion(); m.decompose(p, q, new THREE.Vector3());
-      return { t: it.type, p: p.toArray().map((v) => +v.toFixed(4)), y: +new THREE.Euler().setFromQuaternion(q, 'YXZ').y.toFixed(4), h: it.hole };
+      const o = { t: it.type, p: p.toArray().map((v) => +v.toFixed(4)), y: +new THREE.Euler().setFromQuaternion(q, 'YXZ').y.toFixed(4), h: it.hole };
+      if (it.s.some((v) => v !== 1)) o.s = it.s.map((v) => +v.toFixed(3));
+      if (it.shape) o.f = it.shape.map(([x, z]) => [+x.toFixed(3), +z.toFixed(3)]);
+      return o;
     });
   }
 
@@ -257,7 +360,7 @@ export class Course {
     for (const o of list || []) {
       const m = new THREE.Matrix4().compose(new THREE.Vector3().fromArray(o.p), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, o.y, 0)), new THREE.Vector3(1, 1, 1)).premultiply(M);
       const p = new THREE.Vector3(), q = new THREE.Quaternion(); m.decompose(p, q, new THREE.Vector3());
-      if (TYPES[o.t]) this.add(o.t, p, new THREE.Euler().setFromQuaternion(q, 'YXZ').y, o.h);
+      if (TYPES[o.t]) this.add(o.t, p, new THREE.Euler().setFromQuaternion(q, 'YXZ').y, o.h, { s: o.s, shape: o.f });
     }
   }
 }

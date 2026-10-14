@@ -5,7 +5,9 @@
 //   Handy/Bildschirm: von der Kugel weg wischen. Mehrere Spieler reihum, Schlaege je Loch.
 import * as THREE from 'three';
 import { RoomScan } from '/room-scan.js';
-import { Course, TYPES, BALL_R } from '/golf-course.js';
+import { Course, TYPES, BALL_R, ZONES } from '/golf-course.js';
+import { clearanceField } from '/lane-fit.js';
+import { generateCourse, virtualField } from '/golf-random.js';
 import { initSound, cheer, hit } from '/sound.js';
 import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 
@@ -13,13 +15,6 @@ const $ = (id) => document.getElementById(id);
 const MAX_STROKES = 8;
 const MAPS_KEY = 'isabella-golf-maps', MAP_KEY = 'isabella-golf-map', ANCHOR_KEY = 'isabella-golf-anchor', PLAYERS_KEY = 'lara-players';
 
-const BUILD_TOOLS = [
-  { id: 'move', label: 'Bewegen' }, { id: 'tee', label: 'Start' }, { id: 'cup', label: 'Loch' }, { id: 'ramp', label: 'Rampe' }, { id: 'loop', label: 'Looping' },
-  { id: 'boost', label: 'Boost' }, { id: 'wall', label: 'Wand' }, { id: 'bumper', label: 'Bumper' }, { id: 'sand', label: 'Sand' }, { id: 'random', label: 'Zufall' },
-  { id: 'rotate', label: 'Drehen' }, { id: 'delete', label: 'Löschen' }, { id: 'map', label: 'Karte ▸' }, { id: 'play', label: 'Spielen ▸' }, { id: 'exit', label: 'Beenden' },
-];
-const PLAY_TOOLS = [{ id: 'build', label: 'Bauen ▸' }, { id: 'ball', label: 'Kugel zurück' }, { id: 'skip', label: 'Loch aufgeben' }, { id: 'restart', label: 'Neue Runde' }, { id: 'exit', label: 'Beenden' }];
-const COLS = 5, TW = 1000, ROW = 92, STATUS = 46;
 
 /* ---------- Szene ---------- */
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -47,7 +42,8 @@ const course = new Course(scene, scan);
 /* ---------- Spieler und Runde ---------- */
 let names = ['Spieler 1'];
 try { const n = JSON.parse(localStorage.getItem(PLAYERS_KEY)); if (Array.isArray(n) && n.length) names = n.slice(0, 8); } catch {}
-let mode = 'build', tool = 'move', note = '', selected = null;
+let mode = 'build', tool = 'move', note = '';
+const sel = new Set();          // ausgewaehlte Elemente (mehrere moeglich)
 let round = null;     // { holes, hi, cur, strokes: [[...]], over }
 function newRound() {
   const holes = course.holes();
@@ -115,13 +111,6 @@ function drawBoard(msg) {
   $('gscore').textContent = round && !round.over ? `${names[round.cur]} · Loch ${round.holes[round.hi].n} · Schlag ${round.shots + 1}` : (boardMsg || 'Minigolf');
 }
 
-/* ---------- Werkzeugleiste ---------- */
-const tools = () => (mode === 'play' ? PLAY_TOOLS : BUILD_TOOLS);
-const tcanvas = document.createElement('canvas'); tcanvas.width = TW; tcanvas.height = STATUS + 3 * ROW;
-const ttex = new THREE.CanvasTexture(tcanvas); ttex.colorSpace = THREE.SRGBColorSpace;
-const toolbar = new THREE.Mesh(new THREE.PlaneGeometry(0.85, 0.85 * tcanvas.height / TW), new THREE.MeshBasicMaterial({ map: ttex, transparent: true, depthTest: false }));
-toolbar.renderOrder = 10; toolbar.visible = false; scene.add(toolbar);
-let toolHover = null;
 function drawToolbar() { if (note) { toast(note); note = ''; } }
 
 /* ---------- Schritt-Tafel und Uhr-Menue ---------- */
@@ -131,7 +120,7 @@ const wrist = new WristMenu(scene);
 wrist.setItems([{ id: 'ball', label: 'Kugel zurück' }, { id: 'skip', label: 'Loch aufgeben' }, { id: 'restart', label: 'Neue Runde' },
   { id: 'edit', label: 'Bahn bearbeiten' }, { id: 'map', label: 'Andere Bahn' }, { id: 'players', label: 'Spieler' }, { id: 'exit', label: 'Beenden', main: true }]);
 let step = null, startStep = null, toastT = 0, editHole = 1;
-const OBST = ['ramp', 'loop', 'boost', 'wall', 'bumper', 'sand'];
+const OBST = ['ramp', 'loop', 'boost', 'wall', 'bumper', 'sand', 'water', 'hill', 'spinner', 'tunnel'];
 function toast(msg, sec = 3) {
   if (!renderer.xr.isPresenting || phone) { $('gscore').textContent = msg; return; }
   toastP.show({ text: msg, buttons: [] }); toastP.place(renderer.xr.getCamera(), 0.7); toastP.position.y -= 0.2; toastT = sec;
@@ -139,21 +128,34 @@ function toast(msg, sec = 3) {
 const holeCount = (m) => new Set((m.items || []).filter((o) => o.t === 'tee').map((o) => o.h)).size;
 function showStep(id) {
   step = id;
-  if (id === 'tee') tool = 'tee'; else if (id === 'cup') tool = 'cup'; else if (id === 'obst') { if (!OBST.includes(tool)) tool = 'ramp'; } else tool = 'move';
+  if (id === 'tee') tool = 'tee'; else if (id === 'cup') tool = 'cup'; else if (id === 'obst' || id === 'sel') { if (!OBST.includes(tool)) tool = 'ramp'; } else tool = 'move';
+  if (id !== 'sel' && id !== 'obst') clearSel();
   if (phone || !renderer.xr.isPresenting) { wizard.hide(); return; }
   const n = course.holes().length;
   if (id === 'players') wizard.show({ title: 'Wer spielt?', text: names.join(', ') + '\n(Namen änderst du auf der Startseite)',
     buttons: [{ id: 'minus', label: '– Spieler' }, { id: 'plus', label: '+ Spieler' }, { id: 'next', label: 'Weiter', main: true }], cols: 2 });
   else if (id === 'map') {
-    const b = maps.map((m, i) => ({ id: 'm' + i, label: `Bahn ${i + 1} · ${holeCount(m)} Löcher` })).filter((x, i) => holeCount(maps[i]) > 0).slice(-4);
+    const b = maps.map((m, i) => ({ id: 'm' + i, label: `Bahn ${i + 1} · ${holeCount(m)} Löcher` })).filter((x, i) => holeCount(maps[i]) > 0).slice(-6);
     wizard.show({ title: 'Welche Bahn?', text: b.length ? 'Eine gespeicherte Bahn spielen oder eine neue bauen.' : 'Noch keine Bahn gespeichert – bau eine oder lass eine zufällig erstellen.',
-      buttons: [...b, { id: 'new', label: 'Neue Bahn bauen' }, { id: 'random', label: 'Zufallsbahn' }], cols: 2 });
+      buttons: [...b, { id: 'new', label: 'Neue Bahn bauen' }, { id: 'random', label: 'Zufallsbahn (3 Löcher)' }, ...(b.length ? [{ id: 'del', label: 'Bahn löschen …' }] : [])], cols: 2 });
+  } else if (id === 'delmap') {
+    const b = maps.map((m, i) => ({ id: 'd' + i, label: `✕ Bahn ${i + 1} · ${holeCount(m)} Löcher` })).filter((x, i) => holeCount(maps[i]) > 0 || maps[i].items?.length);
+    wizard.show({ title: 'Welche Bahn löschen?', text: 'Antippen zum Löschen – danach fragt die Tafel noch einmal nach.', buttons: [...b, { id: 'back', label: 'Zurück', main: true }], cols: 2 });
+  } else if (id === 'delok') {
+    wizard.show({ title: `Bahn ${delIdx + 1} löschen?`, text: 'Das lässt sich nicht rückgängig machen.', buttons: [{ id: 'yes', label: 'Ja, löschen' }, { id: 'no', label: 'Nein' }], cols: 2 });
   } else if (id === 'tee') wizard.show({ title: `Loch ${editHole}: Start`, text: 'Zeig auf den Boden oder einen Tisch, wo der Ball starten soll, und drück (Daumen + Zeigefinger oder Abzug).',
     buttons: [{ id: 'back', label: 'Zurück' }, ...(n ? [{ id: 'play', label: 'Doch gleich spielen' }] : [])], cols: 2 });
   else if (id === 'cup') wizard.show({ title: `Loch ${editHole}: Loch`, text: 'Jetzt das Loch setzen – dort muss der Ball rein.', buttons: [{ id: 'undo', label: 'Start neu setzen' }] });
-  else if (id === 'obst') wizard.show({ title: `Loch ${editHole}: Hindernisse`, text: 'Wähle ein Element und setze es auf Boden oder Tisch. Element greifen = verschieben (Stick dreht). Alles optional.',
-    buttons: [...OBST.map((t) => ({ id: t, label: TYPES[t].label, on: tool === t })), { id: 'rotate', label: 'Auswahl drehen' }, { id: 'delete', label: 'Auswahl löschen' }, { id: 'random', label: 'Zufällig' },
-      { id: 'done', label: `Fertig mit Loch ${editHole}`, main: true }], cols: 3 });
+  else if (id === 'obst') wizard.show({ title: `Loch ${editHole}: Hindernisse`,
+    text: ZONES.includes(tool) ? `${TYPES[tool].label}: Abzug/Pinch halten und die Form auf den Boden malen – die Fläche wird gefüllt. Kurz drücken = runde Fläche.`
+      : 'Element wählen und auf Boden/Tisch setzen. Element antippen = auswählen (mehrere möglich), festhalten = verschieben.',
+    buttons: [...OBST.map((t) => ({ id: t, label: TYPES[t].label, on: tool === t })), { id: 'random', label: 'Zufällig' },
+      { id: 'done', label: `Fertig mit Loch ${editHole}`, main: true }], cols: 4 });
+  else if (id === 'sel') wizard.show({ title: `${sel.size} ausgewählt`, text: 'Weitere Elemente antippen = dazu wählen. Festhalten = verschieben, Stick: drehen (links/rechts) und Größe (hoch/runter).',
+    buttons: [{ id: 'rl', label: '⟲ Drehen' }, { id: 'rr', label: 'Drehen ⟳' }, { id: 'big', label: 'Größer' }, { id: 'small', label: 'Kleiner' },
+      { id: 'wide', label: 'Breiter' }, { id: 'narrow', label: 'Schmaler' }, { id: 'long', label: 'Länger' }, { id: 'short', label: 'Kürzer' },
+      { id: 'high', label: 'Höher' }, { id: 'flat', label: 'Flacher' }, { id: 'all', label: 'Alle wählen' }, { id: 'del', label: `${sel.size} löschen` },
+      { id: 'none', label: 'Fertig', main: true }], cols: 4 });
   else if (id === 'more') wizard.show({ title: 'Noch ein Loch?', text: `Die Bahn hat ${n} Loch${n === 1 ? '' : 'er'}.`,
     buttons: [{ id: 'yes', label: 'Ja, noch eins' }, { id: 'play', label: 'Nein – spielen!', main: true }], cols: 2 });
   else if (id === 'ready') wizard.show({ title: `Bahn ${mapIdx + 1}`, text: `${n} Loch${n === 1 ? '' : 'er'} · ${names.length} Spieler`,
@@ -164,7 +166,7 @@ function showStep(id) {
 function startPlay() {
   if (!newRound()) { showStep('tee'); return; }
   mode = 'play'; board.visible = true; placeBoard(); showStep(null);
-  toast('Schläger: Controller oder Hand nach unten halten und durch den Ball schwingen.\nMenü: auf dein linkes Handgelenk schauen.', 6);
+  toast('Schläger: Controller oder Hand nach unten halten und durch den Ball schwingen.\nMenü: Handrücken links anschauen oder X/Y drücken.', 6);
 }
 function editCourse() {
   mode = 'build'; round = null; course.hideBall(); board.visible = false;
@@ -180,15 +182,26 @@ function stepButton(id) {
   } else if (step === 'map') {
     if (id.startsWith('m')) { saveMap(); mapIdx = +id.slice(1); loadMap(); showStep(course.holes().length ? 'ready' : 'tee'); }
     else if (id === 'new') { saveMap(); maps.push({ items: [] }); mapIdx = maps.length - 1; loadMap(); editHole = 1; showStep('tee'); }
-    else if (id === 'random') { saveMap(); maps.push({ items: [] }); mapIdx = maps.length - 1; loadMap(); randomCourse(); showStep(course.holes().length ? 'ready' : 'map'); }
+    else if (id === 'random') { saveMap(); maps.push({ items: [] }); mapIdx = maps.length - 1; loadMap(); randomCourse(3); showStep(course.holes().length ? 'ready' : 'map'); }
+    else if (id === 'del') showStep('delmap');
+  } else if (step === 'delmap') {
+    if (id.startsWith('d')) { delIdx = +id.slice(1); showStep('delok'); } else showStep('map');
+  } else if (step === 'delok') {
+    if (id === 'yes') deleteMap(delIdx);
+    showStep(maps.some((m) => holeCount(m)) ? 'delmap' : 'map');
   } else if (step === 'tee') { if (id === 'back') showStep(n ? 'more' : 'map'); else if (id === 'play') startPlay(); }
   else if (step === 'cup') { if (id === 'undo') { const t = course.items.find((x) => x.type === 'tee' && x.hole === editHole); if (t) course.remove(t); saveMap(); showStep('tee'); } }
   else if (step === 'obst') {
     if (OBST.includes(id)) { tool = id; showStep('obst'); }
-    else if (id === 'rotate' && selected) { course.move(selected, selected.obj.position, selected.obj.rotation.y + Math.PI / 4); saveMap(); }
-    else if (id === 'delete' && selected) { course.remove(selected); selected = null; saveMap(); drawBoard(''); }
     else if (id === 'random') randomObstacles();
     else if (id === 'done') showStep('more');
+  } else if (step === 'sel') {
+    const S = { big: [1.15, 1.15, 1.15], small: [1 / 1.15, 1 / 1.15, 1 / 1.15], wide: [1.2, 1, 1], narrow: [1 / 1.2, 1, 1], long: [1, 1, 1.2], short: [1, 1, 1 / 1.2], high: [1, 1.25, 1], flat: [1, 1 / 1.25, 1] }[id];
+    if (S) { scaleSel(S); saveMap(); }
+    else if (id === 'rl' || id === 'rr') { for (const it of sel) course.move(it, it.obj.position, it.obj.rotation.y + (id === 'rl' ? 1 : -1) * Math.PI / 8); saveMap(); }
+    else if (id === 'all') { for (const it of course.items) if (it.type !== 'tee' && it.type !== 'cup') sel.add(it); markSel(); showStep('sel'); }
+    else if (id === 'del') { for (const it of sel) course.remove(it); clearSel(); saveMap(); drawBoard(''); showStep('obst'); }
+    else if (id === 'none') { clearSel(); showStep('obst'); }
   } else if (step === 'more') { if (id === 'yes') { editHole = course.nextHoleNumber('tee'); showStep('tee'); } else if (id === 'play') startPlay(); }
   else if (step === 'ready') { if (id === 'play') startPlay(); else if (id === 'edit') editCourse(); else if (id === 'map') showStep('map'); }
 }
@@ -204,18 +217,41 @@ function savePlayers() { try { localStorage.setItem(PLAYERS_KEY, JSON.stringify(
 function randomObstacles() {
   const h = course.holes().find((x) => x.n === editHole); if (!h) return;
   const a = h.tee.obj.position, b = h.cup.obj.position, dir = b.clone().sub(a).setY(0).normalize(), side = new THREE.Vector3(-dir.z, 0, dir.x);
-  for (let k = 0; k < 3; k++) {
-    const p = a.clone().lerp(b, 0.3 + Math.random() * 0.45).addScaledVector(side, (Math.random() - 0.5) * 0.5);
-    course.add(['ramp', 'wall', 'bumper', 'sand', 'boost'][Math.floor(Math.random() * 5)], p, Math.atan2(dir.x, dir.z) + (Math.random() - 0.5));
-  }
+  const yaw = Math.atan2(dir.x, dir.z);
+  const sets = [['ramp', 'sand'], ['bumper', 'bumper', 'bumper'], ['spinner'], ['tunnel', 'bumper'], ['hill', 'water'], ['boost', 'loop'], ['wall', 'sand', 'bumper']];
+  const set = sets[Math.floor(Math.random() * sets.length)];
+  set.forEach((type, k) => {
+    const t = 0.3 + (k + 0.5) * (0.45 / set.length);
+    const off = type === 'water' ? 0.35 : type === 'bumper' ? (k % 2 ? -0.11 : 0.11) : type === 'wall' ? 0.15 : 0;
+    course.add(type, a.clone().lerp(b, t).addScaledVector(side, off), yaw + (type === 'wall' ? Math.PI / 2 + 0.6 : 0));
+  });
   saveMap();
 }
 
-const toolAt = (uv) => {
-  const x = uv.x * TW, y = (1 - uv.y) * tcanvas.height;
-  if (y < STATUS) return null;
-  return tools()[Math.floor((y - STATUS) / ROW) * COLS + Math.floor(x / (TW / COLS))]?.id || null;
-};
+// Auswahl: hervorheben, leeren, skalieren
+function markSel() {
+  for (const it of course.items) it.obj.traverse((o) => {
+    if (!o.isMesh || !o.material.emissive) return;
+    if (o.userData.e0 === undefined) o.userData.e0 = o.material.emissive.getHex();
+    o.material.emissive.setHex(sel.has(it) ? 0x666622 : o.userData.e0);
+  });
+}
+function clearSel() { sel.clear(); markSel(); }
+function scaleSel(f) {
+  const next = [...sel].map((it) => course.resize(it, it.s.map((v, k) => v * f[k])));
+  sel.clear(); next.forEach((it) => sel.add(it)); markSel();
+  return next;
+}
+let delIdx = 0;
+function deleteMap(i) {
+  if (i === mapIdx) { course.clear(); clearSel(); }
+  maps.splice(i, 1);
+  if (!maps.length) maps.push({ items: [] });
+  if (mapIdx >= i && mapIdx > 0 && i !== mapIdx) mapIdx--;
+  if (i === mapIdx) { mapIdx = Math.min(mapIdx, maps.length - 1); loadMap(); }
+  try { localStorage.setItem(MAPS_KEY, JSON.stringify(maps)); localStorage.setItem(MAP_KEY, String(mapIdx)); } catch {}
+  toast('Bahn gelöscht');
+}
 
 /* ---------- Karten (gespeichert relativ zum Raum-Anker) ---------- */
 let maps = [];
@@ -231,7 +267,7 @@ function saveMap() {
 function loadMap() {
   const m = maps[mapIdx] || { items: [] };
   course.fromJSON(m.items, m.anchored && anchored ? anchorM : new THREE.Matrix4());
-  selected = null; round = null; course.hideBall(); loaded = true;
+  sel.clear(); round = null; course.hideBall(); loaded = true;
   board.visible = false;
   drawBoard('');
 }
@@ -293,29 +329,46 @@ function press(inp, kind) {
   for (const [pn, fn] of [[wizard, stepButton], [wrist.panel, wristButton]]) { const i = pn.pick(raycaster); if (i >= 0) { fn(pn.idAt(i)); return; } }
   if (mode === 'play') { clubHand = inp; return; }
   if (!['tee', 'cup', 'obst'].includes(step) && !phone) return;        // die drueckende Hand haelt den Schlaeger
-  // Bauen: vorhandenes Element greifen?
+  // Bauen: vorhandenes Element antippen (auswaehlen) oder festhalten (verschieben)
   const ih = raycaster.intersectObjects(itemMeshes(), false)[0];
   if (ih && step !== 'tee' && step !== 'cup') {
     const it = course.items.find((x) => x.obj === ih.object.userData.item);
     if (!it) return;
-    selected = it;
-    if (tool === 'delete') { course.remove(it); selected = null; saveMap(); drawBoard(''); return; }
-    if (tool === 'rotate') { course.move(it, it.obj.position, it.obj.rotation.y + Math.PI / 4); saveMap(); return; }
-    held = { inp, it }; return;
+    held = { inp, it, at: ih.point.clone(), off: it.obj.position.clone().sub(ih.point).setY(0), moved: false, sc: 0 };
+    return;
   }
-  if (kind !== 'select' || !TYPES[tool]) return;
-  const p = surfaceHit(); if (!p) { note = 'Kein Boden/Möbel getroffen'; drawToolbar(); return; }
+  if (!TYPES[tool]) return;
+  const p = surfaceHit(); if (!p) { if (kind === 'select') { note = 'Kein Boden/Möbel getroffen'; drawToolbar(); } return; }
+  // Sand/Wasser: Form auf den Boden malen
+  if (ZONES.includes(tool)) { drawing = { inp, type: tool, pts: [p.clone()] }; drawLine.visible = true; return; }
+  if (kind !== 'select') return;
   if (tool === 'tee' || tool === 'cup') {
     const old = course.items.find((x) => x.type === tool && x.hole === editHole); if (old) course.remove(old);
     let yaw = yawToward(p);
     if (tool === 'cup') { const t = course.items.find((x) => x.type === 'tee' && x.hole === editHole); if (t) { yaw = Math.atan2(p.x - t.obj.position.x, p.z - t.obj.position.z); t.obj.rotation.y = yaw; } }
-    selected = course.add(tool, p, yaw, editHole);
+    course.add(tool, p, yaw, editHole);
     saveMap(); drawBoard('');
     showStep(tool === 'tee' ? 'cup' : 'obst');
     return;
   }
-  selected = course.add(tool, p, yawToward(p));
+  course.add(tool, p, yawToward(p));
   note = ''; saveMap(); drawBoard('');
+}
+
+// gemalte Zone fertig: Punkte ausduennen, Mitte bestimmen, als Flaeche anlegen
+let drawing = null;
+const drawLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false }));
+drawLine.renderOrder = 12; drawLine.visible = false; scene.add(drawLine);
+function finishDrawing() {
+  const d = drawing; drawing = null; drawLine.visible = false;
+  const pts = [];
+  for (const q of d.pts) if (!pts.length || pts.at(-1).distanceTo(q) > 0.04) pts.push(q);
+  let len = 0; for (let i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
+  const y = d.pts[0].y;
+  if (pts.length < 5 || len < 0.3) { course.add(d.type, d.pts[0], yawToward(d.pts[0])); saveMap(); return; }
+  const c = pts.reduce((a, q) => a.add(q), new THREE.Vector3()).divideScalar(pts.length).setY(y);
+  course.add(d.type, c, 0, undefined, { shape: pts.map((q) => [q.x - c.x, q.z - c.z]) });
+  saveMap(); drawBoard('');
 }
 
 function useTool(id) {
@@ -327,71 +380,93 @@ function useTool(id) {
   else if (id === 'ball') { if (round && !round.over) course.ballTo(course.lastRest); }
   else if (id === 'skip') { if (round && !round.over) { course.hideBall(); finishTurn(MAX_STROKES); } }
   else if (id === 'restart') { newRound(); }
-  else if (id === 'random') randomCourse();
+  else if (id === 'random') randomCourse(phone ? 1 : 3);
   else if (id === 'map') nextMap();
-  else if (id === 'rotate' && selected && tool === 'rotate') { course.move(selected, selected.obj.position, selected.obj.rotation.y + Math.PI / 4); saveMap(); }
-  else if (id === 'delete' && selected && tool === 'delete') { course.remove(selected); selected = null; saveMap(); }
   else tool = id;
   drawToolbar();
 }
 
-// Zufallsbahn: Start vor dir, Loch 2-3,5 m weiter, ein paar Hindernisse dazwischen (nur auf freiem Boden)
-function randomCourse() {
+// Zufallsbahn: mehrere Loecher, passend in den freien Raum (ohne Scan: 6 x 6 m um dich)
+function randomCourse(holes = 3) {
   const v = viewer(), fwd = new THREE.Vector3(0, 0, -1).applyQuaternion((renderer.xr.isPresenting ? renderer.xr.getCamera() : camera).quaternion);
   fwd.y = 0; fwd.normalize();
-  const side = new THREE.Vector3(-fwd.z, 0, fwd.x), y = scan.floorY;
-  const free = (p) => scan.onFloor(p.x, p.z) && !scan.boxes.some((b) => p.clone().sub(b.center).setY(0).length() < Math.max(b.size.x, b.size.z) / 2 + 0.2);
-  for (let tries = 0; tries < 30; tries++) {
-    const tee = v.clone().addScaledVector(fwd, 0.6).setY(y), len = 2 + Math.random() * 1.5, ang = (Math.random() - 0.5) * 0.8;
-    const dir = fwd.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), ang), cup = tee.clone().addScaledVector(dir, len);
-    if (!free(tee) || !free(cup)) continue;
-    const n = course.nextHoleNumber('tee'), yaw = Math.atan2(dir.x, dir.z);
-    course.add('tee', tee, yaw, n); course.add('cup', cup, yaw, n);
-    const kinds = ['ramp', 'wall', 'bumper', 'sand', 'boost', 'bumper'];
-    for (let k = 0; k < 3; k++) {
-      const t = 0.3 + Math.random() * 0.5, p = tee.clone().lerp(cup, t).addScaledVector(side.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), ang), (Math.random() - 0.5) * 0.6);
-      if (free(p)) course.add(kinds[Math.floor(Math.random() * kinds.length)], p, yaw + (Math.random() - 0.5) * 1.2);
-    }
-    note = `Zufallsbahn: Loch ${n}`; saveMap(); drawBoard(''); return;
-  }
-  note = 'Kein freier Platz für eine Zufallsbahn gefunden';
+  const field = (scan.scanned && clearanceField(scan)) || virtualField(v.clone().addScaledVector(fwd, 2).setY(0), 6);
+  const n = generateCourse(course, field, { viewer: v.clone().setY(0), fwd, floorY: scan.floorY, holes });
+  note = n ? `Zufallsbahn: ${n} Loch${n === 1 ? '' : 'er'}` : 'Kein freier Platz für eine Zufallsbahn gefunden';
+  saveMap(); drawBoard(''); drawToolbar();
 }
 
 /* ---------- Schlaeger ---------- */
+// Fest am Controller: der Schaft verlaengert die Zeigerichtung, Drehen des Controllers dreht den Kopf mit.
+const CLUB_LEN = 0.85;
 const club = new THREE.Group();
-{ const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.3 })); shaft.position.y = -0.4; club.add(shaft);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.03, 0.03), new THREE.MeshStandardMaterial({ color: 0xff7ab6, metalness: 0.5, roughness: 0.3 })); head.position.y = -0.81; club.add(head); }
+{
+  const metal = new THREE.MeshStandardMaterial({ color: 0xd8d8e0, metalness: 0.85, roughness: 0.25 });
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.011, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0x2a2236, roughness: 0.8 })); grip.position.y = -0.06; club.add(grip);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0055, 0.0055, CLUB_LEN - 0.12, 8), metal); shaft.position.y = -0.14 - (CLUB_LEN - 0.12) / 2 + 0.02; club.add(shaft);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.05, 8), metal); neck.position.set(0.01, -CLUB_LEN + 0.03, 0); neck.rotation.z = 0.4; club.add(neck);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.028, 0.035), new THREE.MeshStandardMaterial({ color: 0xff7ab6, metalness: 0.6, roughness: 0.3 }));
+  head.position.set(0.03, -CLUB_LEN, 0); club.add(head);
+  const face = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.022), new THREE.MeshBasicMaterial({ color: 0xffffff })); face.position.set(0.03, -CLUB_LEN, -0.0176); face.rotation.y = Math.PI; club.add(face);
+}
 club.visible = false; scene.add(club);
+const TIP = new THREE.Vector3(0.03, -CLUB_LEN, 0), FACE = new THREE.Vector3(0, 0, -1);
+const SHAFT_FIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);   // -Y (Schaft) -> -Z (Zeigerichtung)
 let clubHand = null, clubHead = new THREE.Vector3(), clubPrev = null, clubVel = new THREE.Vector3(), hitCooldown = 0;
-// Schlaegerhaltung: Controller/Hand zeigt nach unten -> Schaft folgt der Zeigerichtung
 function updateClub(dt) {
-  const inp = clubHand?.mode ? clubHand : inputs.find((x) => x.mode) || null;
-  if (!inp || mode !== 'play') { club.visible = false; return; }
-  let p, dir;
-  const j = inp.hand.joints;
-  if (j?.wrist?.visible && j['middle-finger-tip']) {
-    p = j.wrist.getWorldPosition(new THREE.Vector3());
-    dir = j['middle-finger-tip'].getWorldPosition(new THREE.Vector3()).sub(p).normalize();
+  const inp = clubHand?.mode ? clubHand : inputs.find((x) => x.mode && x.source?.handedness === 'right') || inputs.find((x) => x.mode) || null;
+  if (!inp || mode !== 'play') { club.visible = false; clubPrev = null; return; }
+  const j = inp.hand.joints, q = new THREE.Quaternion();
+  let p;
+  if (inp.source?.hand) {
+    if (!j?.wrist?.visible) { club.visible = false; clubPrev = null; return; }
+    p = j.wrist.getWorldPosition(new THREE.Vector3()); j.wrist.getWorldQuaternion(q);       // -Z zeigt zu den Fingern
   } else if (inp.mode === 'tracked-pointer') {
     p = (inp.grip.visible ? inp.grip : inp.ray).getWorldPosition(new THREE.Vector3());
-    dir = new THREE.Vector3(0, 0, -1).applyQuaternion(inp.ray.getWorldQuaternion(new THREE.Quaternion()));
+    inp.ray.getWorldQuaternion(q);
   } else { club.visible = false; return; }
-  club.visible = true; club.position.copy(p);
-  club.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir);
-  clubHead.copy(p).addScaledVector(dir, 0.81);
-  // Schlaegerkopf nie unter den Boden
-  if (clubHead.y < scan.floorY + 0.015) clubHead.y = scan.floorY + 0.015;
-  if (clubPrev && dt > 0) clubVel.copy(clubHead).sub(clubPrev).divideScalar(dt); clubPrev = clubHead.clone();
+  club.visible = true; club.position.copy(p); club.quaternion.copy(q).multiply(SHAFT_FIX);
+  club.updateMatrixWorld();
+  clubHead.copy(TIP).applyMatrix4(club.matrixWorld);
+  if (clubHead.y < scan.floorY + BALL_R) clubHead.y = scan.floorY + BALL_R;        // auf Balloehe, nie unter dem Boden
+  const prev = clubPrev || clubHead.clone();
+  if (clubPrev && dt > 0) clubVel.copy(clubHead).sub(clubPrev).divideScalar(dt);
+  clubPrev = clubHead.clone();
   hitCooldown -= dt;
-  // Treffer: Kopf an der ruhenden Kugel und in Bewegung zu ihr hin
+  // Treffer: Weg des Kopfes seit dem letzten Bild (auch bei schnellem Schwung) beruehrt die ruhende Kugel
   if (round && !round.over && course.resting && hitCooldown <= 0) {
-    const b = course.ball.position, d = clubHead.distanceTo(b);
-    const toBall = b.clone().sub(clubHead).setY(0);
-    if (d < BALL_R + 0.04 && clubVel.dot(toBall.normalize()) > 0.25) {
-      const v = clubVel.clone().setY(0); if (v.length() > 6) v.setLength(6);
-      strike(v); pulse(inp, 0.8, 60);
+    const b = course.ball.position;
+    const seg = clubHead.clone().sub(prev).setY(0), rel = b.clone().sub(prev).setY(0);
+    const u = seg.lengthSq() > 1e-8 ? Math.max(0, Math.min(1, rel.dot(seg) / seg.lengthSq())) : 1;
+    const closest = prev.clone().addScaledVector(clubHead.clone().sub(prev), u);
+    const d = Math.hypot(b.x - closest.x, b.z - closest.z), dy = Math.abs(closest.y - b.y);
+    const v = clubVel.clone().setY(0);
+    if (d < BALL_R + 0.055 && dy < 0.08 && v.length() > 0.15 && v.dot(b.clone().sub(closest).setY(0)) > 0) {
+      // Richtung: halb Schwungrichtung, halb Schlagflaeche (so zaehlt, wie du den Schlaeger drehst)
+      const n = FACE.clone().applyQuaternion(club.quaternion).setY(0);
+      if (n.lengthSq() > 1e-4) { n.normalize(); if (n.dot(v) < 0) n.negate(); }
+      const dir = v.clone().normalize().multiplyScalar(0.55).addScaledVector(n, 0.45).normalize();
+      strike(dir.multiplyScalar(Math.min(6, v.length()))); pulse(inp, 0.8, 60);
     }
   }
+}
+// Markierung: Ring um die Kugel, sobald man schlagen darf
+const ready = new THREE.Group();
+{
+  const r = new THREE.Mesh(new THREE.RingGeometry(BALL_R + 0.012, BALL_R + 0.022, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7ee0b0, transparent: true, depthTest: false }));
+  r.renderOrder = 7; ready.add(r);
+  const o = new THREE.Mesh(new THREE.SphereGeometry(BALL_R * 1.25, 20, 12), new THREE.MeshBasicMaterial({ color: 0x7ee0b0, side: THREE.BackSide, transparent: true, opacity: 0.6 }));
+  o.position.y = BALL_R; ready.add(o);
+}
+ready.visible = false; scene.add(ready);
+function updateReady() {
+  const on = mode === 'play' && round && !round.over && course.resting && course.ball.visible;
+  ready.visible = !!on; if (!on) return;
+  const b = course.ball.position;
+  ready.position.set(b.x, b.y - BALL_R + 0.002, b.z);
+  const near = club.visible && Math.hypot(clubHead.x - b.x, clubHead.z - b.z) < 0.25;
+  const k = 0.75 + 0.25 * Math.sin(performance.now() / 180);
+  ready.children.forEach((m) => { m.material.color.setHex(near ? 0xffd23c : 0x7ee0b0); m.material.opacity = (m.material.side === THREE.BackSide ? 0.5 : 1) * k; });
 }
 function pulse(inp, v, ms) { try { inp.source?.gamepad?.hapticActuators?.[0]?.pulse(v, ms); } catch {} }
 
@@ -432,18 +507,44 @@ renderer.setAnimationLoop((t, frame) => {
   }
   const pend = pending; pending = [];
   for (const e of pend) {
-    if (e.kind === 'end') { if (held?.inp === e.inp) { held = null; saveMap(); } }
-    else if (!held && !(phone && mode === 'play')) press(e.inp, e.kind);
+    if (e.kind === 'end') {
+      if (drawing?.inp === e.inp) finishDrawing();
+      if (held?.inp === e.inp) {
+        const h = held; held = null;
+        // nur angetippt: Auswahl umschalten (Start/Loch nicht), sonst verschoben -> speichern
+        if (!h.moved && h.it.type !== 'tee' && h.it.type !== 'cup' && course.items.includes(h.it)) {
+          if (sel.has(h.it)) sel.delete(h.it); else sel.add(h.it);
+          markSel(); if (!phone) showStep(sel.size ? 'sel' : 'obst');
+        }
+        saveMap();
+      }
+    }
+    else if (!held && !drawing && !(phone && mode === 'play')) press(e.inp, e.kind);
   }
-  // gehaltenes Element folgt dem Strahl auf Boden/Moebeln, Stick dreht
+  // Zone malen: Strahl auf dem Boden sammelt Punkte
+  if (drawing) {
+    setRay(drawing.inp);
+    const p = surfaceHit();
+    if (p && p.distanceTo(drawing.pts.at(-1)) > 0.02) drawing.pts.push(p.clone());
+    drawLine.geometry.dispose();
+    drawLine.geometry = new THREE.BufferGeometry().setFromPoints([...drawing.pts, drawing.pts[0]].map((q) => q.clone().setY(q.y + 0.01)));
+    drawLine.material.color.setHex(drawing.type === 'water' ? 0x7cc4ff : 0xffe2a0);
+  }
+  // festgehaltenes Element folgt dem Strahl auf Boden/Moebeln; Stick: links/rechts dreht, hoch/runter skaliert
   if (held) {
     setRay(held.inp);
-    const it = held.it, hideMeshes = [];
+    let it = held.it;
     const p = surfaceHit();
-    if (p) course.move(it, p);
-    const ax = held.inp.source?.gamepad?.axes?.[2] || 0;
-    if (Math.abs(ax) > 0.2) course.move(it, it.obj.position, it.obj.rotation.y - ax * dt * 2.5);
-    void hideMeshes;
+    if (p && (held.moved || p.distanceTo(held.at) > 0.04)) { held.moved = true; course.move(it, p.clone().add(held.off)); }
+    const ax = held.inp.source?.gamepad?.axes || [];
+    if (Math.abs(ax[2] || 0) > 0.2) { held.moved = true; course.move(it, it.obj.position, it.obj.rotation.y - ax[2] * dt * 2.5); }
+    held.sc += -(ax[3] || 0) * dt;
+    if (Math.abs(held.sc) > 0.12 && it.type !== 'tee' && it.type !== 'cup') {
+      const f = held.sc > 0 ? 1.1 : 1 / 1.1; held.sc = 0; held.moved = true;
+      const wasSel = sel.has(it); sel.delete(it);
+      it = held.it = course.resize(it, it.s.map((v) => v * f));
+      if (wasSel) sel.add(it); markSel();
+    }
   }
   // Hervorheben und Strahl-Laenge
   let hover = null;
@@ -453,7 +554,7 @@ renderer.setAnimationLoop((t, frame) => {
       setRay(inp);
       for (const pn of [wizard, wrist.panel]) pn.setHover(pn.pick(raycaster));
       if (inp.line.visible) {
-        const h = raycaster.intersectObjects([...[wizard, wrist.panel].filter((o) => o.visible), ...itemMeshes(), ...scan.targets], false)[0];
+        const h = raycaster.intersectObjects([...[wizard, wrist.panel].filter((o) => o.visible), ...(mode === 'build' ? itemMeshes() : []), ...scan.targets], false)[0];
         inp.line.scale.z = h ? h.distance : 3;
       }
     }
@@ -467,31 +568,18 @@ renderer.setAnimationLoop((t, frame) => {
     const pk = pokeAll([wizard, wrist.panel], inputs, {});
     if (pk) (pk.panel === wizard ? stepButton : wristButton)(pk.id);
   }
-  for (const it of course.items) it.obj.children.forEach((m) => { if (m.isMesh && m.material.emissive) m.material.emissive.setHex(it === selected && mode === 'build' ? 0x333333 : (it.type === 'boost' ? 0x332200 : it.type === 'bumper' ? 0x330010 : 0)); });
-  updateClub(dt);
+  course.animate(dt);
+  updateClub(dt); updateReady();
   // Kugel und Regeln
   if (mode === 'play' && round && !round.over) {
     const ev = course.step(dt, round.holes[round.hi].cup);
     if (ev === 'sunk') { cheer(round.shots === 1); drawBoard(round.shots === 1 ? `Hole in One, ${names[round.cur]}!` : `${names[round.cur]}: ${round.shots} Schläge`); setTimeout(() => { course.hideBall(); finishTurn(round.shots); }, 1200); round.shots = round.shots; }
-    else if (ev === 'out') { round.shots++; course.ballTo(course.lastRest); drawBoard(`Aus! +1 Schlag`); setTimeout(() => drawBoard(''), 1500); }
+    else if (ev === 'out' || ev === 'water') { round.shots++; course.ballTo(course.lastRest); drawBoard(ev === 'water' ? 'Platsch – Wasser! +1 Schlag' : 'Aus! +1 Schlag'); if (ev === 'water') hit(3, 'ball'); setTimeout(() => drawBoard(''), 1500); }
     if (round && !round.over && !course.sunk && round.shots >= MAX_STROKES && course.resting) { course.hideBall(); drawBoard(`${names[round.cur]}: Maximum erreicht`); finishTurn(MAX_STROKES); }
   }
   renderer.render(scene, camera);
 });
 
-function placeToolbar() {
-  if (phone) { toolbar.visible = false; return; }
-  toolbar.visible = true;
-  const cam = renderer.xr.getCamera(), pos = new THREE.Vector3().setFromMatrixPosition(cam.matrixWorld);
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld)); dir.y = 0;
-  if (dir.lengthSq() < 1e-4) return;
-  const yaw = Math.atan2(dir.x, dir.z);
-  if (tYaw === undefined) tYaw = yaw;
-  const d = Math.atan2(Math.sin(yaw - tYaw), Math.cos(yaw - tYaw)); if (Math.abs(d) > 0.6) tYaw += d * 0.08;
-  toolbar.position.copy(pos).add(new THREE.Vector3(Math.sin(tYaw), 0, Math.cos(tYaw)).multiplyScalar(0.65)); toolbar.position.y = pos.y - 0.4;
-  toolbar.lookAt(pos.x, toolbar.position.y + 0.25, pos.z);
-  if (board.visible && round) placeBoard(true);
-}
 function placeBoard(soft) {
   const h = round?.holes[round.hi]; if (!h) return;
   const v = viewer(), p = h.cup.obj.position.clone().add(new THREE.Vector3(0, 0.95, 0));
@@ -518,12 +606,12 @@ async function start(kind) {
   phone = !!session.domOverlayState;
   hall.visible = kind === 'vr'; scene.background = kind === 'vr' ? new THREE.Color(0x15111d) : null;
   $('gstart').hidden = true; $('goverlay').hidden = !phone;
-  mode = 'build'; tool = 'move'; tYaw = undefined; anchorStep = 'start'; t0 = performance.now(); loaded = false;
+  mode = 'build'; tool = 'move'; anchorStep = 'start'; t0 = performance.now(); loaded = false;
   drawToolbar();
   session.addEventListener('end', () => {
     saveMap(); session = null; anchor = null; anchored = false; anchorStep = null;
     $('gstart').hidden = false; $('goverlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d);
-    toolbar.visible = false; club.visible = false; board.visible = false; course.hideBall(); held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null;
+    club.visible = false; drawing = null; drawLine.visible = false; clearSel(); board.visible = false; course.hideBall(); held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null;
   });
 }
 
@@ -562,4 +650,4 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
   if (!ar && !vr) $('ghint').textContent = 'Dieses Gerät kann kein WebXR – zum Ausprobieren gibt es die Bildschirm-Version mit Zufallsbahn.';
 })();
 drawToolbar();
-window.__golf = { course, scan, get round() { return round; }, useTool, strike, newRound, randomCourse };
+window.__golf = { course, scan, camera, sel, markSel, get round() { return round; }, useTool, strike, newRound, randomCourse };

@@ -45,15 +45,25 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
   detection) werden zu festen Physik-Körpern – die Kugel rollt auf dem Tisch, fällt an der Kante
   runter und prallt an Wänden und Möbeln ab. Außerhalb des gescannten Bodens ist sie „aus“
   (+1 Schlag, zurück an die letzte Stelle).
-- **Einrichtung Schritt für Schritt:** Spieler → Bahn wählen (gespeicherte Bahn, neue Bahn bauen
-  oder Zufallsbahn) → Start setzen → Loch setzen → Hindernisse (Rampe, Looping, Boost, Wand,
-  Bumper, Sand; drehen, löschen, zufällig verteilen) → weiteres Loch oder „Fertig, spielen“.
-  Ziel ist jeweils Boden oder Möbel. Looping braucht Schwung – Boost davor.
-  Bahnen werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
+- **Einrichtung Schritt für Schritt:** Spieler → Bahn wählen (gespeicherte Bahn, neue Bahn bauen,
+  Zufallsbahn oder Bahn löschen) → Start setzen → Loch setzen → Hindernisse → weiteres Loch oder spielen.
+- **Hindernisse:** Rampe, Looping (braucht Schwung – Boost davor), Boost, Wand, Bumper, Sand (bremst),
+  Wasser (+1 Schlag), Hügel, Drehkreuz (dreht sich), Tunnel. Sand und Wasser malt man auf den Boden
+  (Abzug/Pinch halten und Form ziehen, die Fläche wird gefüllt; kurz drücken = runde Fläche).
+- **Auswählen und Bearbeiten:** Element antippen = auswählen (mehrere möglich), festhalten = verschieben.
+  Für die Auswahl: drehen, größer/kleiner, breiter/schmaler, länger/kürzer, höher/flacher, alle wählen,
+  löschen. Controller-Stick beim Festhalten: links/rechts dreht, hoch/runter ändert die Größe.
+- **Zufallsbahn:** 3 Löcher, die in den freien Raum passen (Möbel und Wände werden umgangen), gerade
+  oder mit Knick, mit Banden und einem Thema je Loch (Sprungschanze, Slalom, Drehkreuz, Tunnel, Hügel,
+  Looping, Bunker, Wasser).
+- Bahnen werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
 - **Uhr-Menü (wie beim Bowling):** Kugel zurück, Loch aufgeben, Neue Runde, Bahn bearbeiten,
   Andere Bahn, Spieler, Beenden.
-- **Spielen:** Controller oder Hand nach unten halten = Schläger, durch die Kugel schwingen
-  (Schlagstärke aus der Schwunggeschwindigkeit). Handy/Bildschirm: wischen. Maximal 8 Schläge
+- **Spielen:** Der Schläger hängt fest am Controller (bzw. an der Hand) und verlängert die
+  Zeigerichtung; Drehen des Controllers dreht die Schlagfläche, die Richtung folgt halb dem Schwung,
+  halb der Schlagfläche. Treffer werden über den ganzen Weg des Schlägerkopfs zwischen zwei Bildern
+  geprüft (auch schnelle Schwünge). Ein leuchtender Ring um die Kugel zeigt: jetzt darfst du schlagen
+  (gelb, wenn der Schläger nah dran ist). Handy/Bildschirm: wischen. Maximal 8 Schläge
   pro Loch, „Loch aufgeben“ setzt 8.
 - **Mehrere Spieler:** gleiche Spielerliste wie beim Bowling; jeder spielt ein Loch, dann der
   Nächste, dann das nächste Loch. Tafel über dem Loch zeigt alle Schläge.
