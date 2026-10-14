@@ -114,7 +114,10 @@ export class Menus {
 
   // ---------- Daten ----------
   /** Bestwerte neu holen (Start, Schwierigkeit gewechselt, Ergebnis gespeichert) */
-  loadBest() { const d = this.diff; api.best(d).then((b) => { if (this.diff === d) { this.best = b; this.refresh(); } }).catch(() => {}); }
+  loadBest() { const d = this.diff, m = this.mode; api.best(d, m).then((b) => { if (this.diff === d && this.mode === m) { this.best = b; this.refresh(); } }).catch(() => {}); }
+  /** gewaehlter Spielmodus (global gemerkt) */
+  get mode(): ModeId { return settings.gameMode === 'orbit' ? 'orbit' : 'schnitt'; }
+  private setMode(m: ModeId) { if (m === this.mode) return; settings.gameMode = m; saveSettings(); this.best = {}; this.scores = []; this.loadBest(); this.loadScores(); this.refresh(); }
 
   setSongs(list: Song[]) { this.songs = list; this.loadBest(); if (this.sel) this.sel = list.find((s) => s.id === this.sel!.id) ?? this.sel; this.refresh(); }
   upsertSong(s: Song) { const i = this.songs.findIndex((x) => x.id === s.id); if (i >= 0) this.songs[i] = s; else this.songs.unshift(s); if (this.sel?.id === s.id) this.sel = s; this.refresh(); }
@@ -242,7 +245,7 @@ export class Menus {
       { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8' },
     ] };
     const rows = this.scores.slice(0, 10);
-    return { title: 'Bestenliste', subtitle: `${s.title} · ${DIFFICULTY_LABEL[this.diff]}`, cols: 1, items: rows.length
+    return { title: 'Bestenliste', subtitle: `${s.title} · ${DIFFICULTY_LABEL[this.diff]} · ${MODE_LABEL[this.mode]}`, cols: 1, items: rows.length
       ? rows.map((h, i) => ({ type: 'text', text: `${i + 1}.  ${h.name}   ${h.accuracy.toFixed(1)} %  ${h.rank}   ${h.score.toLocaleString('de-DE')}`, size: 28, color: i === 0 ? '#ffd23c' : i < 3 ? '#ffffff' : '#d8d0f0' }) as Item)
       : [{ type: 'text', text: 'Noch keine Einträge. Spiel den Song und speichere dein Ergebnis!', size: 28, color: '#b8b0d6' }] };
   }
@@ -345,7 +348,8 @@ export class Menus {
           { type: 'button', id: 'f:uploaded', label: 'Hochgeladen', on: this.filter === 'uploaded', h: 64 },
           { type: 'button', id: 'sort', label: `Sortierung: ${{ new: 'Neu', title: 'Titel', bpm: 'BPM' }[this.sort]}`, h: 64 },
           { type: 'button', id: 'search', label: this.search ? `Suche: ${this.search}` : '🔍 Suchen', h: 64, span: 2 },
-          { type: 'button', id: 'scopen', label: '＋ Songs hinzufügen (SoundCloud)', h: 64, span: 3, main: false, color: '#ff7a1a' },
+          { type: 'button', id: 'scopen', label: '＋ Songs hinzufügen (SoundCloud)', h: 64, span: 2, main: false, color: '#ff7a1a' },
+          { type: 'button', id: 'mode', label: `Modus: ${MODE_LABEL[this.mode]} ⇄`, h: 64, on: this.mode === 'orbit' },
         ];
         for (const s of list.slice(this.page * PER_PAGE, (this.page + 1) * PER_PAGE)) {
           const ok = playable(s);
@@ -356,24 +360,32 @@ export class Menus {
         }
         if (!list.length) items.push({ type: 'text', text: this.songs.length ? 'Keine Treffer.' : 'Noch keine Songs. Über „Upload vom Handy“ welche hinzufügen.', align: 'center' });
         items.push({ type: 'button', id: 'prev', label: '◀', disabled: this.page === 0 }, { type: 'text', text: `${this.page + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'next', label: '▶', disabled: this.page >= pages - 1 });
-        return { title: 'Song wählen', subtitle: `${list.length} Songs · Bestwerte für ${DIFFICULTY_LABEL[this.diff]} · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
+        return { title: 'Song wählen', subtitle: `${list.length} Songs · Bestwerte ${MODE_LABEL[this.mode]} ${DIFFICULTY_LABEL[this.diff]} · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
       }
       case 'detail': {
         const s = this.sel!; const img = this.cover(s);
-        const diffs = DIFFICULTIES.filter((d) => s.difficulties.includes(d));
-        if (!diffs.includes(this.diff)) this.diff = diffs.includes('normal') ? 'normal' : diffs[0];
+        const orbit = this.mode === 'orbit';
+        const have = orbit ? (s.orbitDifficulties ?? []) : s.difficulties;
+        const diffs = DIFFICULTIES.filter((d) => have.includes(d));
+        if (diffs.length && !diffs.includes(this.diff)) this.diff = diffs.includes('normal') ? 'normal' : diffs[0];
         // klar gegliedert: Cover, Infos, Schwierigkeit gross, Modifikatoren, Starten
         const C = 60, dSpan = Math.floor(C / diffs.length);
         const mod = (id: string, label: string, on: boolean): Item => ({ type: 'button', id, label: `${label} ${on ? '✓' : ''}`, on, span: 20, h: 70 });
         const items: Item[] = [
           ...(img ? [{ type: 'image', img, h: 220 } as Item] : []),
           { type: 'text', text: `${s.artist || 'Unbekannt'} · ${fmtTime(s.duration)} · ${s.bpm ? Math.round(s.bpm) + ' BPM' : ''}${s.license ? ' · ' + s.license.split(' – ')[0] : ''}`, align: 'center', size: 28 },
-          ...diffs.map((d) => ({ type: 'button', id: `d:${d}`, label: DIFFICULTY_LABEL[d], on: this.diff === d, span: dSpan, h: 84 }) as Item),
+          { type: 'button', id: 'mode:schnitt', label: '⚔  Schnitt', sub: 'Blöcke schneiden', on: !orbit, span: 30, h: 84 },
+          { type: 'button', id: 'mode:orbit', label: '◉  Orbit', sub: 'Kugeln berühren, Rails folgen', on: orbit, span: 30, h: 84 },
+          ...(diffs.length
+            ? diffs.map((d) => ({ type: 'button', id: `d:${d}`, label: DIFFICULTY_LABEL[d], on: this.diff === d, span: dSpan, h: 84 }) as Item)
+            : [{ type: 'text', text: 'Orbit-Level werden gerade erzeugt – gleich geht es los.', align: 'center', size: 26, color: '#ffd9a0' } as Item]),
           { type: 'gap', h: 6 },
-          mod('m:fastNotes', 'Schneller', settings.fastNotes), mod('m:noWalls', 'Keine Wände', settings.noWalls), mod('m:noBombs', 'Keine Bomben', settings.noBombs),
+          ...(orbit
+            ? [mod('m:fastNotes', 'Schneller', settings.fastNotes), { ...mod('m:noWalls', 'Keine Wände', settings.noWalls), span: 40 } as Item]
+            : [mod('m:fastNotes', 'Schneller', settings.fastNotes), mod('m:noWalls', 'Keine Wände', settings.noWalls), mod('m:noBombs', 'Keine Bomben', settings.noBombs)]),
           { type: 'button', id: 'seed', label: `Variante ${this.seed ?? s.seed} ⟳`, span: 30, h: 70 },
           { type: 'button', id: 'back', label: 'Zurück', span: 30, h: 70 },
-          { type: 'button', id: 'play', label: '▶  Starten', main: true, h: 120 },
+          { type: 'button', id: 'play', label: `▶  Starten (${MODE_LABEL[this.mode]})`, main: true, h: 120, disabled: !diffs.length },
         ];
         return { title: s.title, cols: C, items };
       }
@@ -499,6 +511,7 @@ export class Menus {
     if (s === 'songs') {
       if (id === 'scopen') return this.go('sc');
       if (id.startsWith('f:')) { this.filter = id.slice(2) as typeof this.filter; this.page = 0; this.refresh(); }
+      else if (id === 'mode') this.setMode(this.mode === 'orbit' ? 'schnitt' : 'orbit');
       else if (id === 'sort') { this.sort = this.sort === 'new' ? 'title' : this.sort === 'title' ? 'bpm' : 'new'; this.refresh(); }
       else if (id === 'search') this.keyboard('Suche', this.search, (v) => { this.search = v.trim(); this.page = 0; });
       else if (id === 'prev') { this.page = Math.max(0, this.page - 1); this.refresh(); }
@@ -508,11 +521,12 @@ export class Menus {
         if (this.sel) { this.go('detail'); this.loadScores(); }
       }
     } else if (s === 'detail' && this.sel) {
+      if (id.startsWith('mode:')) return this.setMode(id.slice(5) as ModeId);
       if (id.startsWith('d:')) { this.diff = id.slice(2) as Difficulty; settings.difficulty = this.diff; saveSettings(); this.loadScores(); this.loadBest(); this.refresh(); }
       else if (id === 'arrows') { settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht'; saveSettings(); this.refresh(); }
       else if (id.startsWith('m:')) { const k = id.slice(2) as 'fastNotes' | 'noWalls' | 'noBombs' | 'missMute'; settings[k] = !settings[k]; saveSettings(); this.refresh(); }
       else if (id === 'seed') { this.seed = Math.floor(Math.random() * 999999) + 1; this.refresh(); }
-      else if (id === 'play') this.act.play(this.sel, this.diff, this.seed ?? this.sel.seed);
+      else if (id === 'play') { const have = this.mode === 'orbit' ? (this.sel.orbitDifficulties ?? []) : this.sel.difficulties; if (have.includes(this.diff)) this.act.play(this.sel, this.diff, this.seed ?? this.sel.seed); }
     } else if (s === 'keyboard' && this.kb) {
       const k = this.kb;
       if (id.startsWith('k:')) k.value = (k.value + id.slice(2)).slice(0, 24);
@@ -549,7 +563,7 @@ export class Menus {
     this.kb = { title, value, done, back: this.screen }; this.screen = 'keyboard'; this.refresh();
   }
 
-  private loadScores() { const s = this.sel; if (!s) return; api.scores(s.id, this.diff).then((x) => { if (this.sel?.id === s.id) { this.scores = x; this.refresh(); } }).catch(() => {}); }
+  private loadScores() { const s = this.sel, m = this.mode; if (!s) return; api.scores(s.id, this.diff, m).then((x) => { if (this.sel?.id === s.id && this.mode === m) { this.scores = x; this.refresh(); } }).catch(() => {}); }
 
   /** Seite blaettern per Thumbstick */
   scroll(dir: number) { if (this.screen === 'songs') { const pages = Math.ceil(this.visibleSongs().length / PER_PAGE); this.page = Math.max(0, Math.min(pages - 1, this.page + dir)); this.refresh(); } }
