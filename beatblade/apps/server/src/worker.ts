@@ -2,16 +2,17 @@
 import { parentPort } from 'node:worker_threads';
 import fs from 'node:fs';
 import path from 'node:path';
-import { analyze, waveform, generate, DIFFICULTIES, type SongAnalysis, type Difficulty } from '@beatblade/core';
+import { analyze, waveform, generate, generateOrbit, DIFFICULTIES, type SongAnalysis, type Difficulty, type GameModeId } from '@beatblade/core';
 
 export type WorkerTask =
   | { task: 'full'; id: string; dir: string; seed: number; pcm: Float32Array; sr: number }
-  | { task: 'map'; id: string; dir: string; seed: number; difficulties?: Difficulty[] };
+  /** mode fehlt = beide Modi */
+  | { task: 'map'; id: string; dir: string; seed: number; difficulties?: Difficulty[]; mode?: GameModeId };
 
 export type WorkerMsg =
   | { type: 'progress'; stage: 'analyzing' | 'mapping'; p: number }
   | { type: 'log'; msg: string; level?: 'info' | 'warn' }
-  | { type: 'done'; bpm: number; duration: number; difficulties: Difficulty[] }
+  | { type: 'done'; bpm: number; duration: number; difficulties?: Difficulty[]; orbitDifficulties?: Difficulty[] }
   | { type: 'error'; message: string };
 
 const post = (m: WorkerMsg) => parentPort!.postMessage(m);
@@ -36,6 +37,27 @@ function mapAll(a: SongAnalysis, dir: string, seed: number, list: readonly Diffi
   return done;
 }
 
+function mapOrbit(a: SongAnalysis, dir: string, seed: number, list: readonly Difficulty[]): Difficulty[] {
+  const done: Difficulty[] = [];
+  list.forEach((d, i) => {
+    const t0 = Date.now();
+    const om = generateOrbit(a, d, seed);
+    write(path.join(dir, 'beatmaps', `orbit-${d}-${seed}.json`), om);
+    const s = om.stats;
+    post({ type: 'log', msg: `Orbit ${d}: ${s.notes} Kugeln, ${s.nps}/s (Spitze ${s.peakNps}/s), ${s.rails} Rails (${s.railSeconds} s), ${s.gold} Gold, ${s.green} Grün, ${s.obstacles} Wände, Hand max ${s.maxHandSpeed} m/s, Spielbarkeit ${s.playability}/100${Object.keys(s.issues).length ? ', Probleme: ' + JSON.stringify(s.issues) : ''} (${Date.now() - t0} ms)` });
+    if (s.notes > 0) done.push(d);
+    post({ type: 'progress', stage: 'mapping', p: (i + 1) / list.length });
+  });
+  return done;
+}
+
+/** alte Levels eines Modus entfernen (Schnitt: <d>-<seed>.json, Orbit: orbit-<d>-<seed>.json) */
+function clearMaps(dir: string, mode: GameModeId): void {
+  const bd = path.join(dir, 'beatmaps');
+  if (!fs.existsSync(bd)) return;
+  for (const f of fs.readdirSync(bd)) if (f.startsWith('orbit-') === (mode === 'orbit')) fs.rmSync(path.join(bd, f), { force: true });
+}
+
 parentPort!.on('message', (t: WorkerTask) => {
   try {
     if (t.task === 'full') {
@@ -52,13 +74,21 @@ parentPort!.on('message', (t: WorkerTask) => {
       // alte Levels entfernen (neue Analyse)
       fs.rmSync(path.join(t.dir, 'beatmaps'), { recursive: true, force: true });
       const diffs = mapAll(a, t.dir, t.seed, DIFFICULTIES);
-      post({ type: 'done', bpm: a.bpm, duration: a.duration, difficulties: diffs });
+      const orbit = mapOrbit(a, t.dir, t.seed, DIFFICULTIES);
+      post({ type: 'done', bpm: a.bpm, duration: a.duration, difficulties: diffs, orbitDifficulties: orbit });
     } else {
       const a = JSON.parse(fs.readFileSync(path.join(t.dir, 'analysis.json'), 'utf8')) as SongAnalysis;
       const list = t.difficulties ?? DIFFICULTIES;
-      if (!t.difficulties) fs.rmSync(path.join(t.dir, 'beatmaps'), { recursive: true, force: true });
-      const diffs = mapAll(a, t.dir, t.seed, list);
-      post({ type: 'done', bpm: a.bpm, duration: a.duration, difficulties: t.difficulties ? diffs : diffs });
+      const out: WorkerMsg & { type: 'done' } = { type: 'done', bpm: a.bpm, duration: a.duration };
+      if (t.mode !== 'orbit') {
+        if (!t.difficulties) clearMaps(t.dir, 'schnitt');
+        out.difficulties = mapAll(a, t.dir, t.seed, list);
+      }
+      if (t.mode !== 'schnitt') {
+        if (!t.difficulties) clearMaps(t.dir, 'orbit');
+        out.orbitDifficulties = mapOrbit(a, t.dir, t.seed, list);
+      }
+      post(out);
     }
   } catch (e) {
     post({ type: 'error', message: (e as Error).message || String(e) });

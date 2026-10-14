@@ -11,7 +11,7 @@ export interface OrbitDifficulty {
   reachX: number; reachY: number;
   /** schnellste erlaubte Handbewegung zwischen zwei Noten (m/s) */
   maxHandSpeed: number;
-  /** hoechstens dieser Anteil der Songzeit auf Rails (je Hand) */
+  /** hoechstens dieser Anteil der Songzeit auf Rails (beide Haende zusammen) */
   railShare: number;
   /** Rail-Laenge in Beats */
   railMinBeats: number; railMaxBeats: number;

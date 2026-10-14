@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import { config } from './config.js';
-import type { Difficulty, Highscore, Song, SongStatus } from '@beatblade/core';
+import type { Difficulty, GameModeId, Highscore, Song, SongStatus } from '@beatblade/core';
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 export const db = new Database(path.join(config.dataDir, 'beatblade.db'));
@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS scores (
 CREATE INDEX IF NOT EXISTS scores_song ON scores(song_id, difficulty, score DESC);
 `);
 
+// Migrationen: fehlende Spalten nachruesten (bestehende Scores gehoeren zu Schnitt)
+function addColumn(table: string, col: string, def: string): void {
+  const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+}
+addColumn('songs', 'orbit_difficulties', `TEXT NOT NULL DEFAULT '[]'`);
+addColumn('songs', 'orbit_version', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('scores', 'mode', `TEXT NOT NULL DEFAULT 'schnitt'`);
+db.exec(`CREATE INDEX IF NOT EXISTS scores_song_mode ON scores(song_id, mode, difficulty)`);
+
 type Row = Record<string, unknown>;
 
 export function rowToSong(r: Row): Song {
@@ -79,7 +89,7 @@ export function rowToSong(r: Row): Song {
     id: r.id as string, title: r.title as string, artist: r.artist as string, album: r.album as string,
     duration: r.duration as number, bpm: (r.bpm as number) ?? null, status: r.status as SongStatus, progress: r.progress as number,
     error: (r.error as string) ?? null, bundled: !!r.bundled, hidden: !!r.hidden, hasCover: !!r.has_cover,
-    difficulties: JSON.parse((r.difficulties as string) || '[]'), seed: r.seed as number,
+    difficulties: JSON.parse((r.difficulties as string) || '[]'), orbitDifficulties: JSON.parse((r.orbit_difficulties as string) || '[]'), seed: r.seed as number,
     createdAt: r.created_at as number, updatedAt: r.updated_at as number, hash: r.hash as string, fileName: r.file_name as string,
     license: (r.license as string) ?? null, source: (r.source as string) ?? null,
   };
@@ -97,17 +107,17 @@ export const q = {
   openJobFor: db.prepare(`SELECT * FROM jobs WHERE song_id = ? AND status IN ('queued','running') LIMIT 1`),
   log: db.prepare('INSERT INTO logs (song_id, at, level, msg) VALUES (?, ?, ?, ?)'),
   logs: db.prepare('SELECT at, level, msg FROM logs WHERE song_id = ? ORDER BY id DESC LIMIT 300'),
-  scores: db.prepare('SELECT * FROM scores WHERE song_id = ? AND difficulty = ? ORDER BY accuracy DESC, score DESC, created_at ASC LIMIT ?'),
+  scores: db.prepare('SELECT * FROM scores WHERE song_id = ? AND mode = ? AND difficulty = ? ORDER BY accuracy DESC, score DESC, created_at ASC LIMIT ?'),
   // bester Eintrag je Song fuer eine Schwierigkeit (gleiche Sortierung wie die Bestenliste)
   bestScores: db.prepare(`SELECT song_id, accuracy, rank, score FROM (
     SELECT song_id, accuracy, rank, score, ROW_NUMBER() OVER (PARTITION BY song_id ORDER BY accuracy DESC, score DESC, created_at ASC) AS rn
-    FROM scores WHERE difficulty = ?) WHERE rn = 1`),
-  insertScore: db.prepare(`INSERT INTO scores (song_id, difficulty, name, score, accuracy, rank, max_combo, misses, modifiers, created_at)
-    VALUES (@songId, @difficulty, @name, @score, @accuracy, @rank, @maxCombo, @misses, @modifiers, @createdAt)`),
+    FROM scores WHERE mode = ? AND difficulty = ?) WHERE rn = 1`),
+  insertScore: db.prepare(`INSERT INTO scores (song_id, mode, difficulty, name, score, accuracy, rank, max_combo, misses, modifiers, created_at)
+    VALUES (@songId, @mode, @difficulty, @name, @score, @accuracy, @rank, @maxCombo, @misses, @modifiers, @createdAt)`),
 };
 
 /** Teil-Update eines Songs (nur erlaubte Spalten) */
-const COLS = new Set(['title', 'artist', 'album', 'duration', 'bpm', 'status', 'progress', 'error', 'hidden', 'has_cover', 'difficulties', 'seed', 'analysis_version', 'mapping_version']);
+const COLS = new Set(['title', 'artist', 'album', 'duration', 'bpm', 'status', 'progress', 'error', 'hidden', 'has_cover', 'difficulties', 'seed', 'analysis_version', 'mapping_version', 'orbit_difficulties', 'orbit_version']);
 export function updateSong(id: string, fields: Record<string, unknown>): void {
   const keys = Object.keys(fields).filter((k) => COLS.has(k));
   if (!keys.length) return;
@@ -127,15 +137,15 @@ export function logSong(id: string, msg: string, level: 'info' | 'warn' | 'error
 }
 
 /** Bestwert je Song (fuer die Song-Liste) */
-export function bestScores(difficulty: Difficulty): Record<string, { accuracy: number; rank: string; score: number }> {
+export function bestScores(difficulty: Difficulty, mode: GameModeId = 'schnitt'): Record<string, { accuracy: number; rank: string; score: number }> {
   const out: Record<string, { accuracy: number; rank: string; score: number }> = {};
-  for (const r of q.bestScores.all(difficulty) as Row[]) out[r.song_id as string] = { accuracy: r.accuracy as number, rank: r.rank as string, score: r.score as number };
+  for (const r of q.bestScores.all(mode, difficulty) as Row[]) out[r.song_id as string] = { accuracy: r.accuracy as number, rank: r.rank as string, score: r.score as number };
   return out;
 }
 
-export function topScores(songId: string, difficulty: Difficulty, limit = 10): Highscore[] {
-  return (q.scores.all(songId, difficulty, limit) as Row[]).map((r) => ({
-    songId: r.song_id as string, difficulty: r.difficulty as Difficulty, name: r.name as string, score: r.score as number,
+export function topScores(songId: string, difficulty: Difficulty, limit = 10, mode: GameModeId = 'schnitt'): Highscore[] {
+  return (q.scores.all(songId, mode, difficulty, limit) as Row[]).map((r) => ({
+    songId: r.song_id as string, mode: ((r.mode as string) || 'schnitt') as GameModeId, difficulty: r.difficulty as Difficulty, name: r.name as string, score: r.score as number,
     accuracy: r.accuracy as number, rank: r.rank as string, maxCombo: r.max_combo as number, misses: r.misses as number,
     modifiers: r.modifiers as string, createdAt: r.created_at as number,
   }));

@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
+import { DIFFICULTIES, GAME_MODES, type Difficulty, type GameModeId } from '@beatblade/core';
 import { config } from '../config.js';
 import { queueYoutube, cookiesFile, searchSoundcloud, getScProfile, setScProfile, scCollectionUrl, listSoundcloud, fetchScCover } from '../youtube.js';
 import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
@@ -17,6 +17,8 @@ import { saveCover, sniffImage } from '../media.js';
 
 const MIME: Record<string, string> = { mp3: 'audio/mpeg', m4a: 'audio/mp4', ogg: 'audio/ogg', flac: 'audio/flac', wav: 'audio/wav' };
 const isDiff = (d: unknown): d is Difficulty => DIFFICULTIES.includes(d as Difficulty);
+/** Spielmodus aus der Anfrage (fehlt = schnitt, unbekannt = null) */
+const modeOf = (m: unknown): GameModeId | null => (m === undefined || m === '' ? 'schnitt' : GAME_MODES.includes(m as GameModeId) ? (m as GameModeId) : null);
 
 export function songRoutes(app: FastifyInstance, api: string): void {
   // ---------- Liste / Einzeln ----------
@@ -138,15 +140,16 @@ export function songRoutes(app: FastifyInstance, api: string): void {
   });
 
   // ---------- Beatmap ----------
-  app.get<{ Params: { id: string }; Querystring: { difficulty?: string; seed?: string } }>(`${api}/songs/:id/beatmap`, async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { difficulty?: string; seed?: string; mode?: string } }>(`${api}/songs/:id/beatmap`, async (req, reply) => {
     const s = getSong(req.params.id); if (!s) return reply.code(404).send({ error: 'Song nicht gefunden' });
     const d = (req.query.difficulty ?? 'expert') as Difficulty;
     if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
+    const mode = modeOf(req.query.mode); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
     const seed = req.query.seed !== undefined ? Math.max(0, Math.floor(+req.query.seed) || 0) : s.seed;
-    const file = beatmapPath(s.id, d, seed);
+    const file = beatmapPath(s.id, d, seed, mode);
     if (!fs.existsSync(file)) {
       if (!fs.existsSync(analysisPath(s.id))) return reply.code(409).send({ error: 'Song wird noch verarbeitet' });
-      await mapOnDemand(s.id, d, seed);
+      await mapOnDemand(s.id, d, seed, mode);
     }
     reply.header('Cache-Control', 'no-cache');
     return reply.type('application/json').send(fs.createReadStream(file));
@@ -187,26 +190,29 @@ export function songRoutes(app: FastifyInstance, api: string): void {
   app.get<{ Params: { id: string } }>(`${api}/songs/:id/log`, async (req) => (q.logs.all(req.params.id) as unknown[]).reverse());
 
   // ---------- Highscores ----------
-  app.get<{ Querystring: { difficulty?: string } }>(`${api}/best`, async (req, reply) => {
+  app.get<{ Querystring: { difficulty?: string; mode?: string } }>(`${api}/best`, async (req, reply) => {
     const d = (req.query.difficulty ?? 'normal') as Difficulty;
     if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
-    return bestScores(d);
+    const mode = modeOf(req.query.mode); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
+    return bestScores(d, mode);
   });
-  app.get<{ Params: { id: string }; Querystring: { difficulty?: string } }>(`${api}/songs/:id/scores`, async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { difficulty?: string; mode?: string } }>(`${api}/songs/:id/scores`, async (req, reply) => {
     const d = (req.query.difficulty ?? 'expert') as Difficulty;
     if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
-    return topScores(req.params.id, d, 10);
+    const mode = modeOf(req.query.mode); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
+    return topScores(req.params.id, d, 10, mode);
   });
   app.post<{ Params: { id: string }; Body: Record<string, unknown> }>(`${api}/songs/:id/scores`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const s = getSong(req.params.id); if (!s) return reply.code(404).send({ error: 'Song nicht gefunden' });
     const b = req.body ?? {};
     const d = b.difficulty as Difficulty;
+    const mode = modeOf(b.mode as string | undefined); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
     const num = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
     if (!isDiff(d) || !num(b.score, 0, 1e8) || !num(b.accuracy, 0, 100) || !num(b.maxCombo, 0, 1e5) || !num(b.misses, 0, 1e5)) return reply.code(400).send({ error: 'Ungültiger Score' });
     const name = String(b.name ?? 'Spieler').replace(/[^\p{L}\p{N} _.\-!?]/gu, '').trim().slice(0, 20) || 'Spieler';
-    q.insertScore.run({ songId: s.id, difficulty: d, name, score: Math.round(b.score as number), accuracy: Math.round((b.accuracy as number) * 100) / 100,
+    q.insertScore.run({ songId: s.id, mode, difficulty: d, name, score: Math.round(b.score as number), accuracy: Math.round((b.accuracy as number) * 100) / 100,
       rank: String(b.rank ?? '').slice(0, 3), maxCombo: Math.round(b.maxCombo as number), misses: Math.round(b.misses as number), modifiers: String(b.modifiers ?? '').slice(0, 100), createdAt: Date.now() });
-    return topScores(s.id, d, 10);
+    return topScores(s.id, d, 10, mode);
   });
 
   // ---------- Live-Status ----------

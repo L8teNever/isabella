@@ -1,5 +1,5 @@
 // API-Zugriff und Live-Updates (SSE). Basis-Pfad kommt aus Vite (BASE_PATH).
-import type { Beatmap, Difficulty, Highscore, Song, SongAnalysis, Waveform } from '@beatblade/core';
+import type { Beatmap, Difficulty, GameModeId, Highscore, OrbitMap, Song, SongAnalysis, Waveform } from '@beatblade/core';
 
 export const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 export const API = `${BASE}/api`;
@@ -54,9 +54,10 @@ export const api = {
   analysis: (id: string) => j<SongAnalysis>(`/songs/${id}/analysis`),
   waveform: (id: string) => j<Waveform>(`/songs/${id}/waveform`),
   log: (id: string) => j<LogLine[]>(`/songs/${id}/log`),
-  scores: (id: string, d: Difficulty) => j<Highscore[]>(`/songs/${id}/scores?difficulty=${d}`),
+  orbitmap: (id: string, d: Difficulty, seed?: number) => j<OrbitMap>(`/songs/${id}/beatmap?mode=orbit&difficulty=${d}${seed !== undefined ? `&seed=${seed}` : ''}`),
+  scores: (id: string, d: Difficulty, mode: GameModeId = 'schnitt') => j<Highscore[]>(`/songs/${id}/scores?difficulty=${d}&mode=${mode}`),
   /** Bestwert je Song (Prozent, Rang, Punkte) fuer eine Schwierigkeit */
-  best: (d: Difficulty) => j<Record<string, { accuracy: number; rank: string; score: number }>>(`/best?difficulty=${d}`),
+  best: (d: Difficulty, mode: GameModeId = 'schnitt') => j<Record<string, { accuracy: number; rank: string; score: number }>>(`/best?difficulty=${d}&mode=${mode}`),
   postScore: (id: string, s: Omit<Highscore, 'songId' | 'createdAt'>) => j<Highscore[]>(`/songs/${id}/scores`, json('POST', s)),
   credits: () => j<Credit[]>('/credits'),
   debug: (data: unknown) => fetch(`${API}/debug`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin', keepalive: true }).catch(() => {}),

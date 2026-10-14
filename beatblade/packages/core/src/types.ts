@@ -158,6 +158,8 @@ export interface Song {
   hidden: boolean;
   hasCover: boolean;
   difficulties: Difficulty[];
+  /** fertige Orbit-Levels (leer, solange noch nicht erzeugt) */
+  orbitDifficulties: Difficulty[];
   seed: number;
   createdAt: number;
   updatedAt: number;
@@ -168,7 +170,11 @@ export interface Song {
   source: string | null;
 }
 
-export type JobType = 'full' | 'map';
+export type JobType = 'full' | 'map' | 'orbit';
+
+/** Spielmodi: Schnitt (Bloecke schneiden) und Orbit (Kugeln beruehren, Rails folgen) */
+export const GAME_MODES = ['schnitt', 'orbit'] as const;
+export type GameModeId = (typeof GAME_MODES)[number];
 export interface Job {
   id: number;
   songId: string;
@@ -183,6 +189,8 @@ export interface Job {
 
 export interface Highscore {
   songId: string;
+  /** Spielmodus (alte Eintraege: schnitt) */
+  mode: GameModeId;
   difficulty: Difficulty;
   name: string;
   score: number;

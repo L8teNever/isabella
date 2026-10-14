@@ -7,7 +7,7 @@ import { db, q, getSong, songRow, updateSong, logSong } from './db.js';
 import { songChanged } from './events.js';
 import { audioPath, songDir } from './files.js';
 import { decode } from './media.js';
-import { ANALYSIS_VERSION, MAPPING_VERSION, type Difficulty, type JobType } from '@beatblade/core';
+import { ANALYSIS_VERSION, MAPPING_VERSION, ORBIT_MAPPING_VERSION, type Difficulty, type GameModeId, type JobType } from '@beatblade/core';
 import type { WorkerMsg, WorkerTask } from './worker.js';
 
 const WORKER_URL = new URL('./worker.js', import.meta.url);
@@ -81,7 +81,9 @@ async function runJob(job: { id: number; song_id: string; type: JobType }): Prom
   const id = job.song_id;
   const row = songRow(id);
   if (!row) { db.prepare(`UPDATE jobs SET status = 'done', finished_at = ? WHERE id = ?`).run(Date.now(), job.id); return; }
-  const set = (status: string, progress: number) => { updateSong(id, { status, progress }); songChanged(getSong(id)); };
+  // Orbit-Nachruesten laeuft still im Hintergrund: der Song bleibt fuer Schnitt spielbar
+  const quiet = job.type === 'orbit';
+  const set = (status: string, progress: number) => { if (quiet) return; updateSong(id, { status, progress }); songChanged(getSong(id)); };
   let lastP = -1;
   const onMsg = (m: WorkerMsg) => {
     if (m.type === 'progress') { if (Math.abs(m.p - lastP) >= 0.03 || m.p === 1) { lastP = m.p; set(m.stage, m.p); } }
@@ -102,26 +104,27 @@ async function runJob(job: { id: number; song_id: string; type: JobType }): Prom
       updateSong(id, { analysis_version: ANALYSIS_VERSION });
     } else {
       set('mapping', 0);
-      result = await pool.run({ task: 'map', id, dir: songDir(id), seed }, onMsg);
+      // 'map' erzeugt beide Modi neu, 'orbit' nur die Orbit-Levels (Schnitt bleibt unberuehrt)
+      result = await pool.run({ task: 'map', id, dir: songDir(id), seed, mode: job.type === 'orbit' ? 'orbit' : undefined }, onMsg);
     }
-    updateSong(id, {
-      status: 'ready', progress: 1, error: null, bpm: result.bpm, duration: result.duration,
-      difficulties: JSON.stringify(result.difficulties), mapping_version: MAPPING_VERSION,
-    });
+    const upd: Record<string, unknown> = quiet ? {} : { status: 'ready', progress: 1, error: null, bpm: result.bpm, duration: result.duration };
+    if (result.difficulties) { upd.difficulties = JSON.stringify(result.difficulties); upd.mapping_version = MAPPING_VERSION; }
+    if (result.orbitDifficulties) { upd.orbit_difficulties = JSON.stringify(result.orbitDifficulties); upd.orbit_version = ORBIT_MAPPING_VERSION; }
+    updateSong(id, upd);
     logSong(id, `Fertig in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
     db.prepare(`UPDATE jobs SET status = 'done', finished_at = ? WHERE id = ?`).run(Date.now(), job.id);
   } catch (e) {
     const msg = (e as Error).message || String(e);
-    logSong(id, msg, 'error');
-    updateSong(id, { status: 'error', error: msg, progress: 0 });
+    logSong(id, quiet ? `Orbit: ${msg}` : msg, 'error');
+    if (!quiet) updateSong(id, { status: 'error', error: msg, progress: 0 });
     db.prepare(`UPDATE jobs SET status = 'error', error = ?, finished_at = ? WHERE id = ?`).run(msg, Date.now(), job.id);
   }
   songChanged(getSong(id));
 }
 
 /** einzelne Schwierigkeit/Seed bei Bedarf erzeugen (z. B. GET beatmap mit neuem Seed) */
-export async function mapOnDemand(id: string, d: Difficulty, seed: number): Promise<void> {
-  await pool.run({ task: 'map', id, dir: songDir(id), seed, difficulties: [d] }, () => {});
+export async function mapOnDemand(id: string, d: Difficulty, seed: number, mode: GameModeId = 'schnitt'): Promise<void> {
+  await pool.run({ task: 'map', id, dir: songDir(id), seed, difficulties: [d], mode }, () => {});
 }
 
 /** Beim Start: unterbrochene Jobs fortsetzen, veraltete Analysen/Levels neu erzeugen */
@@ -131,9 +134,10 @@ export function resumeAndUpgrade(): void {
   for (const r of db.prepare(`SELECT id FROM songs WHERE status IN ('queued','decoding','analyzing','mapping') AND id NOT IN (SELECT song_id FROM jobs WHERE status = 'queued')`).all() as { id: string }[]) {
     q.insertJob.run(r.id, 'full', Date.now());
   }
-  for (const r of db.prepare(`SELECT id, analysis_version, mapping_version FROM songs WHERE status IN ('ready','outdated')`).all() as { id: string; analysis_version: number; mapping_version: number }[]) {
+  for (const r of db.prepare(`SELECT id, analysis_version, mapping_version, orbit_version FROM songs WHERE status IN ('ready','outdated')`).all() as { id: string; analysis_version: number; mapping_version: number; orbit_version: number }[]) {
     if (r.analysis_version < ANALYSIS_VERSION) { updateSong(r.id, { status: 'outdated' }); logSong(r.id, `Analyse veraltet (v${r.analysis_version} -> v${ANALYSIS_VERSION}), wird neu erstellt`); q.insertJob.run(r.id, 'full', Date.now()); }
     else if (r.mapping_version < MAPPING_VERSION) { updateSong(r.id, { status: 'outdated' }); logSong(r.id, `Levels veraltet (v${r.mapping_version} -> v${MAPPING_VERSION}), werden neu erzeugt`); q.insertJob.run(r.id, 'map', Date.now()); }
+    else if (r.orbit_version < ORBIT_MAPPING_VERSION) { logSong(r.id, `Orbit-Levels ${r.orbit_version ? `veraltet (v${r.orbit_version} -> v${ORBIT_MAPPING_VERSION})` : 'fehlen'}, werden erzeugt`); q.insertJob.run(r.id, 'orbit', Date.now()); }
   }
   pump();
 }

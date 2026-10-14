@@ -97,7 +97,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
   };
   const onsetAt = (k: number) => Math.max(...BANDS.map((band) => a.grid.bands[band][k * STEPS] ?? 0));
   const railLimit = D.railShare * Math.max(1, endT - startT);
-  const railUsed = [0, 0];
+  let railUsed = 0;
   const railFree = [-Infinity, -Infinity];   // Beat, ab dem die Hand wieder eine Rail bekommt
   let nextHand: 0 | 1 = rng.chance(0.5) ? 0 : 1;
   for (let k = 0; k < nBeats; k++) {
@@ -116,7 +116,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     const prevRail = rails[rails.length - 1];
     if (prevRail && t0 < prevRail.t1 + 0.4) ok = false;
     let hand: 0 | 1 | undefined;
-    for (const h of [nextHand, (1 - nextHand) as 0 | 1]) if (hand === undefined && k >= railFree[h] && railUsed[h] + (t1 - t0) <= railLimit) hand = h;
+    for (const h of [nextHand, (1 - nextHand) as 0 | 1]) if (hand === undefined && k >= railFree[h] && railUsed + (t1 - t0) <= railLimit) hand = h;
     if (!ok || hand === undefined) { k += L - 1; continue; }
     // Verlauf: sanfter Bogen um die Ruheposition, Hoehe folgt der Tonhoehe
     const s = side(hand), dir = rng.chance(0.5) ? 1 : -1, waves = L >= 6 ? 2 : 1;
@@ -145,7 +145,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
       railNotes.push({ b: k + j, t: r3(t), x: r3(p.x), y: r3(p.y), hand, kind: 'normal', rail: ri });
       lastJ = j;
     }
-    railUsed[hand] += t1 - t0;
+    railUsed += t1 - t0;
     railFree[hand] = k + L + ORBIT.railRestBeats;
     nextHand = (1 - hand) as 0 | 1;
     k += L;

@@ -57,7 +57,7 @@ test('Orbit: Rails nur auf gehaltenen Klaengen, mit Start-Note, ohne Ueberlappun
       if (i) assert.ok(r.t0 >= m.rails[i - 1].t1, 'Rails ueberlappen');
     });
     const share = m.rails.reduce((x, r) => x + r.t1 - r.t0, 0) / a.duration;
-    assert.ok(share <= ORBIT_DIFFICULTY[d].railShare * 2 + 1e-9, `${d}: Rail-Anteil ${share.toFixed(2)}`);
+    assert.ok(share <= ORBIT_DIFFICULTY[d].railShare + 1e-9, `${d}: Rail-Anteil ${share.toFixed(2)}`);
   }
   assert.ok(total > 0, 'keine einzige Rail erzeugt');
 });
