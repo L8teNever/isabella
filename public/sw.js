@@ -18,9 +18,13 @@ self.addEventListener('activate', (e) => e.waitUntil((async () => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin || req.url.endsWith('/sw.js')) return;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== location.origin || req.url.endsWith('/sw.js')) return;
+  // andere Apps unter derselben Domain (z. B. /beatblade mit Cloudflare-Login) nie anfassen
+  if (url.pathname.startsWith('/beatblade') || url.pathname.startsWith('/cdn-cgi/')) return;
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req, { cache: 'no-store' }).catch(async () => (await caches.match('/index.html')) || Response.error()));
+    // nur Isabella-Seiten; Weiterleitungen unveraendert durchreichen, Fallback nur wenn wirklich offline
+    e.respondWith(fetch(req).catch(async () => (await caches.match(url.pathname === '/golf.html' ? '/golf.html' : '/index.html')) || Response.error()));
     return;
   }
   e.respondWith((async () => (await caches.match(req)) || fetch(req))());
