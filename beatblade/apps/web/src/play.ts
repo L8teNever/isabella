@@ -3,7 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
-import { loadLook, loadBlockSkin, buildSaber, currentSaber } from './look';
+import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
@@ -144,6 +144,12 @@ let autoplay = true;
 
 /** Block-Skin auf Bloecke und geschnittene Haelften anwenden */
 let saberKey = '';
+/** Map (gewaehlt oder zufaellig) und passende Waende setzen */
+function applyMap() {
+  const m = pickMap();
+  env?.setMap(mapStyle(m));
+  view.setWallSkin(wallStyle(wallFor(m)));
+}
 function applyLook() {
   loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); });
   // Schwert nur neu bauen, wenn ein anderes gewaehlt wurde
@@ -164,6 +170,7 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     menus.loading('Level laden …', 0.9);
     const bm = prepareMap(await loadBeatmap(song, d, seed));
     game.start(bm);
+    applyMap();
     // Bahn direkt vor dir ausrichten: Mitte unter dem Kopf, Richtung = Blickrichtung (Hoehe/Boden bleibt)
     if (renderer.xr.isPresenting) setDirection();
     lastCombo = 0;
@@ -247,7 +254,7 @@ async function startXR(m: 'vr' | 'ar') {
 function setup(m: XRMode) {
   mode = m;
   $('start').hidden = true; renderer.domElement.style.display = 'block';
-  if (!env) env = new Environment(scene, m === 'ar');
+  if (!env) { env = new Environment(scene, m === 'ar'); applyMap(); }
   root.position.y = m === 'ar' ? settings.floorOffset : 0;
   hud.fps.visible = settings.showFps;
   audio.resume();

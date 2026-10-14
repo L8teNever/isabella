@@ -26,8 +26,11 @@ export class NoteView {
   halos: THREE.InstancedMesh; shells: THREE.InstancedMesh; pools: THREE.InstancedMesh;
   walls: THREE.Mesh[] = [];
   private wallGeo = new THREE.BoxGeometry(1, 1, 1);
-  private wallMat: THREE.MeshBasicMaterial;
+  private wallMat: THREE.Material;
   private wallEdgeMat: THREE.LineBasicMaterial;
+  /** bewegte Textur (Energiefeld) */
+  private wallTex: THREE.Texture | null = null;
+  private mr: boolean;
   nCubes = 0; nArrows = 0; nDots = 0; nBombs = 0; nWalls = 0;
   cubeGeo: THREE.BufferGeometry;
   cubeMat: THREE.MeshStandardMaterial;
@@ -59,11 +62,37 @@ export class NoteView {
     this.pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), glowMaterial(GLOW.poolStrength), MAX); this.pools.instanceColor = inst();
     this.halos.renderOrder = 1; this.pools.renderOrder = 1;
     for (const m of [this.cubes, this.arrows, this.dots, this.bombs, this.halos, this.shells, this.pools]) { m.frustumCulled = false; m.count = 0; root.add(m); }
-    this.wallMat = new THREE.MeshBasicMaterial({ color: 0xff5470, transparent: true, opacity: mr ? 0.28 : 0.22, depthWrite: false, side: THREE.DoubleSide });
-    this.wallEdgeMat = new THREE.LineBasicMaterial({ color: 0xff8aa0, transparent: true, opacity: 0.9 });
+    this.mr = mr;
+    [this.wallMat, this.wallEdgeMat] = this.wallMaterials('neon-glass');
   }
 
   private nGlow = 0;
+
+  /** Wand-Skins: Neon-Glas (bisher), Energiefeld (bewegte Streifen), Stein/Metall */
+  private wallMaterials(style: string): [THREE.Material, THREE.LineBasicMaterial] {
+    this.wallTex = null;
+    if (style === 'energy') {
+      const c = document.createElement('canvas'); c.width = 8; c.height = 64;
+      const g = c.getContext('2d')!;
+      for (let y = 0; y < 64; y++) { const a = 0.25 + 0.75 * Math.pow(Math.sin((y / 64) * Math.PI * 4) * 0.5 + 0.5, 3); g.fillStyle = `rgba(80,220,255,${a})`; g.fillRect(0, y, 8, 1); }
+      const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1, 3); this.wallTex = t;
+      return [new THREE.MeshBasicMaterial({ map: t, color: 0xffffff, transparent: true, opacity: this.mr ? 0.4 : 0.35, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.LineBasicMaterial({ color: 0x9ff0ff, transparent: true, opacity: 0.95 })];
+    }
+    if (style === 'stone-metal') {
+      return [new THREE.MeshStandardMaterial({ color: 0x3a3f4a, metalness: 0.7, roughness: 0.45, emissive: 0x15171c, transparent: true, opacity: this.mr ? 0.65 : 0.72, depthWrite: false, side: THREE.DoubleSide }),
+        new THREE.LineBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.95 })];
+    }
+    return [new THREE.MeshBasicMaterial({ color: 0xff5470, transparent: true, opacity: this.mr ? 0.28 : 0.22, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.LineBasicMaterial({ color: 0xff8aa0, transparent: true, opacity: 0.9 })];
+  }
+
+  /** Wand-Skin wechseln (alle Waende im Pool) */
+  setWallSkin(style: string) {
+    this.wallMat.dispose(); this.wallEdgeMat.dispose();
+    [this.wallMat, this.wallEdgeMat] = this.wallMaterials(style);
+    for (const w of this.walls) { w.material = this.wallMat; (w.children[0] as THREE.LineSegments).material = this.wallEdgeMat; }
+  }
 
   /** Block-Skin wechseln (Form + Material); Leucht-Rand folgt der Form */
   setSkin(skin: BlockSkin) {
@@ -126,5 +155,6 @@ export class NoteView {
     for (const m of [this.halos, this.shells, this.pools]) if (m.instanceColor) m.instanceColor.needsUpdate = true;
     if (this.cubes.instanceColor) this.cubes.instanceColor.needsUpdate = true;
     for (let i = this.nWalls; i < this.walls.length; i++) this.walls[i].visible = false;
+    if (this.wallTex) this.wallTex.offset.y = (this.wallTex.offset.y + 0.006) % 1;
   }
 }

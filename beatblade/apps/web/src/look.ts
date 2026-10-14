@@ -94,3 +94,31 @@ export async function buildSaber(color: number): Promise<SaberVisual> {
   if (it?.model) { const v = await saberFromModel(contentUrl(it.model), len, color); if (v) return v; }
   return buildSaberVisual(style, len, color);
 }
+
+// ---------- Maps und Wand-Skins ----------
+export function mapItems(): ContentItem[] { return content?.maps?.length ? content.maps : []; }
+export function wallItems(): ContentItem[] { return content?.walls?.length ? content.walls : []; }
+const styleOf = (it: ContentItem | undefined, d: string) => (typeof it?.data.style === 'string' ? it.data.style : d);
+
+/** Anzeige im Menue */
+export const mapName = () => (settings.mapChoice === 'zufall' ? 'Zufällig' : mapItems().find((m) => m.id === settings.mapChoice)?.name ?? 'Neon-Laufsteg');
+
+/** Map fuer den naechsten Song: gewaehlte oder zufaellige */
+export function pickMap(): ContentItem | undefined {
+  const list = mapItems();
+  if (settings.mapChoice === 'zufall' && list.length) return list[Math.floor(Math.random() * list.length)];
+  return list.find((m) => m.id === settings.mapChoice) ?? list[0];
+}
+
+/** Wand-Skin: fest gewaehlt oder automatisch der, den die Map in info.json nennt */
+export function wallFor(map: ContentItem | undefined): ContentItem | undefined {
+  const walls = wallItems();
+  if (settings.wallSkin !== 'auto') return walls.find((w) => w.id === settings.wallSkin) ?? walls[0];
+  const want = typeof map?.data.wallSkin === 'string' ? map.data.wallSkin : '';
+  return walls.find((w) => w.id === want) ?? walls[0];
+}
+export const wallName = () => (settings.wallSkin === 'auto' ? 'Automatisch (passend zur Map)' : wallItems().find((w) => w.id === settings.wallSkin)?.name ?? 'Neon-Glas');
+
+/** Stil-Namen (eingebaute Darstellungen) */
+export const mapStyle = (m: ContentItem | undefined) => styleOf(m, 'neon-runway');
+export const wallStyle = (w: ContentItem | undefined) => styleOf(w, 'neon-glass');

@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
 import { BUILD_INFO } from '../version';
-import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber } from '../look';
+import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock, saberName, saberSkins, currentSaber, mapItems, wallItems, mapName, wallName } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
 import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
@@ -164,6 +164,8 @@ export class Menus {
           { type: 'button', id: 'cset', label: `Farben: ${currentSet().name}  ⟳`, span: 2, h: 70 },
           { type: 'button', id: 'bskin', label: `Blöcke: ${blockName()}  ⟳`, span: 2, h: 70 },
           { type: 'button', id: 'sskin', label: `Schwert: ${saberName()}  ⟳`, span: 4, h: 70 },
+          { type: 'button', id: 'mapc', label: `Map: ${mapName()}  ⟳`, span: 2, h: 70 },
+          { type: 'button', id: 'wallc', label: `Wände: ${wallName()}  ⟳`, span: 2, h: 70 },
           ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
           ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
           ...(settings.colorLeft || settings.colorRight ? [{ type: 'button', id: 'creset', label: 'Eigene Farben zurücksetzen', span: 4, h: 60 } as Item] : []),
@@ -272,6 +274,8 @@ export class Menus {
       else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
       else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
       else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
+      else if (id === 'mapc') { const ids = ['zufall', ...mapItems().map((m) => m.id)]; settings.mapChoice = ids[(ids.indexOf(settings.mapChoice) + 1) % ids.length]; }
+      else if (id === 'wallc') { const ids = ['auto', ...wallItems().map((w) => w.id)]; settings.wallSkin = ids[(ids.indexOf(settings.wallSkin) + 1) % ids.length]; }
       else if (id === 'sskin') { const l = saberSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentSaber()?.id); settings.saberSkin = l[(i + 1) % l.length].id; } }
       else if (id === 'bskin') { const l = blockSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentBlock()?.id); settings.blockSkin = l[(i + 1) % l.length].id; } }
       else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
