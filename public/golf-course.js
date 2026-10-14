@@ -7,7 +7,8 @@ import { hit, rolling } from '/sound.js';
 
 export const BALL_R = 0.025;
 const BALL_MASS = 0.046;
-const DAMP = 0.32, SAND_DAMP = 0.92;     // Rollwiderstand Teppich/Boden bzw. Sand
+// Rollwiderstand wie auf Minigolf-Kunstrasen: gleichmaessige Bremsung (m/s²) statt exponentieller Daempfung
+const ROLL = 0.55, SAND_ROLL = 4.5, AIR_DAMP = 0.02;
 export const CUP_R = 0.055;
 
 export const TYPES = {
@@ -84,13 +85,24 @@ export class Course {
     w.solver.iterations = 10;
     this.mBall = new CANNON.Material('ball'); this.mGround = new CANNON.Material('ground'); this.mBump = new CANNON.Material('bump');
     w.addContactMaterial(new CANNON.ContactMaterial(this.mBall, this.mGround, { friction: 0.08, restitution: 0.35 }));
-    w.addContactMaterial(new CANNON.ContactMaterial(this.mBall, this.mBump, { friction: 0.02, restitution: 0.95 }));
+    w.addContactMaterial(new CANNON.ContactMaterial(this.mBall, this.mBump, { friction: 0.02, restitution: 0.9 }));
+    this.mBank = new CANNON.Material('bank');     // Banden/Waende: wie Gummi-Bande, verliert etwas Tempo
+    w.addContactMaterial(new CANNON.ContactMaterial(this.mBall, this.mBank, { friction: 0.05, restitution: 0.68 }));
+    // Rollbremse in jedem Physik-Schritt (nur wenn die Kugel am Boden rollt)
+    this.decel = ROLL;
+    w.addEventListener('preStep', () => {
+      const b = this.ballBody; if (!this.ballIn) return;
+      const v = b.velocity, h = Math.hypot(v.x, v.z), a = this.decel * w.dt;
+      if (Math.abs(v.y) > 0.25) return;                  // in der Luft / steil auf der Rampe
+      if (h <= a) { v.x = 0; v.z = 0; if (Math.abs(v.y) < 0.05) { b.angularVelocity.scale(0.9, b.angularVelocity); } return; }
+      v.x -= (v.x / h) * a; v.z -= (v.z / h) * a;
+    });
     this.roomBodies = [];
     this.items = [];          // { type, obj (Group), body?, hole? }
     this.group = new THREE.Group(); scene.add(this.group);
 
     // Kugel
-    this.ballBody = new CANNON.Body({ mass: BALL_MASS, material: this.mBall, shape: new CANNON.Sphere(BALL_R), linearDamping: DAMP, angularDamping: 0.4 });
+    this.ballBody = new CANNON.Body({ mass: BALL_MASS, material: this.mBall, shape: new CANNON.Sphere(BALL_R), linearDamping: AIR_DAMP, angularDamping: 0.3 });
     this.ballBody.addEventListener('collide', (e) => { const v = Math.abs(e.contact.getImpactVelocityAlongNormal()); if (v > 0.6) hit(v * 0.6, 'pin'); });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 24, 16), mat(0xffffff, { roughness: 0.3, emissive: 0x000000 }));
     this.ball.castShadow = true; this.ball.visible = false; scene.add(this.ball);
@@ -112,7 +124,7 @@ export class Course {
     }
     for (const [[ax, az], [bx, bz]] of this.scan.walls) {
       const len = Math.hypot(bx - ax, bz - az);
-      const b = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Box(new CANNON.Vec3(len / 2, 1.2, 0.05)) });
+      const b = new CANNON.Body({ mass: 0, material: this.mBank, shape: new CANNON.Box(new CANNON.Vec3(len / 2, 1.2, 0.05)) });
       b.position.set((ax + bx) / 2, this.scan.floorY + 1.2, (az + bz) / 2); b.quaternion.setFromEuler(0, -Math.atan2(bz - az, bx - ax), 0); add(b);
     }
   }
@@ -126,7 +138,6 @@ export class Course {
     const [sx, sy, sz] = sc;
     let body = null; const extra = {};
     const T = TYPES[type];
-    const kin = () => new CANNON.Body({ mass: 0, material: this.mBump });
     if (type === 'tee') {
       const m = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.006, 32), mat(T.color, { transparent: true, opacity: 0.85 })); m.position.y = 0.003; g.add(m);
       const mk = new THREE.Mesh(new THREE.RingGeometry(0.02, 0.03, 24).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffffff })); mk.position.y = 0.007; g.add(mk);
@@ -168,7 +179,7 @@ export class Course {
       const L = 0.5 * sx, H = 0.08 * sy;
       const m = new THREE.Mesh(new THREE.BoxGeometry(L, H, 0.04), mat(T.color)); m.position.y = H / 2; m.castShadow = true; g.add(m);
       for (const e of [-1, 1]) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, H + 0.01, 16), mat(0xffffff)); c.position.set(e * L / 2, (H + 0.01) / 2, 0); g.add(c); }
-      body = new CANNON.Body({ mass: 0, material: this.mBump, shape: new CANNON.Box(new CANNON.Vec3(L / 2, H / 2, 0.02)) });
+      body = new CANNON.Body({ mass: 0, material: this.mBank, shape: new CANNON.Box(new CANNON.Vec3(L / 2, H / 2, 0.02)) });
       body.shapeOffsets[0].set(0, H / 2, 0);
     } else if (type === 'bumper') {
       const r = 0.06 * sx, h = 0.08 * sy;
@@ -201,7 +212,7 @@ export class Course {
       const blades = new THREE.Group(); blades.position.y = 0;
       for (const a of [0, Math.PI / 2]) { const b = new THREE.Mesh(new THREE.BoxGeometry(L, h, 0.025), mat(T.color, { emissive: 0x331800 })); b.rotation.y = a; b.position.y = h / 2 + 0.004; b.castShadow = true; blades.add(b); }
       g.add(blades); extra.blades = blades; extra.angle = 0; extra.w = 1.4;
-      body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: this.mBump });
+      body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, material: this.mBank });
       for (const a of [0, Math.PI / 2]) { const q = new CANNON.Quaternion(); q.setFromEuler(0, a, 0); body.addShape(new CANNON.Box(new CANNON.Vec3(L / 2, h / 2, 0.0125)), new CANNON.Vec3(0, h / 2 + 0.004, 0), q); }
     } else if (type === 'tunnel') {
       const L = 0.45 * sz, gap = 0.13 * sx, H = 0.09 * sy, t = 0.02;
@@ -209,7 +220,7 @@ export class Course {
       for (const e of [-1, 1]) { const w = new THREE.Mesh(new THREE.BoxGeometry(t, H, L), m); w.position.set(e * (gap / 2 + t / 2), H / 2, 0); w.castShadow = true; g.add(w); }
       const roof = new THREE.Mesh(new THREE.CylinderGeometry(gap / 2 + t, gap / 2 + t, L, 24, 1, true, Math.PI / 2, Math.PI).rotateX(Math.PI / 2), mat(T.color, { side: THREE.DoubleSide, transparent: true, opacity: 0.6 }));
       roof.position.y = H; g.add(roof);
-      body = new CANNON.Body({ mass: 0, material: this.mBump });
+      body = new CANNON.Body({ mass: 0, material: this.mBank });
       for (const e of [-1, 1]) body.addShape(new CANNON.Box(new CANNON.Vec3(t / 2, H / 2, L / 2)), new CANNON.Vec3(e * (gap / 2 + t / 2), H / 2, 0));
       body.addShape(new CANNON.Box(new CANNON.Vec3(gap / 2 + t, 0.01, L / 2)), new CANNON.Vec3(0, H + 0.02, 0));
     }
@@ -292,23 +303,34 @@ export class Course {
   shoot(v) {
     const b = this.ballBody;
     b.velocity.set(v.x, Math.max(0, v.y) * 0.3, v.z);
-    b.angularVelocity.setZero(); b.wakeUp();
+    // Putter: Kugel rutscht kurz und rollt dann – etwas Vorwaertsdrall von Anfang an
+    b.angularVelocity.set(v.z / BALL_R * 0.5, 0, -v.x / BALL_R * 0.5); b.wakeUp();
   }
 
   get speed() { return this.ballBody.velocity.length(); }
-  get resting() { return this.ballIn && !this.sunk && this.speed < 0.04; }
+  get resting() { return this.ballIn && !this.sunk && this.speed < 0.03; }
+
+  // ganzen Kurs verschieben (Raum-Anker hat sich bewegt, z. B. Brille ab- und wieder aufgesetzt)
+  transform(d, yaw) {
+    for (const it of this.items) { it.obj.position.applyMatrix4(d); it.obj.rotation.y += yaw; this._place(it); }
+    const b = this.ballBody, p = new THREE.Vector3(b.position.x, b.position.y, b.position.z).applyMatrix4(d);
+    b.position.set(p.x, p.y, p.z);
+    const v = new THREE.Vector3(b.velocity.x, b.velocity.y, b.velocity.z).transformDirection(d).multiplyScalar(b.velocity.length());
+    b.velocity.set(v.x, v.y, v.z);
+    this.lastRest.applyMatrix4(d); this._sync();
+  }
 
   // pro Frame; gibt Ereignisse zurueck: 'sunk' | 'out' | null
   step(dt, cup) {
     if (!this.ballIn) return null;
     const b = this.ballBody, p = b.position;
     // Zonen: Sand bremst, Wasser = Aus, Boost schiesst an
-    let damp = DAMP, wet = false;
+    let roll = ROLL, wet = false;
     for (const it of this.items) {
       if (!it.poly && !it.half) continue;
       const l = it.obj.worldToLocal(new THREE.Vector3(p.x, p.y, p.z));
       if (Math.abs(l.y) > 0.05) continue;
-      if (it.poly && inPoly(it.poly, l.x, l.z)) { if (it.type === 'sand') damp = SAND_DAMP; else wet = true; }
+      if (it.poly && inPoly(it.poly, l.x, l.z)) { if (it.type === 'sand') roll = SAND_ROLL; else wet = true; }
       if (it.half && Math.abs(l.x) < it.half[0] && Math.abs(l.z) < it.half[1]) {
         const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(it.obj.quaternion);
         const along = b.velocity.x * dir.x + b.velocity.z * dir.z;
@@ -316,7 +338,7 @@ export class Course {
       }
     }
     if (wet && !this.sunk) return 'water';
-    b.linearDamping = damp;
+    this.decel = roll;
     this.world.step(1 / 240, Math.min(dt, 0.05), 12);
     rolling(this.speed, true);
     this._sync();

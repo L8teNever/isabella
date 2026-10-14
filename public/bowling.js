@@ -139,6 +139,23 @@ export class Lane {
     });
   }
 
+  // ganze Bahn verschieben (Raum-Anker hat sich bewegt), Kegel bleiben wie sie gerade liegen
+  transform(d, yaw) {
+    const q = new CANNON.Quaternion(); q.setFromEuler(0, yaw, 0);
+    const mv = (b) => {
+      const p = new THREE.Vector3(b.position.x, b.position.y, b.position.z).applyMatrix4(d);
+      b.position.set(p.x, p.y, p.z); b.quaternion = q.mult(b.quaternion);
+      const v = new THREE.Vector3(b.velocity.x, b.velocity.y, b.velocity.z).applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+      b.velocity.set(v.x, v.y, v.z);
+    };
+    for (const p of this.pins) { p.spot.applyMatrix4(d); mv(p.body); }
+    mv(this.ballBody);
+    this.headPos.applyMatrix4(d); this.dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+    this.ballHome.applyMatrix4(d);
+    if (this.ballState === 'held' || this.ballState === 'rest') this.ball.position.applyMatrix4(d);
+    this._sync();
+  }
+
   // Dreieck aufstellen: Kopfkegel an pos, Dreieck zeigt weg vom Spieler (dir = Richtung Spieler -> Kegel)
   place(pos, dir) {
     this.headPos.copy(pos).setY(this.floorY);

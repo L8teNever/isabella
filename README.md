@@ -31,6 +31,9 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 - **Raum-Grenzen:** Wände, Möbel und der Rand des gescannten Bodens sind feste Banden – die Kugel
   rollt nicht aus dem Raum, sondern prallt ab und kann dabei noch Kegel treffen. Unten an Wänden und
   Möbeln leuchtet ein paar Zentimeter hoch eine Barriere (Cyan), am Bodenrand ohne Wand eine rote Linie.
+- **Bahn bleibt stehen:** Die Bahn hängt an einem Raum-Anker. Setzt man die Brille ab und wieder auf,
+  bleibt sie an derselben Stelle im Raum; beim nächsten Start bietet die Tafel „Deine Bahn von letztem
+  Mal“ an (oder „Neue Bahn suchen“).
 - **Uhr-Menü:** Handrücken der linken Hand kurz anschauen wie eine Uhr (oder X/Y am Controller) – das
   Menü öffnet sich und bleibt dann ruhig im Raum stehen, bis man etwas drückt oder wegschaut:
   Neu aufstellen, Bahn ändern, Neues Spiel, Spieler, Andere Hand, Beenden.
@@ -60,14 +63,19 @@ Cloudflare-Tunnel oder Reverse-Proxy hängen. Das Image baut GitHub Actions bei 
 - **Auswählen und Bearbeiten:** Element antippen = auswählen (mehrere möglich), festhalten = verschieben.
   Für die Auswahl: drehen, größer/kleiner, breiter/schmaler, länger/kürzer, höher/flacher, alle wählen,
   löschen. Controller-Stick beim Festhalten: links/rechts dreht, hoch/runter ändert die Größe.
+- **Ball-Physik wie auf Kunstrasen:** gleichmäßige Rollbremse (0,55 m/s², Sand 4,5 m/s²) statt
+  exponentieller Dämpfung, Kugel startet mit Vorwärtsdrall, Banden verlieren etwas Tempo (wie Gummi),
+  Bumper federn stark. Kugel ist ~1,3× so schnell wie der Schlägerkopf.
+- **Bahn bleibt stehen:** Bahnen hängen an einem Raum-Anker – auch beim Ab- und Wiederaufsetzen der
+  Brille bleiben sie an derselben Stelle im Raum.
 - **Zufallsbahn:** 3 Löcher, die in den freien Raum passen (Möbel und Wände werden umgangen), gerade
   oder mit Knick, mit Banden und einem Thema je Loch (Sprungschanze, Slalom, Drehkreuz, Tunnel, Hügel,
   Looping, Bunker, Wasser).
 - Bahnen werden gespeichert, relativ zu einem Raum-Anker (stehen beim nächsten Mal wieder da).
 - **Uhr-Menü (wie beim Bowling):** Kugel zurück, Loch aufgeben, Neue Runde, Bahn bearbeiten,
   Andere Bahn, Spieler, Beenden.
-- **Spielen:** Der Schläger hängt fest am Controller (bzw. an der Hand) und verlängert die
-  Zeigerichtung; Drehen des Controllers dreht die Schlagfläche, die Richtung folgt halb dem Schwung,
+- **Spielen:** Der Schläger hängt fest am Controller (bzw. an der Hand) und hängt nach unten, wenn
+  man den Controller normal hält (Uhr-Menü „Schläger kippen“: 0°, 45°, 90° = Zeigerichtung, −45°); Drehen des Controllers dreht die Schlagfläche, die Richtung folgt halb dem Schwung,
   halb der Schlagfläche. Treffer werden über den ganzen Weg des Schlägerkopfs zwischen zwei Bildern
   geprüft (auch schnelle Schwünge). Ein leuchtender Ring um die Kugel zeigt: jetzt darfst du schlagen
   (gelb, wenn der Schläger nah dran ist). Handy/Bildschirm: wischen. Maximal 8 Schläge

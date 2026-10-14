@@ -9,6 +9,7 @@ import { RoomEdges } from '/room-edge.js';
 import { Course, TYPES, BALL_R, ZONES } from '/golf-course.js';
 import { clearanceField } from '/lane-fit.js';
 import { generateCourse, virtualField } from '/golf-random.js';
+import { deltaYaw } from '/anchor.js';
 import { initSound, cheer, hit } from '/sound.js';
 import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 
@@ -119,7 +120,7 @@ function drawToolbar() { if (note) { toast(note); note = ''; } }
 const wizard = new Panel(0.6); scene.add(wizard);
 const toastP = new Panel(0.42); scene.add(toastP);
 const wrist = new WristMenu(scene);
-wrist.setItems([{ id: 'ball', label: 'Kugel zurück' }, { id: 'skip', label: 'Loch aufgeben' }, { id: 'restart', label: 'Neue Runde' },
+wrist.setItems([{ id: 'club', label: 'Schläger kippen' }, { id: 'ball', label: 'Kugel zurück' }, { id: 'skip', label: 'Loch aufgeben' }, { id: 'restart', label: 'Neue Runde' },
   { id: 'edit', label: 'Bahn bearbeiten' }, { id: 'map', label: 'Andere Bahn' }, { id: 'players', label: 'Spieler' }, { id: 'exit', label: 'Beenden', main: true }]);
 let step = null, startStep = null, toastT = 0, editHole = 1;
 const OBST = ['ramp', 'loop', 'boost', 'wall', 'bumper', 'sand', 'water', 'hill', 'spinner', 'tunnel'];
@@ -212,6 +213,7 @@ function wristButton(id) {
   if (id === 'edit') editCourse();
   else if (id === 'map') { useTool('build'); showStep('map'); }
   else if (id === 'players') showStep('players');
+  else if (id === 'club') { const a = CLUB_ANGLES[(CLUB_ANGLES.indexOf(clubAngle) + 1) % CLUB_ANGLES.length]; setClubAngle(a); toast(`Schläger: ${a === 0 ? 'hängt nach unten' : a === 90 ? 'zeigt nach vorn' : a + '°'}`); }
   else useTool(id);
 }
 function savePlayers() { try { localStorage.setItem(PLAYERS_KEY, JSON.stringify(names)); } catch {} }
@@ -447,7 +449,14 @@ const club = new THREE.Group();
 }
 club.visible = false; scene.add(club);
 const TIP = new THREE.Vector3(0.03, -CLUB_LEN, 0), FACE = new THREE.Vector3(0, 0, -1);
-const SHAFT_FIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);   // -Y (Schaft) -> -Z (Zeigerichtung)
+// Winkel zwischen Controller und Schaft: 0° = haengt nach unten, wenn man den Controller normal haelt;
+// 90° = verlaengert die Zeigerichtung. Im Uhr-Menue umschaltbar ("Schläger kippen").
+const CLUB_KEY = 'isabella-club-angle', CLUB_ANGLES = [0, 45, 90, -45];
+let clubAngle = 0;
+try { const a = +localStorage.getItem(CLUB_KEY); if (CLUB_ANGLES.includes(a)) clubAngle = a; } catch {}
+const SHAFT_FIX = new THREE.Quaternion();
+const setClubAngle = (a) => { clubAngle = a; SHAFT_FIX.setFromAxisAngle(new THREE.Vector3(1, 0, 0), a * Math.PI / 180); try { localStorage.setItem(CLUB_KEY, String(a)); } catch {} };
+setClubAngle(clubAngle);
 let clubHand = null, clubHead = new THREE.Vector3(), clubPrev = null, clubVel = new THREE.Vector3(), hitCooldown = 0;
 function updateClub(dt) {
   const inp = clubHand?.mode ? clubHand : inputs.find((x) => x.mode && x.source?.handedness === 'right') || inputs.find((x) => x.mode) || null;
@@ -482,7 +491,7 @@ function updateClub(dt) {
       const n = FACE.clone().applyQuaternion(club.quaternion).setY(0);
       if (n.lengthSq() > 1e-4) { n.normalize(); if (n.dot(v) < 0) n.negate(); }
       const dir = v.clone().normalize().multiplyScalar(0.55).addScaledVector(n, 0.45).normalize();
-      strike(dir.multiplyScalar(Math.min(6, v.length()))); pulse(inp, 0.8, 60);
+      strike(dir.multiplyScalar(Math.min(6, v.length() * 1.3))); pulse(inp, 0.8, 60);   // Putter: Kugel ~1,3x so schnell wie der Kopf
     }
   }
 }
@@ -524,7 +533,7 @@ function swipeEnd(x, y) {
   const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld)); fwd.y = 0; fwd.normalize();
   const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
   const dir = fwd.clone().multiplyScalar(dy).addScaledVector(right, dx).normalize();
-  const speed = Math.min(5, Math.max(0.4, (Math.hypot(dx, dy) / innerHeight) / Math.max(dt, 0.05) * 2.2));
+  const speed = Math.min(3.5, Math.max(0.3, (Math.hypot(dx, dy) / innerHeight) / Math.max(dt, 0.05) * 1.6));
   strike(dir.multiplyScalar(speed));
 }
 
@@ -538,7 +547,19 @@ renderer.setAnimationLoop((t, frame) => {
     if (scan.update(frame, ref)) { course.syncRoom(); edges.build(scan); shadow.position.y = scan.floorY + 0.001; drawToolbar(); }
     // Anker holen, dann gespeicherte Karte an ihren Platz
     if (anchorStep === 'start') { anchorStep = 'busy'; initAnchor(frame, session).finally(() => { anchorStep = 'wait'; }); }
-    if (anchor) { const pose = frame.getPose(anchor.anchorSpace, ref); if (pose) { anchorM.fromArray(pose.transform.matrix); anchored = true; } }
+    if (anchor) {
+      const pose = frame.getPose(anchor.anchorSpace, ref);
+      if (pose) {
+        const M = new THREE.Matrix4().fromArray(pose.transform.matrix);
+        // Anker verschoben (Brille ab-/aufgesetzt, Tracking neu): Bahn mitnehmen, damit sie im Raum stehen bleibt
+        if (anchored && loaded) {
+          const d = new THREE.Matrix4().multiplyMatrices(M, anchorM.clone().invert());
+          const dp = new THREE.Vector3().setFromMatrixPosition(d), yaw = deltaYaw(d);
+          if (dp.length() > 0.01 || Math.abs(yaw) > 0.01) { course.transform(d, yaw); if (board.visible) placeBoard(); }
+        }
+        anchorM.copy(M); anchored = true;
+      }
+    }
     if (anchorStep === 'wait' && (anchored || now - t0 > 2500)) { anchorStep = 'done'; loadMap(); startStep = 'players'; }
   }
   const pend = pending; pending = [];

@@ -11,6 +11,7 @@ import { Panel, WristMenu, pokeAll } from '/ui-xr.js';
 import { RoomScan } from '/room-scan.js';
 import { RoomEdges } from '/room-edge.js';
 import { findLanes } from '/lane-fit.js';
+import { RoomAnchor, deltaYaw } from '/anchor.js';
 
 const $ = (id) => document.getElementById(id);
 const UP = new THREE.Vector3(0, 1, 0);
@@ -48,7 +49,31 @@ const lane = new Lane(scene);
 const scan = new RoomScan(scene);
 const edges = new RoomEdges(scene); edges.visible = false;
 let lanes = [], laneIdx = 0, searchT = 0, foul = null, isFoul = false;
-const HAND_KEY = 'isabella-hand';
+const HAND_KEY = 'isabella-hand', LANE_KEY = 'isabella-lane';
+const ranchor = new RoomAnchor('isabella-bowl-anchor');
+let laneDist = 0, laneSaved = false;
+// Bahn relativ zum Raum-Anker merken bzw. von letztem Mal holen
+function saveLane() {
+  if (!foul || !ranchor.ok) return;
+  const f = ranchor.toLocal(foul), d = ranchor.dirToLocal(lane.dir);
+  try { localStorage.setItem(LANE_KEY, JSON.stringify({ f: f.toArray(), d: d.toArray(), dist: laneDist })); } catch {}
+}
+function savedLane() {
+  if (!ranchor.ok || !ranchor.restored) return null;
+  try {
+    const o = JSON.parse(localStorage.getItem(LANE_KEY)); if (!o) return null;
+    const dir = ranchor.dirToWorld(new THREE.Vector3().fromArray(o.d)).setY(0).normalize();
+    return { foul: ranchor.toWorld(new THREE.Vector3().fromArray(o.f)).setY(lane.floorY), dir, dist: o.dist, saved: true };
+  } catch { return null; }
+}
+// Anker hat sich bewegt: Bahn, Kegel, Kugel und Tafel mitnehmen
+function moveLane(d) {
+  const yaw = deltaYaw(d);
+  lane.transform(d, yaw);
+  if (foul) { foul.applyMatrix4(d).setY(lane.floorY); buildLaneVis(foul, lane.dir, laneDist); }
+  board.position.applyMatrix4(d); const v = viewerPos(); board.lookAt(v.x, board.position.y, v.z);
+  if (held) held.hist = [];
+}
 let bowlHand = 'right';
 try { bowlHand = localStorage.getItem(HAND_KEY) === 'left' ? 'left' : 'right'; } catch {}
 
@@ -152,8 +177,8 @@ function showStep(id) {
   else if (id === 'search') wizard.show({ title: 'Bahn suchen …', text: 'Ich suche in deinem Raum die längste freie Strecke – Möbel und Wände werden umgangen.', buttons: [{ id: 'manual', label: 'Selbst aufstellen' }] });
   else if (id === 'place') wizard.show({ title: 'Kegel aufstellen', text: 'Zeig mit dem Strahl auf den Boden, wo der erste Kegel stehen soll, und drück (Daumen + Zeigefinger oder Abzug). Die Foul-Linie kommt kurz vor dich.',
     buttons: [{ id: 'auto', label: 'Automatisch suchen' }, { id: 'back', label: 'Zurück' }], cols: 2 });
-  else if (id === 'confirm') wizard.show({ title: 'Passt die Bahn?', text: `${lane.headPos.distanceTo(foul || lane.headPos).toFixed(1)} m bis zum ersten Kegel. Stell dich hinter die weiße Foul-Linie – nicht drübertreten!`,
-    buttons: [{ id: 'go', label: "Los geht's!", main: true }, ...(lanes.length > 1 ? [{ id: 'other', label: 'Andere Bahn' }] : []), { id: 'again', label: 'Selbst setzen' }], cols: 2 });
+  else if (id === 'confirm') wizard.show({ title: laneSaved ? 'Deine Bahn von letztem Mal' : 'Passt die Bahn?', text: `${lane.headPos.distanceTo(foul || lane.headPos).toFixed(1)} m bis zum ersten Kegel. Stell dich hinter die weiße Foul-Linie – nicht drübertreten!`,
+    buttons: [{ id: 'go', label: "Los geht's!", main: true }, ...(lanes.length > 1 ? [{ id: 'other', label: 'Andere Bahn' }] : []), ...(laneSaved ? [{ id: 'search', label: 'Neue Bahn suchen' }] : []), { id: 'again', label: 'Selbst setzen' }], cols: 2 });
   else { wizard.hide(); }
   if (wizard.visible) wizard.place(renderer.xr.getCamera(), 0.75);
 }
@@ -161,11 +186,15 @@ function stepButton(id) {
   if (step === 'players') {
     if (id === 'minus' && names.length > 1) { names.pop(); savePlayers(); showStep('players'); }
     else if (id === 'plus' && names.length < 8) { names.push(`Spieler ${names.length + 1}`); savePlayers(); showStep('players'); }
-    else if (id === 'next') showStep(lane.placed ? null : 'search');
+    else if (id === 'next') {
+      if (lane.placed) showStep(null);
+      else { const sv = savedLane(); if (sv) { lanes = [sv]; laneIdx = 0; laneSaved = true; useLane(sv); showStep('confirm'); } else showStep('search'); }
+    }
   } else if (step === 'search' && id === 'manual') showStep('place');
   else if (step === 'place') { if (id === 'back') showStep('players'); else if (id === 'auto') showStep('search'); }
   else if (step === 'confirm') {
-    if (id === 'go') { showStep(null); toast('Die Kugel liegt in deiner Hand: ausholen und nach vorn schwingen – unten loslassen geht von selbst.\nMenü: Handrücken links anschauen oder X/Y drücken.', 7); }
+    if (id === 'search') { laneSaved = false; showStep('search'); return; }
+    if (id === 'go') { saveLane(); laneSaved = false; showStep(null); toast('Die Kugel liegt in deiner Hand: ausholen und nach vorn schwingen – unten loslassen geht von selbst.\nMenü: Handrücken links anschauen oder X/Y drücken.', 7); }
     else if (id === 'other') { laneIdx = (laneIdx + 1) % lanes.length; useLane(lanes[laneIdx]); showStep('confirm'); }
     else if (id === 'again') showStep('place');
   }
@@ -305,7 +334,8 @@ function placePins(p, f) {
   dir.normalize();
   lane.place(p, dir);
   foul = f ? f.clone().setY(lane.floorY) : v.clone().addScaledVector(dir, Math.min(0.3, Math.max(0, p.clone().sub(v).setY(0).length() - 1))).setY(lane.floorY);
-  buildLaneVis(foul, dir, p.clone().sub(foul).setY(0).length());
+  laneDist = p.clone().sub(foul).setY(0).length();
+  buildLaneVis(foul, dir, laneDist);
   ring.visible = false; if (!phone && renderer.xr.isPresenting) showStep('confirm'); else showStep(null);
   // Tafel ueber den hinteren Kegeln, zum Spieler gedreht
   board.position.copy(p).addScaledVector(dir, 1.3).setY(lane.floorY + 0.75 + (board.userData.h || 0.4) / 2);
@@ -397,6 +427,9 @@ renderer.setAnimationLoop((t, frame) => {
     }
     // gescannter Raum (Quest-Raumeinrichtung): Waende fuer die Physik, Moebel fuer die Bahnsuche
     if (scan.update(frame, ref)) { lane.setRoom(scan); edges.build(scan); }
+    // Raum-Anker: Bahn bleibt im echten Raum stehen (Brille ab- und wieder aufgesetzt)
+    const an = ranchor.update(frame, ref);
+    if (an.delta && lane.placed && foul) moveLane(an.delta);
   }
   const head = viewerPos();
   edges.visible = xr && !phone && scan.scanned; if (edges.visible) edges.update();
@@ -509,12 +542,13 @@ async function start(mode) {
     placePins(new THREE.Vector3(0, 0, -5.5));
     return;
   }
-  const init = { optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection', 'mesh-detection'] };
+  const init = { optionalFeatures: ['local-floor', 'hand-tracking', 'hit-test', 'plane-detection', 'mesh-detection', 'anchors'] };
   if (mode === 'ar') { init.optionalFeatures.push('dom-overlay'); init.domOverlay = { root: $('overlay') }; }
   const session = await navigator.xr.requestSession(mode === 'ar' ? 'immersive-ar' : 'immersive-vr', init);
   try { await renderer.xr.setSession(session); }
   catch { renderer.xr.setReferenceSpaceType('local'); await renderer.xr.setSession(session); lane.setFloor(-1.5); }
   phone = !!session.domOverlayState;
+  ranchor.begin(session); laneSaved = false;
   hall.visible = mode === 'vr';
   scene.background = mode === 'vr' ? new THREE.Color(0x15111d) : null;
   $('start').hidden = true; $('overlay').hidden = !phone;
@@ -526,7 +560,7 @@ async function start(mode) {
   if (phone) showStep('place'); else { step = null; startStep = 'players'; }
   lane.setVisible(lane.placed);
   drawToolbar(); drawScore('');
-  session.addEventListener('end', () => { hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); ring.visible = false; laneVis.visible = false; lane.placed = false; lane.setVisible(false); foul = null; held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null; });
+  session.addEventListener('end', () => { ranchor.end(); hitSource = null; $('start').hidden = false; $('overlay').hidden = true; hall.visible = true; scene.background = new THREE.Color(0x15111d); ring.visible = false; laneVis.visible = false; lane.placed = false; lane.setVisible(false); foul = null; held = null; wizard.hide(); toastP.hide(); wrist.panel.hide(); step = null; });
 }
 
 $('btn-ar').addEventListener('click', () => start('ar').catch((e) => alert(`Mixed Reality ging nicht: ${e.message}`)));
