@@ -136,7 +136,7 @@ renderer.domElement.addEventListener('pointerdown', () => {
 renderer.domElement.addEventListener('wheel', (e) => { if (menus.visible) menus.scroll(e.deltaY > 0 ? 1 : -1); });
 addEventListener('keydown', (e) => {
   if (mode !== 'desktop') return;
-  if (e.key === 'Escape' && state === 'playing') pauseGame();
+  if (e.key === 'Escape' && state === 'playing') pauseGame('esc');
   if (e.key === 'a') autoplay = !autoplay;
   if (e.key === ' ') tapTimes.push(audio.ctx.currentTime);
 });
@@ -163,17 +163,27 @@ function applyLook() {
 }
 
 // ---------- Ablauf ----------
+// Jeder Start bekommt eine Nummer: ein aelterer, noch ladender Start (z. B. doppelt ausgeloest) darf
+// weder den Lade-Bildschirm ueber ein laufendes Spiel legen noch das Spiel neu starten.
+let startRun = 0;
 async function startSong(song: Song, d: Difficulty, seed: number) {
+  if (state === 'loading') return;                       // laeuft schon ein Start: zweiten Klick ignorieren
+  const run = ++startRun;
+  const live = () => run === startRun && state === 'loading';
+  const progress = (text: string, p: number) => { if (live()) menus.loading(text, p); };
   current = { song, d, seed };
   audio.stop(); hud.show(false); slicer.clear();
   state = 'loading'; menus.loading('Audio laden …', 0);
   try {
     await audio.resume();
-    const data = await loadAudio(song, (p) => menus.loading('Audio laden …', p * 0.7));
-    menus.loading('Dekodieren …', 0.75);
+    const data = await loadAudio(song, (p) => progress('Audio laden …', p * 0.7));
+    if (!live()) return;
+    progress('Dekodieren …', 0.75);
     await audio.decode(data);
-    menus.loading('Level laden …', 0.9);
+    if (!live()) return;
+    progress('Level laden …', 0.9);
     const bm = prepareMap(await loadBeatmap(song, d, seed));
+    if (!live()) return;
     game.start(bm);
     applyMap();
     // Bahn direkt vor dir ausrichten: Mitte unter dem Kopf, Richtung = Blickrichtung (Hoehe/Boden bleibt)
@@ -186,14 +196,17 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     audio.play(0, lead);
     state = 'playing';
   } catch (e) {
+    if (run !== startRun) return;
+    state = 'menu';
     menus.loading(`Fehler: ${(e as Error).message}`, 0);
     setTimeout(() => toMenu(), 3000);
   }
 }
 
-function pauseGame() {
+/** Pause; why landet im Debug-Protokoll (Knopf, Brille abgesetzt, Esc ...) */
+function pauseGame(why = 'knopf') {
   if (state !== 'playing') return;
-  audio.pause(); state = 'paused'; hud.message(''); menus.pause(); sendLog('pause');
+  audio.pause(); state = 'paused'; hud.message(''); menus.pause(); sendLog(`pause:${why}`);
 }
 
 function sendLog(reason: string) {
@@ -252,7 +265,9 @@ async function startXR(m: 'vr' | 'ar') {
   setup(m);
   await renderer.xr.setSession(session);
   session.addEventListener('end', () => { audio.stop(); state = 'menu'; $('start').hidden = false; renderer.domElement.style.display = 'none'; });
-  session.addEventListener('visibilitychange', () => { if (session.visibilityState !== 'visible') pauseGame(); });
+  // 'visible-blurred' = Quest blendet kurz etwas ein (Spielbereich-Grenze, Benachrichtigung): weiterspielen.
+  // Nur 'hidden' (Brille abgesetzt, Systemmenue offen) pausiert.
+  session.addEventListener('visibilitychange', () => { if (session.visibilityState === 'hidden') pauseGame(`brille:${session.visibilityState}`); });
   if (m === 'ar') { renderer.setClearAlpha(0); scene.background = null; scene.fog = null; }
 }
 
@@ -317,7 +332,7 @@ renderer.setAnimationLoop((_t, frame) => {
       sb.setPose(pos, q, performance.now() / 1000);
       // Pause: B/Y
       const b = !!gp.buttons[5]?.pressed;
-      if (b && !inp.prevButtons[5] && state === 'playing') pauseGame();
+      if (b && !inp.prevButtons[5] && state === 'playing') pauseGame('knopf-by');
       inp.prevButtons[5] = b;
       // Menue blaettern: Stick
       const ay = gp.axes[3] ?? 0;
