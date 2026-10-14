@@ -3,7 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
-import { loadLook } from './look';
+import { loadLook, loadBlockSkin } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
@@ -86,7 +86,7 @@ const menus = new Menus(root, {
   setDirection: () => setDirection(),
   isMR: () => mode === 'ar',
   inXR: () => renderer.xr.isPresenting,
-  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); },
+  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); applyLook(); },
 });
 
 // ---------- Eingaben (Controller / Haende / Maus) ----------
@@ -141,6 +141,9 @@ addEventListener('keydown', (e) => {
   if (e.key === ' ') tapTimes.push(audio.ctx.currentTime);
 });
 let autoplay = true;
+
+/** Block-Skin auf Bloecke und geschnittene Haelften anwenden */
+function applyLook() { loadBlockSkin().then((s) => { view.setSkin(s); slicer.setSkin(s.geo, s.mat); }); }
 
 // ---------- Ablauf ----------
 async function startSong(song: Song, d: Difficulty, seed: number) {
@@ -259,7 +262,7 @@ $('b-desk').addEventListener('click', () => { setup('desktop'); camera.position.
 (async () => {
   const info = await api.info().catch(() => null);
   menus.setQr(info?.publicUrl ? `${info.publicUrl}/` : location.href.replace(/play\.html.*$/, ''));
-  await loadLook(); game.applyColors();
+  await loadLook(); game.applyColors(); applyLook();
   menus.setSongs(await api.songs().catch(() => []));
   const want = new URLSearchParams(location.search).get('song');
   if (want) { const s = menus.songs.find((x) => x.id === want); if (s) { menus.click('songs'); menus.click(`s:${s.id}`); } }

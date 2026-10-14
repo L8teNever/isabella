@@ -106,6 +106,16 @@ export class Slicer {
     }
   }
 
+  /** Block-Skin fuer die Haelften uebernehmen (Form, Glanz, Textur) – Farbe kommt weiter pro Schnitt */
+  setSkin(geo: THREE.BufferGeometry, mat: THREE.MeshStandardMaterial) {
+    for (const h of this.halves) {
+      h.mesh.geometry = geo;
+      const m = h.mesh.material as THREE.MeshStandardMaterial;
+      m.roughness = mat.roughness; m.metalness = mat.metalness; m.flatShading = mat.flatShading; m.map = mat.map;
+      m.emissive.copy(mat.emissive); m.needsUpdate = true;
+    }
+  }
+
   update(dt: number) {
     for (const m of this.marks) {
       if (!m.mesh.visible) continue;

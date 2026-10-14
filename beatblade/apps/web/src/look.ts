@@ -1,7 +1,8 @@
 // Aussehen aus den Inhalts-Ordnern (content/): Farbsets – spaeter auch Bloecke, Schwerter, Maps, Waende.
 // Faellt auf die eingebauten Werte zurueck, wenn der Server nichts liefert.
 import * as THREE from 'three';
-import { api, type ContentList } from './api';
+import { api, contentUrl, type ContentItem, type ContentList } from './api';
+import { builtinBlock, blockFromModel, type BlockSkin } from './game/blockskins';
 import { COLORS } from './game/layout';
 import { settings } from './settings';
 
@@ -50,4 +51,27 @@ export function shiftHue(c: number, deg: number): number {
   if (hsl.s < 0.15) { hsl.s = 0.85; hsl.l = Math.min(0.65, Math.max(0.45, hsl.l)); }
   col.setHSL((((hsl.h * 360 + deg) % 360) + 360) % 360 / 360, hsl.s, hsl.l);
   return col.getHex();
+}
+
+// ---------- Block-Skins ----------
+export function blockSkins(): ContentItem[] { return content?.blocks?.length ? content.blocks : []; }
+export function currentBlock(): ContentItem | undefined {
+  const list = blockSkins();
+  return list.find((b) => b.id === settings.blockSkin) ?? list[0];
+}
+/** Name fuer das Menue */
+export const blockName = () => currentBlock()?.name ?? 'Neon-Würfel';
+
+const skinCache = new Map<string, Promise<BlockSkin>>();
+/** Form + Material des gewaehlten Skins (Modell wird einmal geladen; Fehler -> eingebauter Stil) */
+export function loadBlockSkin(): Promise<BlockSkin> {
+  const it = currentBlock();
+  const key = it ? `${it.source}/${it.id}` : 'builtin';
+  let p = skinCache.get(key);
+  if (!p) {
+    const style = typeof it?.data.style === 'string' ? it.data.style : 'neon-cube';
+    p = it?.model ? blockFromModel(contentUrl(it.model)).then((s) => s ?? builtinBlock(style)) : Promise.resolve(builtinBlock(style));
+    skinCache.set(key, p);
+  }
+  return p;
 }

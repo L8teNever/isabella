@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import qrcode from 'qrcode-generator';
 import { BUILD_INFO } from '../version';
-import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP } from '../look';
+import { colorPair, colorSets, currentSet, shiftHue, toHex, HUE_STEP, blockName, blockSkins, currentBlock } from '../look';
 import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type Song } from '@beatblade/core';
 import { Panel, type Item, type Spec } from './panel';
 import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
@@ -161,7 +161,8 @@ export class Menus {
           ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
           { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, on: settings.arrows === 'egal', span: 4, h: 70 },
           // Farben: Farbset durchschalten, links/rechts frei im Farbton drehen
-          { type: 'button', id: 'cset', label: `Farben: ${currentSet().name}  ⟳`, span: 4, h: 70 },
+          { type: 'button', id: 'cset', label: `Farben: ${currentSet().name}  ⟳`, span: 2, h: 70 },
+          { type: 'button', id: 'bskin', label: `Blöcke: ${blockName()}  ⟳`, span: 2, h: 70 },
           ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
           ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
           ...(settings.colorLeft || settings.colorRight ? [{ type: 'button', id: 'creset', label: 'Eigene Farben zurücksetzen', span: 4, h: 60 } as Item] : []),
@@ -270,6 +271,7 @@ export class Menus {
       else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
       else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
       else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
+      else if (id === 'bskin') { const l = blockSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentBlock()?.id); settings.blockSkin = l[(i + 1) % l.length].id; } }
       else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
       else if (id === 'floor') this.act.setFloor();
       else if (id === 'dir') this.act.setDirection();

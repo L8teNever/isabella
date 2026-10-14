@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { Cut, cutVector } from '@beatblade/core';
 import { COLORS, NOTE_SIZE, LANE_W } from './layout';
 import { GLOW, glowMaterial } from './glow';
+import { builtinBlock, type BlockSkin } from './blockskins';
 import { settings } from '../settings';
 
 const MAX = 160;
@@ -14,20 +15,6 @@ const col = new THREE.Color(), I = new THREE.Quaternion();
 export function cutAngle(d: Cut): number {
   const [vx, vy] = cutVector(d);
   return Math.atan2(vx, -vy);
-}
-
-function roundedBox(size: number, r: number): THREE.BufferGeometry {
-  // Box mit abgeschraegten Kanten: BoxGeometry mit Segmenten, Ecken auf eine kleinere Box projiziert
-  const g = new THREE.BoxGeometry(size, size, size, 4, 4, 4);
-  const pos = g.attributes.position as THREE.BufferAttribute, h = size / 2 - r, v = new THREE.Vector3(), c = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    c.set(Math.max(-h, Math.min(h, v.x)), Math.max(-h, Math.min(h, v.y)), Math.max(-h, Math.min(h, v.z)));
-    const d = v.clone().sub(c); if (d.lengthSq() > 0) d.setLength(r);
-    pos.setXYZ(i, c.x + d.x, c.y + d.y, c.z + d.z);
-  }
-  g.computeVertexNormals();
-  return g;
 }
 
 export class NoteView {
@@ -42,12 +29,12 @@ export class NoteView {
   private wallMat: THREE.MeshBasicMaterial;
   private wallEdgeMat: THREE.LineBasicMaterial;
   nCubes = 0; nArrows = 0; nDots = 0; nBombs = 0; nWalls = 0;
-  readonly cubeGeo: THREE.BufferGeometry;
-  readonly cubeMat: THREE.MeshStandardMaterial;
+  cubeGeo: THREE.BufferGeometry;
+  cubeMat: THREE.MeshStandardMaterial;
 
   constructor(private root: THREE.Object3D, mr: boolean) {
-    this.cubeGeo = roundedBox(NOTE_SIZE, 0.06);
-    this.cubeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, metalness: 0.15, emissive: 0x111111 });
+    const skin = builtinBlock('neon-cube');
+    this.cubeGeo = skin.geo; this.cubeMat = skin.mat;
     this.cubes = new THREE.InstancedMesh(this.cubeGeo, this.cubeMat, MAX);
     this.cubes.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
     // Pfeil (Chevron) auf der Vorderseite
@@ -68,7 +55,7 @@ export class NoteView {
     // Leuchten (instanziert: 3 Draw Calls fuer alle Bloecke)
     const inst = () => new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
     this.halos = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), glowMaterial(GLOW.haloStrength), MAX); this.halos.instanceColor = inst();
-    this.shells = new THREE.InstancedMesh(roundedBox(NOTE_SIZE, 0.06), new THREE.MeshBasicMaterial({ transparent: true, opacity: GLOW.shellStrength, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }), MAX); this.shells.instanceColor = inst();
+    this.shells = new THREE.InstancedMesh(this.cubeGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: GLOW.shellStrength, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide }), MAX); this.shells.instanceColor = inst();
     this.pools = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), glowMaterial(GLOW.poolStrength), MAX); this.pools.instanceColor = inst();
     this.halos.renderOrder = 1; this.pools.renderOrder = 1;
     for (const m of [this.cubes, this.arrows, this.dots, this.bombs, this.halos, this.shells, this.pools]) { m.frustumCulled = false; m.count = 0; root.add(m); }
@@ -77,6 +64,13 @@ export class NoteView {
   }
 
   private nGlow = 0;
+
+  /** Block-Skin wechseln (Form + Material); Leucht-Rand folgt der Form */
+  setSkin(skin: BlockSkin) {
+    this.cubeGeo = skin.geo; this.cubeMat = skin.mat;
+    this.cubes.geometry = skin.geo; this.cubes.material = skin.mat;
+    this.shells.geometry = skin.geo;
+  }
   begin() { this.nCubes = this.nArrows = this.nDots = this.nBombs = this.nWalls = this.nGlow = 0; }
 
   addNote(x: number, y: number, z: number, color: number, d: Cut, scale = 1, spin = 0) {
