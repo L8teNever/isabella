@@ -41,6 +41,8 @@ export const api = {
   waveform: (id: string) => j<Waveform>(`/songs/${id}/waveform`),
   log: (id: string) => j<LogLine[]>(`/songs/${id}/log`),
   scores: (id: string, d: Difficulty) => j<Highscore[]>(`/songs/${id}/scores?difficulty=${d}`),
+  /** Bestwert je Song (Prozent, Rang, Punkte) fuer eine Schwierigkeit */
+  best: (d: Difficulty) => j<Record<string, { accuracy: number; rank: string; score: number }>>(`/best?difficulty=${d}`),
   postScore: (id: string, s: Omit<Highscore, 'songId' | 'createdAt'>) => j<Highscore[]>(`/songs/${id}/scores`, json('POST', s)),
   credits: () => j<Credit[]>('/credits'),
   debug: (data: unknown) => fetch(`${API}/debug`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin', keepalive: true }).catch(() => {}),

@@ -98,6 +98,10 @@ export const q = {
   log: db.prepare('INSERT INTO logs (song_id, at, level, msg) VALUES (?, ?, ?, ?)'),
   logs: db.prepare('SELECT at, level, msg FROM logs WHERE song_id = ? ORDER BY id DESC LIMIT 300'),
   scores: db.prepare('SELECT * FROM scores WHERE song_id = ? AND difficulty = ? ORDER BY accuracy DESC, score DESC, created_at ASC LIMIT ?'),
+  // bester Eintrag je Song fuer eine Schwierigkeit (gleiche Sortierung wie die Bestenliste)
+  bestScores: db.prepare(`SELECT song_id, accuracy, rank, score FROM (
+    SELECT song_id, accuracy, rank, score, ROW_NUMBER() OVER (PARTITION BY song_id ORDER BY accuracy DESC, score DESC, created_at ASC) AS rn
+    FROM scores WHERE difficulty = ?) WHERE rn = 1`),
   insertScore: db.prepare(`INSERT INTO scores (song_id, difficulty, name, score, accuracy, rank, max_combo, misses, modifiers, created_at)
     VALUES (@songId, @difficulty, @name, @score, @accuracy, @rank, @maxCombo, @misses, @modifiers, @createdAt)`),
 };
@@ -120,6 +124,13 @@ export function songRow(id: string): Row | undefined { return q.song.get(id) as 
 
 export function logSong(id: string, msg: string, level: 'info' | 'warn' | 'error' = 'info'): void {
   q.log.run(id, Date.now(), level, msg);
+}
+
+/** Bestwert je Song (fuer die Song-Liste) */
+export function bestScores(difficulty: Difficulty): Record<string, { accuracy: number; rank: string; score: number }> {
+  const out: Record<string, { accuracy: number; rank: string; score: number }> = {};
+  for (const r of q.bestScores.all(difficulty) as Row[]) out[r.song_id as string] = { accuracy: r.accuracy as number, rank: r.rank as string, score: r.score as number };
+  return out;
 }
 
 export function topScores(songId: string, difficulty: Difficulty, limit = 10): Highscore[] {

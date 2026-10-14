@@ -7,7 +7,7 @@ import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
 import { config } from '../config.js';
-import { db, q, getSong, songRow, updateSong, rowToSong, topScores, logSong } from '../db.js';
+import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
 import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
 import { importFile } from '../songs-service.js';
 import { enqueue, mapOnDemand } from '../queue.js';
@@ -137,6 +137,11 @@ export function songRoutes(app: FastifyInstance, api: string): void {
   app.get<{ Params: { id: string } }>(`${api}/songs/:id/log`, async (req) => (q.logs.all(req.params.id) as unknown[]).reverse());
 
   // ---------- Highscores ----------
+  app.get<{ Querystring: { difficulty?: string } }>(`${api}/best`, async (req, reply) => {
+    const d = (req.query.difficulty ?? 'normal') as Difficulty;
+    if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
+    return bestScores(d);
+  });
   app.get<{ Params: { id: string }; Querystring: { difficulty?: string } }>(`${api}/songs/:id/scores`, async (req, reply) => {
     const d = (req.query.difficulty ?? 'expert') as Difficulty;
     if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });

@@ -9,7 +9,7 @@ import { DIFFICULTIES, DIFFICULTY_LABEL, type Difficulty, type Highscore, type S
 import { Panel, type Item, type Spec } from './panel';
 import { api, STATUS_LABEL, playable, fmtTime, type Credit } from '../api';
 import { settings, saveSettings } from '../settings';
-import { starString, type ScoreKeeper } from '../game/score';
+import { starString, starsFor, type ScoreKeeper } from '../game/score';
 
 export interface MenuActions {
   play(song: Song, d: Difficulty, seed: number): void;
@@ -48,6 +48,8 @@ export class Menus {
   private diff: Difficulty = settings.difficulty;
   private seed: number | null = null;
   private scores: Highscore[] = [];
+  /** Bestwert je Song fuer die aktuelle Schwierigkeit (Song-Liste) */
+  private best: Record<string, { accuracy: number; rank: string; score: number }> = {};
   private covers = new Map<string, HTMLImageElement>();
   private credits: Credit[] = [];
   private kb: { title: string; value: string; done: (v: string) => void; back: Screen } | null = null;
@@ -95,7 +97,10 @@ export class Menus {
   }
 
   // ---------- Daten ----------
-  setSongs(list: Song[]) { this.songs = list; if (this.sel) this.sel = list.find((s) => s.id === this.sel!.id) ?? this.sel; this.refresh(); }
+  /** Bestwerte neu holen (Start, Schwierigkeit gewechselt, Ergebnis gespeichert) */
+  loadBest() { const d = this.diff; api.best(d).then((b) => { if (this.diff === d) { this.best = b; this.refresh(); } }).catch(() => {}); }
+
+  setSongs(list: Song[]) { this.songs = list; this.loadBest(); if (this.sel) this.sel = list.find((s) => s.id === this.sel!.id) ?? this.sel; this.refresh(); }
   upsertSong(s: Song) { const i = this.songs.findIndex((x) => x.id === s.id); if (i >= 0) this.songs[i] = s; else this.songs.unshift(s); if (this.sel?.id === s.id) this.sel = s; this.refresh(); }
   removeSong(id: string) { this.songs = this.songs.filter((s) => s.id !== id); this.refresh(); }
   setQr(url: string) { this.qrUrl = url; }
@@ -247,12 +252,14 @@ export class Menus {
         ];
         for (const s of list.slice(this.page * PER_PAGE, (this.page + 1) * PER_PAGE)) {
           const ok = playable(s);
-          const status = ok ? `${s.artist || 'Unbekannt'} · ${fmtTime(s.duration)}${s.bpm ? ` · ${Math.round(s.bpm)} BPM` : ''}` : `${STATUS_LABEL[s.status]}${['ready', 'error'].includes(s.status) ? '' : ` ${Math.round(s.progress * 100)} %`}`;
+          const b = this.best[s.id];
+          const bestTxt = b ? ` · Bestwert ${b.accuracy.toFixed(1)} % ${starString(starsFor(b.accuracy))}` : '';
+          const status = ok ? `${s.artist || 'Unbekannt'} · ${fmtTime(s.duration)}${s.bpm ? ` · ${Math.round(s.bpm)} BPM` : ''}${bestTxt}` : `${STATUS_LABEL[s.status]}${['ready', 'error'].includes(s.status) ? '' : ` ${Math.round(s.progress * 100)} %`}`;
           items.push({ type: 'button', id: `s:${s.id}`, label: s.title, sub: status, img: this.cover(s), disabled: !ok, span: 2, h: 110 });
         }
         if (!list.length) items.push({ type: 'text', text: this.songs.length ? 'Keine Treffer.' : 'Noch keine Songs. Über „Upload vom Handy“ welche hinzufügen.', align: 'center' });
         items.push({ type: 'button', id: 'prev', label: '◀', disabled: this.page === 0 }, { type: 'text', text: `${this.page + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'next', label: '▶', disabled: this.page >= pages - 1 });
-        return { title: 'Song wählen', subtitle: `Seite ${this.page + 1}/${pages} · ${list.length} Songs · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
+        return { title: 'Song wählen', subtitle: `${list.length} Songs · Bestwerte für ${DIFFICULTY_LABEL[this.diff]} · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
       }
       case 'detail': {
         const s = this.sel!; const img = this.cover(s);
@@ -344,7 +351,7 @@ export class Menus {
         if (this.sel) { this.go('detail'); this.loadScores(); }
       }
     } else if (s === 'detail' && this.sel) {
-      if (id.startsWith('d:')) { this.diff = id.slice(2) as Difficulty; settings.difficulty = this.diff; saveSettings(); this.loadScores(); this.refresh(); }
+      if (id.startsWith('d:')) { this.diff = id.slice(2) as Difficulty; settings.difficulty = this.diff; saveSettings(); this.loadScores(); this.loadBest(); this.refresh(); }
       else if (id === 'arrows') { settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht'; saveSettings(); this.refresh(); }
       else if (id.startsWith('m:')) { const k = id.slice(2) as 'fastNotes' | 'noWalls' | 'noBombs' | 'missMute'; settings[k] = !settings[k]; saveSettings(); this.refresh(); }
       else if (id === 'seed') { this.seed = Math.floor(Math.random() * 999999) + 1; this.refresh(); }
@@ -376,7 +383,7 @@ export class Menus {
       else if (id === 'save' && !r.saved) {
         r.saved = true; this.refresh();
         api.postScore(r.song.id, { difficulty: r.d, name: settings.name, score: r.s.score, accuracy: Math.round(r.s.rating * 100) / 100, rank: `${r.s.stars}★`, maxCombo: r.s.maxCombo, misses: r.s.misses + r.s.badCuts, modifiers: [settings.arrows === 'egal' && 'PE', settings.fastNotes && 'FN', settings.noWalls && 'NW', settings.noBombs && 'NB'].filter(Boolean).join(',') })
-          .then((x) => { this.scores = x; this.refresh(); }).catch(() => { r.saved = false; this.refresh(); });
+          .then((x) => { this.scores = x; this.loadBest(); this.refresh(); }).catch(() => { r.saved = false; this.refresh(); });
       }
     }
   }
