@@ -149,8 +149,12 @@ export const ROWS_BY_DIFFICULTY: Partial<Record<Difficulty, Partial<typeof ROWS>
 export const MAPPING = {
   /** Gewichte der Baender fuer die Salienz eines Rasterpunkts */
   bandSalience: { sub: 1.0, lowmid: 0.55, highmid: 0.8, high: 0.35 } as Record<Band, number>,
-  /** Bonus nach metrischer Position: Downbeat, Beat, 1/2, 1/4, Rest */
-  metric: { downbeat: 0.5, beat: 0.3, half: 0.12, quarter: 0.0, other: -0.1 },
+  /** Bonus nach metrischer Position: Downbeat, Beat, 1/2, 1/4, Rest – klein: entscheidet nur zwischen aehnlich starken Sounds */
+  metric: { downbeat: 0.1, beat: 0.07, half: 0.04, quarter: 0.0, other: -0.03 },
+  /** keine Note ohne Sound: ein erkannter Onset (beliebiges Band) dieser Staerke muss am Rasterpunkt liegen */
+  onsetMin: 0.2,
+  /** so weit (s) darf der Onset hoechstens vom Rasterpunkt entfernt sein (hoechstens die halbe Unterteilung) */
+  onsetWindow: 0.035,
   /** Melodie-Gewicht (fliessende Passagen) */
   melody: 0.25,
   /** Zeit ohne Noten vor einem Drop (Beats) */

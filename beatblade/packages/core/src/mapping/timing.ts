@@ -15,6 +15,8 @@ export interface Slot {
   bar: number;
   inBar: number;      // Position im Takt in Beats
   sec: Section | undefined;
+  /** staerkster echter Onset am Rasterpunkt (Zeit, Staerke) */
+  onT?: number; onS?: number;
   /** Markierungen */
   drop?: boolean;     // erster Schlag eines Drops
   burst?: boolean;
@@ -62,6 +64,21 @@ export function fitsDensity(times: number[], t: number, max: number): boolean {
   return true;
 }
 
+/** sortierte Onset-Liste (Zeit, Staerke) */
+export interface OnsetIndex { t: Float64Array; s: Float32Array }
+export function onsetIndex(list: { t: number; s: number }[]): OnsetIndex {
+  const l = list.slice().sort((x, y) => x.t - y.t);
+  return { t: Float64Array.from(l.map((o) => o.t)), s: Float32Array.from(l.map((o) => o.s)) };
+}
+/** staerkster Onset innerhalb ±win um t (oder null) */
+export function strongestNear(ix: OnsetIndex, t: number, win: number): { t: number; s: number } | null {
+  let lo = 0, hi = ix.t.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (ix.t[m] < t - win) lo = m + 1; else hi = m; }
+  let best: { t: number; s: number } | null = null;
+  for (let i = lo; i < ix.t.length && ix.t[i] <= t + win; i++) if (!best || ix.s[i] > best.s) best = { t: ix.t[i], s: ix.s[i] };
+  return best;
+}
+
 export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timing {
   const D = { subdivisions: P.subdivisions, nps: P.nps, minGap: P.minGap, maxLocalNps: P.maxLocalNps, patterns: { burst: P.bursts ? 1 : 0 } };
   const SD = P.sectionDensity ?? SECTION_DENSITY;
@@ -72,6 +89,9 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
   const slots: Slot[] = [];
   const g = a.grid.bands;
   const at = (band: (typeof BANDS)[number], i: number) => g[band][i] ?? 0;
+  // echte Onsets aller Baender: keine Note, wo nichts klingt
+  const perc = onsetIndex(BANDS.flatMap((band) => a.onsets[band]));
+  const realOnset = (t: number, win: number) => { const o = strongestNear(perc, t, Math.min(MAPPING.onsetWindow, win)); return o && o.s >= MAPPING.onsetMin ? o : null; };
   for (let k = 0; k < nBeats; k++) {
     const seen = new Set<number>();
     for (const s of subdivs) {
@@ -90,13 +110,16 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         if (gi === 0) metric = inBar === 0 ? MAPPING.metric.downbeat : MAPPING.metric.beat;
         else if (gi === 12) metric = MAPPING.metric.half;
         else if (gi === 6 || gi === 18) metric = MAPPING.metric.quarter;
+        const bt = beatToTime(beats, k + gi / STEPS);
+        const on = realOnset(bt, (beats[k + 1] - beats[k]) / s / 2);
+        if (!on) continue;
         const W = MAPPING.bandSalience;
         let sal = W.sub * kick + W.lowmid * at('lowmid', idx) + W.highmid * at('highmid', idx) + W.high * hat + metric;
         if (gi === 0 || gi === 12) sal += MAPPING.melody * mel;
         // feinere Unterteilungen brauchen einen echten Onset
         if (s >= 4 && gi % 12 !== 0 && Math.max(kick, snare, hat) < 0.35) continue;
         if (s === 8 && gi % 6 !== 0 && Math.max(snare, hat) < 0.5) continue;
-        slots.push({ b: k + gi / STEPS, t: beatToTime(beats, k + gi / STEPS), g: idx, sal, kick, snare, hat, mel, bar, inBar, sec: sectionAtBeat(a, k) });
+        slots.push({ b: k + gi / STEPS, t: bt, g: idx, sal, kick, snare, hat, mel, bar, inBar, sec: sectionAtBeat(a, k), onT: on.t, onS: on.s });
       }
     }
   }
@@ -174,6 +197,7 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         const b = pb - 1 + q * 0.25; if (b < 0) continue;
         const t = beatToTime(beats, b);
         if (t < startT || chosen.some((c) => Math.abs(c.t - t) < D.minGap * 0.9)) continue;
+        if (!realOnset(t, 0.03)) continue;                 // auch Fuellnoten nur auf echten Sounds
         if (!fitsDensity(chosen.map((c) => c.t), t, D.maxLocalNps)) continue;
         const k = Math.floor(b), gi = Math.round((b - k) * STEPS);
         chosen.push({ b, t, g: k * STEPS + gi, sal: 0.5, kick: 0, snare: 0.5, hat: 0.5, mel: 0, bar: barOfBeat(a, k), inBar: 0, sec: sectionAtBeat(a, k), burst: true });

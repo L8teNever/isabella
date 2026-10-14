@@ -53,13 +53,17 @@ test('Mapping: deterministisch, ohne Parity-Fehler/Ueberkreuzungen, Dichte steig
 test('Schnitt-Level unverändert (Fingerabdruck)', async () => {
   const { createHash } = await import('node:crypto');
   const { readFileSync } = await import('node:fs');
-  const snap = JSON.parse(readFileSync(new URL('./schnitt-snapshot.json', import.meta.url)));
+  // Gewollte Aenderung am Schnitt-Generator: UPDATE_SNAPSHOT=1 pnpm test schreibt den Fingerabdruck neu
+  const file = new URL('./schnitt-snapshot.json', import.meta.url);
+  const snap = JSON.parse(readFileSync(file)), next = {};
   for (const bpm of [128, 96]) {
     const a = analyze(synthSong({ bpm, seconds: 60, seed: 3 }));
     for (const d of DIFFICULTIES) {
       const m = generate(a, d, 7);
       const h = createHash('sha256').update(JSON.stringify({ n: m.notes, b: m.bombs, o: m.obstacles, l: m.lights })).digest('hex').slice(0, 16);
-      assert.equal(h, snap[`${bpm}/${d}`], `${bpm} BPM ${d}: Schnitt-Level hat sich verändert`);
+      next[`${bpm}/${d}`] = h;
+      if (!process.env.UPDATE_SNAPSHOT) assert.equal(h, snap[`${bpm}/${d}`], `${bpm} BPM ${d}: Schnitt-Level hat sich verändert`);
     }
   }
+  if (process.env.UPDATE_SNAPSHOT) (await import('node:fs')).writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
 });
