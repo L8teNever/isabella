@@ -7,7 +7,7 @@ import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { DIFFICULTIES, type Difficulty } from '@beatblade/core';
 import { config } from '../config.js';
-import { queueYoutube, cookiesFile } from '../youtube.js';
+import { queueYoutube, cookiesFile, searchSoundcloud } from '../youtube.js';
 import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
 import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
 import { importFile } from '../songs-service.js';
@@ -50,6 +50,12 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     const r = queueYoutube(url);
     if ('error' in r) return reply.code(400).send(r);
     return reply.code(202).send(r);
+  });
+
+  // SoundCloud durchsuchen (Ergebnisse dann per /youtube-Route mit dem Track-Link hinzufuegen)
+  app.get<{ Querystring: { q?: string } }>(`${api}/soundcloud/search`, { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
+    try { return await searchSoundcloud(String(req.query.q ?? '')); }
+    catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
   });
 
   // YouTube-Cookies hinterlegen (gegen die Bot-Pruefung); Datei liegt nur im Daten-Volume, wird nie ausgeliefert

@@ -1,6 +1,6 @@
-// YouTube-Link -> Tonspur -> normaler Song-Import (Analyse wie beim Upload).
-// yt-dlp wird nur mit festen Argumenten aufgerufen (kein Shell-Aufruf); der Link wird auf eine Video-ID
-// geprueft und als kanonische URL weitergegeben. Downloads laufen nacheinander.
+// YouTube-/SoundCloud-Link -> Tonspur -> normaler Song-Import (Analyse wie beim Upload); SoundCloud-Suche.
+// yt-dlp wird nur mit festen Argumenten aufgerufen (kein Shell-Aufruf); Links werden geprueft und als
+// kanonische URL weitergegeben. Downloads laufen nacheinander.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -20,6 +20,52 @@ const ID_RE = /^https?:\/\/(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[
 export function youtubeId(url: string): string | null {
   const m = ID_RE.exec(url.trim());
   return m ? m[1] : null;
+}
+
+// SoundCloud: nur einzelne Tracks (soundcloud.com/<kuenstler>/<track>), keine Profile-Reiter oder Playlists
+const SC_RE = /^https?:\/\/(?:www\.|m\.)?soundcloud\.com\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/?(?:[?#].*)?$/;
+const SC_NOT_TRACK = new Set(['tracks', 'sets', 'likes', 'reposts', 'albums', 'popular-tracks', 'followers', 'following', 'comments', 'spotlight']);
+export function soundcloudUrl(url: string): string | null {
+  const m = SC_RE.exec(url.trim());
+  if (!m || SC_NOT_TRACK.has(m[2])) return null;
+  return `https://soundcloud.com/${m[1]}/${m[2]}`;
+}
+
+/** Link pruefen: kanonische URL + Quelle */
+function parseSource(url: string): { kind: 'youtube' | 'soundcloud'; url: string } | null {
+  const yt = youtubeId(url);
+  if (yt) return { kind: 'youtube', url: `https://www.youtube.com/watch?v=${yt}` };
+  const sc = soundcloudUrl(url);
+  return sc ? { kind: 'soundcloud', url: sc } : null;
+}
+
+// ---------- SoundCloud-Suche ----------
+export interface ScResult { url: string; title: string; artist: string; duration: number; cover: string | null }
+const searchCache = new Map<string, { at: number; list: ScResult[] }>();
+export function searchSoundcloud(query: string): Promise<ScResult[]> {
+  const q = query.replace(/\s+/g, ' ').trim().slice(0, 100);
+  if (!q) return Promise.resolve([]);
+  const hit = searchCache.get(q.toLowerCase());
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return Promise.resolve(hit.list);
+  return new Promise((resolve, reject) => {
+    execFile(config.ytdlp, ['--no-warnings', '--flat-playlist', '-J', `scsearch24:${q}`], { timeout: 45000, maxBuffer: 16 * 1024 * 1024 }, (err, out) => {
+      if (err) return reject(new Error('SoundCloud-Suche fehlgeschlagen.'));
+      try {
+        const entries = (JSON.parse(out).entries ?? []) as Record<string, unknown>[];
+        const list: ScResult[] = [];
+        for (const e of entries) {
+          const url = soundcloudUrl(String(e.webpage_url ?? ''));
+          if (!url) continue;
+          const thumbs = (e.thumbnails as { id?: string; url?: string }[] | undefined) ?? [];
+          const cover = thumbs.find((t) => t.id === 't300x300')?.url ?? thumbs.find((t) => t.id === 'large')?.url ?? null;
+          list.push({ url, title: String(e.title ?? ''), artist: String(e.uploader ?? ''), duration: Number(e.duration ?? 0), cover: cover && /^https:\/\/[a-z0-9.-]*sndcdn\.com\//.test(cover) ? cover : null });
+        }
+        searchCache.set(q.toLowerCase(), { at: Date.now(), list });
+        if (searchCache.size > 200) searchCache.delete(searchCache.keys().next().value!);
+        resolve(list);
+      } catch { reject(new Error('SoundCloud-Suche: unerwartete Antwort.')); }
+    });
+  });
 }
 
 export interface YtStatus { job: string; state: 'warten' | 'laden' | 'umwandeln' | 'import' | 'fertig' | 'fehler'; percent?: number; message?: string; song?: Song; duplicate?: boolean; title?: string }
@@ -47,6 +93,7 @@ function splitTitle(raw: string, uploader: string): { title: string; artist: str
 }
 
 function friendly(stderr: string): string {
+  if (/go\+|subscri|preview/i.test(stderr)) return 'Track nur mit SoundCloud Go+ verfügbar – kann nicht geladen werden.';
   if (/sign in to confirm|not a bot/i.test(stderr)) return fs.existsSync(cookiesFile())
     ? 'YouTube blockiert trotz Cookies (Bot-Prüfung) – Cookies sind evtl. abgelaufen, bitte neu hinterlegen.'
     : 'YouTube verlangt eine Anmeldung (Bot-Prüfung). Bitte YouTube-Cookies hinterlegen (Bibliothek → YouTube-Cookies).';
@@ -59,15 +106,15 @@ function friendly(stderr: string): string {
 }
 
 // ---------- Warteschlange (einer nach dem anderen) ----------
-const queue: { job: string; id: string }[] = [];
+const queue: { job: string; kind: 'youtube' | 'soundcloud'; url: string }[] = [];
 let busy = false;
 
 export function queueYoutube(url: string): { job: string } | { error: string } {
-  const id = youtubeId(url);
-  if (!id) return { error: 'Kein gültiger YouTube-Link (youtube.com/watch?v=…, youtu.be/…, Shorts).' };
+  const src = parseSource(url);
+  if (!src) return { error: 'Kein gültiger Link (YouTube-Video oder SoundCloud-Track).' };
   if (queue.length >= 10) return { error: 'Zu viele Downloads in der Warteschlange – kurz warten.' };
   const job = crypto.randomBytes(6).toString('hex');
-  queue.push({ job, id });
+  queue.push({ job, kind: src.kind, url: src.url });
   send({ job, state: 'warten' });
   void pump();
   return { job };
@@ -76,10 +123,11 @@ export function queueYoutube(url: string): { job: string } | { error: string } {
 async function pump() {
   if (busy) return;
   busy = true;
-  try { for (let j = queue.shift(); j; j = queue.shift()) await run(j.job, j.id); } finally { busy = false; }
+  try { for (let j = queue.shift(); j; j = queue.shift()) await run(j.job, j.kind, j.url); } finally { busy = false; }
 }
 
-function run(job: string, id: string): Promise<void> {
+function run(job: string, kind: 'youtube' | 'soundcloud', url: string): Promise<void> {
+  const yt = kind === 'youtube';
   return new Promise((resolve) => {
     const dir = path.join(tmpDir(), `yt-${job}`); fs.mkdirSync(dir, { recursive: true });
     const args = [
@@ -87,14 +135,15 @@ function run(job: string, id: string): Promise<void> {
       '-f', 'bestaudio/best', '-x', '--audio-format', 'mp3', '--audio-quality', '2',
       '--embed-thumbnail', '--convert-thumbnails', 'jpg', '--embed-metadata',
       '--max-filesize', `${config.maxUploadMb}M`, '--match-filter', `duration <= ${config.ytMaxMinutes * 60}`,
-      '--ffmpeg-location', config.ffmpeg,
+      // nur ein echter Pfad (z. B. /usr/bin/ffmpeg); ein blosser Name wird von yt-dlp als Ordner verstanden -> PATH nutzen
+      ...(config.ffmpeg.includes('/') ? ['--ffmpeg-location', config.ffmpeg] : []),
       '--progress-template', 'download:PROG %(progress._percent_str)s',
       '--print', 'before_dl:META %(title)s\t%(uploader|)s\t%(track|)s\t%(artist|)s',
       '--print', 'after_move:FILE %(filepath)s',
       '-o', path.join(dir, '%(id)s.%(ext)s'),
-      ...(jsRuntime ? ['--js-runtimes', 'node'] : []),
-      ...(fs.existsSync(cookiesFile()) ? ['--cookies', cookiesFile()] : []),
-      `https://www.youtube.com/watch?v=${id}`,
+      ...(yt && jsRuntime ? ['--js-runtimes', 'node'] : []),
+      ...(yt && fs.existsSync(cookiesFile()) ? ['--cookies', cookiesFile()] : []),
+      url,
     ];
     const p = spawn(config.ytdlp, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let err = '', file = '', meta = { title: '', uploader: '', track: '', artist: '' }, lastPct = -1;
@@ -118,7 +167,7 @@ function run(job: string, id: string): Promise<void> {
         if (code !== 0 || !file || !fs.existsSync(file)) throw new Error(friendly(err));
         send({ job, state: 'import', title: meta.title });
         const names = meta.track ? { title: meta.track, artist: meta.artist || meta.uploader } : splitTitle(meta.title, meta.uploader);
-        const r = await importFile(file, `${names.title}.mp3`, await hashFile(file), { title: names.title, artist: names.artist, source: `https://youtu.be/${id}` });
+        const r = await importFile(file, `${names.title}.mp3`, await hashFile(file), { title: names.title, artist: names.artist, source: url });
         send({ job, state: 'fertig', song: r.song, duplicate: r.duplicate, title: names.title });
       } catch (e) {
         send({ job, state: 'fehler', message: (e as Error).message, title: meta.title });

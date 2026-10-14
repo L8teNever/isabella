@@ -38,8 +38,8 @@
           <p class="hint">⚠️ Für hochgeladene Musik bist du selbst verantwortlich (Urheberrecht). Nur Songs hochladen, die du nutzen darfst.</p>
         </div>
         <form id="yt-form" class="yt">
-          <input type="url" id="yt-url" placeholder="YouTube-Link einfügen (youtube.com/watch?v=… oder youtu.be/…)" required />
-          <button class="primary">Von YouTube laden</button>
+          <input type="url" id="yt-url" placeholder="YouTube- oder SoundCloud-Link einfügen" required />
+          <button class="primary">Link laden</button>
         </form>
         <details id="yt-cookies" class="hint yt-cookies">
           <summary>YouTube-Cookies <span id="yt-cookie-state"></span></summary>
@@ -51,6 +51,16 @@
           <input id="yt-cookie-file" type="file" accept=".txt,text/plain" hidden />
         </details>
         <div id="uploads" class="uploads"></div>
+      </div>
+
+      <div class="card sc">
+        <strong>SoundCloud durchsuchen</strong>
+        <form id="sc-form" class="yt">
+          <input type="search" id="sc-q" placeholder="Song, Artist oder Genre …" required />
+          <button class="primary">Suchen</button>
+        </form>
+        <p id="sc-info" class="hint"></p>
+        <div id="sc-results" class="sc-results"></div>
       </div>
 
       <div class="toolbar">

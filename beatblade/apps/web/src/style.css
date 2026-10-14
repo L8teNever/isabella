@@ -31,6 +31,13 @@ main { max-width: 1100px; margin: 0 auto; padding: 16px; }
 .yt { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .yt input { flex: 1 1 260px; min-width: 0; }
 .yt-cookies { margin-top: 10px; }
+.sc { margin-top: 16px; }
+.sc-results { display: grid; gap: 8px; margin-top: 10px; }
+.sc-item { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 12px; }
+.sc-item img, .sc-item .ph { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; background: var(--line); display: grid; place-items: center; }
+.sc-item .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-item .a { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-item > div { min-width: 0; }
 .yt-cookies summary { cursor: pointer; }
 .yt-cookies button { margin: 4px 6px 0 0; }
 .up { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; background: var(--panel2); border-radius: 12px; padding: 10px 12px; }

@@ -48,7 +48,8 @@ etwa einer Minute sind sie spielbar.
 - **Bibliothek** (`/beatblade/`): Upload per Drag & Drop oder Dateiauswahl (MP3, M4A, OGG, FLAC, WAV;
   Erkennung per Magic Bytes), Fortschritt pro Datei, danach Live-Status *In Warteschlange → Dekodieren →
   Analysieren → Level generieren → Fertig*. Tags/Cover werden ausgelesen und sind editierbar,
-  Duplikate (SHA-256) werden erkannt. **YouTube-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
+  Duplikate (SHA-256) werden erkannt. **SoundCloud durchsuchen**: Suchbegriff eingeben, Treffer mit Cover, Artist und
+  Länge, *Hinzufügen* lädt den Track (Go+-Tracks gehen nicht). **YouTube- oder SoundCloud-Link einfügen** lädt nur die Tonspur (MP3, mit Titel/Artist und
   Vorschaubild als Cover) und importiert sie wie einen Upload; Fortschritt live in der Liste. Downloads laufen
   nacheinander. Nur Inhalte laden, die du nutzen darfst – YouTube erlaubt Downloads laut Nutzungsbedingungen nicht.
   Verlangt YouTube eine Anmeldung („Bot-Prüfung“, typisch bei Servern im Rechenzentrum): unter *YouTube-Cookies*

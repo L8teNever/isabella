@@ -34,6 +34,8 @@ export const api = {
   content: () => j<ContentList>('/content'),
   /** YouTube-Link an den Server geben; Fortschritt kommt per SSE 'yt' */
   youtube: (url: string) => j<{ job: string }>('/youtube', json('POST', { url })),
+  /** SoundCloud-Suche: Treffer mit Track-Link, Titel, Artist, Laenge, Cover */
+  scSearch: (q: string) => j<{ url: string; title: string; artist: string; duration: number; cover: string | null }[]>(`/soundcloud/search?q=${encodeURIComponent(q)}`),
   ytCookies: () => j<{ present: boolean; updatedAt?: number }>('/youtube/cookies'),
   ytCookiesSet: (text: string) => j<{ ok: boolean }>('/youtube/cookies', json('POST', { text })),
   ytCookiesDel: () => j<{ ok: boolean }>('/youtube/cookies', { method: 'DELETE' }),

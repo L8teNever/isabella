@@ -92,12 +92,39 @@ const ytRows = new Map<string, HTMLElement>();
 $('yt-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const inp = $<HTMLInputElement>('yt-url'), url = inp.value.trim(); if (!url) return;
-  const row = document.createElement('div'); row.className = 'up';
-  row.innerHTML = `<div class="name">${esc(url)}</div><div class="st hint">An den Server geschickt …</div><div class="bar"><i></i></div>`;
-  $('uploads').prepend(row);
-  try { const r = await api.youtube(url); ytRows.set(r.job, row); inp.value = ''; }
-  catch (err) { const st = row.querySelector<HTMLElement>('.st')!; st.textContent = (err as Error).message; st.style.color = 'var(--err)'; setTimeout(() => row.remove(), 30000); }
+  if (await startImport(url)) inp.value = '';
 });
+// ---------- SoundCloud-Suche ----------
+/** Link laden (YouTube oder SoundCloud) und eine Fortschritts-Zeile anlegen */
+async function startImport(url: string, label = url): Promise<boolean> {
+  const row = document.createElement('div'); row.className = 'up';
+  row.innerHTML = `<div class="name">${esc(label)}</div><div class="st hint">An den Server geschickt …</div><div class="bar"><i></i></div>`;
+  $('uploads').prepend(row);
+  try { const r = await api.youtube(url); ytRows.set(r.job, row); return true; }
+  catch (err) { const st = row.querySelector<HTMLElement>('.st')!; st.textContent = (err as Error).message; st.style.color = 'var(--err)'; setTimeout(() => row.remove(), 30000); return false; }
+}
+$('sc-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const q = $<HTMLInputElement>('sc-q').value.trim(); if (!q) return;
+  const info = $('sc-info'), box = $('sc-results');
+  info.textContent = 'Suche läuft …'; box.innerHTML = '';
+  try {
+    const list = await api.scSearch(q);
+    info.textContent = list.length ? `${list.length} Treffer – „Hinzufügen“ lädt den Song in die Bibliothek.` : 'Nichts gefunden.';
+    const have = new Set([...songs.values()].map((s) => (s as Song & { source?: string }).source).filter(Boolean));
+    for (const r of list) {
+      const el = document.createElement('div'); el.className = 'sc-item';
+      const inLib = have.has(r.url);
+      el.innerHTML = `${r.cover ? `<img src="${esc(r.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer" />` : '<div class="ph">♪</div>'}
+        <div><div class="t">${esc(r.title)}</div><div class="a">${esc(r.artist)} · ${fmtTime(r.duration)}</div></div>
+        <button ${inLib ? 'disabled' : ''}>${inLib ? 'In der Bibliothek ✓' : 'Hinzufügen'}</button>`;
+      const btn = el.querySelector('button')!;
+      btn.addEventListener('click', async () => { btn.disabled = true; btn.textContent = 'Wird geladen …'; if (!(await startImport(r.url, r.title))) { btn.disabled = false; btn.textContent = 'Hinzufügen'; } else btn.textContent = 'Hinzugefügt ✓'; });
+      box.appendChild(el);
+    }
+  } catch (err) { info.textContent = (err as Error).message; }
+});
+
 // YouTube-Cookies (gegen die Bot-Pruefung)
 async function cookieState() {
   try { const c = await api.ytCookies(); $('yt-cookie-state').textContent = c.present ? `· hinterlegt (${new Date(c.updatedAt!).toLocaleDateString('de-DE')})` : '· keine'; }
@@ -112,7 +139,7 @@ $<HTMLInputElement>('yt-cookie-file').addEventListener('change', async (e) => {
 $('yt-cookie-del').addEventListener('click', async () => { await api.ytCookiesDel().catch(() => {}); cookieState(); });
 cookieState();
 
-const YT_TEXT: Record<YtStatus['state'], string> = { warten: 'Wartet …', laden: 'Lädt von YouTube', umwandeln: 'Wandelt in Audio um …', import: 'Wird übernommen …', fertig: 'Geladen – wird verarbeitet', fehler: 'Fehler' };
+const YT_TEXT: Record<YtStatus['state'], string> = { warten: 'Wartet …', laden: 'Lädt herunter', umwandeln: 'Wandelt in Audio um …', import: 'Wird übernommen …', fertig: 'Geladen – wird verarbeitet', fehler: 'Fehler' };
 function ytUpdate(s: YtStatus) {
   const row = ytRows.get(s.job); if (!row) return;
   const st = row.querySelector<HTMLElement>('.st')!, bar = row.querySelector<HTMLElement>('.bar i')!;
