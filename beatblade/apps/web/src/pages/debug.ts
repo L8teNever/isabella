@@ -1,13 +1,14 @@
 // Debug-Ansicht: Wellenform + Beats/Takte + Onsets je Band + Abschnitte + Energie + Noten als Zeitleiste.
 // Abspielen mit Metronom-Klick (Web Audio, auf audioContext.currentTime geplant) und optionalem Noten-Klick.
 import '../style.css';
-import { BANDS, DIFFICULTIES, DIFFICULTY_LABEL, Cut, cutVector, type Beatmap, type Difficulty, type SongAnalysis, type Waveform, type Song } from '@beatblade/core';
+import { BANDS, DIFFICULTIES, DIFFICULTY_LABEL, Cut, cutVector, ORBIT, type Beatmap, type Difficulty, type OrbitMap, type SongAnalysis, type Waveform, type Song } from '@beatblade/core';
 import { api, BASE } from '../api';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const id = new URLSearchParams(location.search).get('song') ?? '';
 const cv = $<HTMLCanvasElement>('tl'), ctx = cv.getContext('2d')!;
-let song: Song, A: SongAnalysis | null = null, W: Waveform | null = null, M: Beatmap | null = null;
+let song: Song, A: SongAnalysis | null = null, W: Waveform | null = null, M: Beatmap | null = null, O: OrbitMap | null = null;
+const orbitMode = () => $<HTMLSelectElement>('mode').value === 'orbit';
 let view0 = 0;                 // linker Rand (s)
 let span = 16;                 // sichtbare Sekunden
 let ac: AudioContext | null = null, buf: AudioBuffer | null = null, src: AudioBufferSourceNode | null = null, startAt = 0, offset = 0, playing = false;
@@ -30,13 +31,18 @@ async function boot() {
 }
 
 async function loadMap() {
-  M = await api.beatmap(id, $<HTMLSelectElement>('diff').value as Difficulty, +$<HTMLInputElement>('seed').value || 0).catch(() => null);
-  const s = M?.stats;
+  const d = $<HTMLSelectElement>('diff').value as Difficulty, seed = +$<HTMLInputElement>('seed').value || 0;
+  M = null; O = null;
+  if (orbitMode()) O = await api.orbitmap(id, d, seed).catch(() => null);
+  else M = await api.beatmap(id, d, seed).catch(() => null);
+  const s = M?.stats, os = O?.stats;
   $('stats').innerHTML = !A ? '' : [
     ['BPM', `${A.bpm} (${Math.round(A.bpmConfidence * 100)} %)`], ['Takt', `${A.beatsPerBar}/4, ${A.bars.length} Takte`],
     ['Abschnitte', A.sections.length], ['Analyse', `${A.took} ms`],
     ...(s ? [['Noten', `${s.notes} (${s.nps}/s)`], ['Drop / Strophe', `${s.dropNps} / ${s.verseNps} /s`], ['Spitze (2 s)', `${s.peakNps}/s`],
       ['Bomben / Wände', `${s.bombs} / ${s.obstacles}`], ['Spielbarkeit', `${s.playability}/100`], ['Korrigiert', Object.entries(s.issues).map(([k, v]) => `${k} ${v}`).join(', ') || '–']] : []),
+    ...(os ? [['Kugeln', `${os.notes} (${os.nps}/s)`], ['Spitze (1 s)', `${os.peakNps}/s`], ['Rails', `${os.rails} (${os.railSeconds} s)`], ['Gold / Grün', `${os.gold} / ${os.green}`],
+      ['Wände', os.obstacles], ['Hand max', `${os.maxHandSpeed} m/s`], ['Spielbarkeit', `${os.playability}/100`], ['Probleme', Object.entries(os.issues).map(([k, v]) => `${k} ${v}`).join(', ') || '–']] : []),
   ].map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
   draw();
 }
@@ -89,9 +95,11 @@ function draw() {
     for (const o of A!.onsets[b]) { if (o.t < view0 || o.t > view0 + span) continue; const hh = (bh - 4) * o.s; ctx.fillRect(x(o.t) - dpr, b0 + i * bh + (bh - 2 - hh), 2 * dpr, hh); }
     ctx.fillStyle = '#aaa'; ctx.font = `${10 * dpr}px system-ui`; ctx.fillText(['Sub', 'Low-Mid', 'High-Mid', 'High'][i], 4, b0 + i * bh + 11 * dpr);
   });
+  const [n0, n1] = Y(rows.notes);
+  if (O) drawOrbit(O, x, n0, n1, w, dpr);
   // Noten: 12 Zeilen (4 Spalten x 3 Reihen), Reihe oben = y2
-  const [n0, n1] = Y(rows.notes), nh = (n1 - n0) / 12;
-  for (let r = 0; r < 12; r++) { ctx.fillStyle = r % 3 === 2 ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.03)'; ctx.fillRect(0, n0 + r * nh, w, nh - 1); }
+  const nh = (n1 - n0) / 12;
+  if (!O) for (let r = 0; r < 12; r++) { ctx.fillStyle = r % 3 === 2 ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.03)'; ctx.fillRect(0, n0 + r * nh, w, nh - 1); }
   const rowOf = (xx: number, yy: number) => xx * 3 + (2 - yy);
   if (M) {
     for (const o of M.obstacles) {
@@ -110,9 +118,12 @@ function draw() {
       else { const [vx, vy] = cutVector(n.d); ctx.moveTo(cx - vx * sz * 0.35, cy + vy * sz * 0.35); ctx.lineTo(cx + vx * sz * 0.35, cy - vy * sz * 0.35); ctx.stroke(); }
     }
     for (const b of M.bombs) { if (b.t < view0 || b.t > view0 + span) continue; ctx.fillStyle = '#888'; ctx.beginPath(); ctx.arc(x(b.t), n0 + rowOf(b.x, b.y) * nh + nh / 2, sz * 0.45, 0, Math.PI * 2); ctx.fill(); }
+  }
+  const lights = M?.lights ?? O?.lights;
+  if (lights) {
     // Lichtshow
     const [l0, l1] = Y(rows.lights);
-    for (const l of M.lights) {
+    for (const l of lights) {
       if (l.t < view0 || l.t > view0 + span) continue;
       ctx.fillStyle = l.type === 'flash' ? `rgba(255,255,255,${l.v})` : l.type === 'burst' ? '#ff3d6e' : l.type === 'off' ? '#000' : l.type === 'color' ? '#b46bff' : `rgba(122,215,255,${l.v * 0.6})`;
       ctx.fillRect(x(l.t), l0, l.type === 'laser' ? 3 * dpr : 2 * dpr, l1 - l0);
@@ -122,6 +133,51 @@ function draw() {
   const now = currentTime();
   ctx.fillStyle = '#fff'; ctx.fillRect(x(now), 0, 2 * dpr, h);
   $('time').textContent = `${now.toFixed(2)} s`;
+}
+
+/** Orbit: oben Hoehe (y), unten Seite (x) je Note; Rails als Linien, Waende als Flaechen */
+function drawOrbit(m: OrbitMap, x: (t: number) => number, n0: number, n1: number, w: number, dpr: number) {
+  const half = (n1 - n0) / 2;
+  const lanes = [
+    { top: n0, val: (p: { x: number; y: number }) => (p.y - ORBIT.minY) / (ORBIT.maxY - ORBIT.minY), name: 'Höhe' },
+    { top: n0 + half, val: (p: { x: number; y: number }) => (p.x - ORBIT.minX) / (ORBIT.maxX - ORBIT.minX), name: 'Seite (links → rechts)' },
+  ];
+  const HAND = ['#ff3d6e', '#3db8ff'];
+  for (const L of lanes) {
+    ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fillRect(0, L.top, w, half - 4 * dpr);
+    ctx.fillStyle = '#aaa'; ctx.font = `${10 * dpr}px system-ui`; ctx.fillText(L.name, 4, L.top + 11 * dpr);
+  }
+  const Yof = (L: (typeof lanes)[number], p: { x: number; y: number }) => L.top + (half - 8 * dpr) * (1 - Math.max(0, Math.min(1, L.val(p)))) + 2 * dpr;
+  // Waende: Seite = abgedeckter x-Bereich, Hoehe = Ducken (oberer Bereich)
+  for (const o of m.obstacles) {
+    if (o.t + o.dur < view0 || o.t > view0 + span) continue;
+    ctx.fillStyle = o.kind === 'crouch' ? 'rgba(255,120,80,.3)' : 'rgba(255,200,80,.25)';
+    if (o.kind === 'crouch') { const yy = Yof(lanes[0], { x: 0, y: ORBIT.crouchMaxY }); ctx.fillRect(x(o.t), lanes[0].top, x(o.t + o.dur) - x(o.t), yy - lanes[0].top); }
+    else {
+      const xa = ORBIT.wallX0 + o.x * ORBIT.wallCol, xb = xa + o.w * ORBIT.wallCol;
+      const ya = Yof(lanes[1], { x: Math.min(ORBIT.maxX, xb), y: 0 }), yb = Yof(lanes[1], { x: Math.max(ORBIT.minX, xa), y: 0 });
+      ctx.fillRect(x(o.t), ya, x(o.t + o.dur) - x(o.t), yb - ya);
+    }
+  }
+  // Rails
+  for (const r of m.rails) {
+    if (r.t1 < view0 || r.t0 > view0 + span) continue;
+    for (const L of lanes) {
+      ctx.strokeStyle = r.kind === 'gold' ? 'rgba(255,214,90,.75)' : HAND[r.hand] + 'aa'; ctx.lineWidth = 5 * dpr; ctx.lineCap = 'round'; ctx.beginPath();
+      r.points.forEach((p, i) => (i ? ctx.lineTo(x(p.t), Yof(L, p)) : ctx.moveTo(x(p.t), Yof(L, p))));
+      ctx.stroke();
+    }
+  }
+  // Noten
+  for (const n of m.notes) {
+    if (n.t < view0 - 0.2 || n.t > view0 + span) continue;
+    const rad = (n.kind === 'gold' ? 8 : 5.5) * dpr;
+    for (const L of lanes) {
+      ctx.fillStyle = n.kind === 'gold' ? '#ffd65a' : n.kind === 'green' ? '#4be3a0' : HAND[n.hand];
+      ctx.beginPath(); ctx.arc(x(n.t), Yof(L, n), rad, 0, Math.PI * 2); ctx.fill();
+      if (n.rail !== undefined) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5 * dpr; ctx.stroke(); }
+    }
+  }
 }
 
 // ---------- Audio ----------
@@ -149,6 +205,7 @@ function tick() {
     const until = t + 0.2;
     if ($<HTMLInputElement>('click').checked) A.beats.forEach((b, k) => { if (b >= scheduledUntil && b < until) click(startAt + b, (k - A!.downbeatOffset) % A!.beatsPerBar === 0 ? 1600 : 1000); });
     if ($<HTMLInputElement>('nclick').checked && M) for (const n of M.notes) if (n.t >= scheduledUntil && n.t < until) click(startAt + n.t, n.c === 0 ? 700 : 900, 0.15);
+    if ($<HTMLInputElement>('nclick').checked && O) for (const n of O.notes) if (n.t >= scheduledUntil && n.t < until) click(startAt + n.t, n.kind === 'gold' ? 1200 : n.hand === 0 ? 700 : 900, 0.15);
     scheduledUntil = until;
     if (t > view0 + span * 0.85 || t < view0) view0 = Math.max(0, t - span * 0.15);
     if (buf && t > buf.duration) { playing = false; offset = 0; $('play').textContent = '▶ Abspielen'; }
@@ -160,6 +217,7 @@ function tick() {
 $('play').addEventListener('click', play);
 $('load').addEventListener('click', loadMap);
 $('diff').addEventListener('change', loadMap);
+$('mode').addEventListener('change', loadMap);
 $('zoom').addEventListener('input', () => { span = +$<HTMLInputElement>('zoom').value; draw(); });
 cv.addEventListener('click', (e) => {
   const r = cv.getBoundingClientRect(), t = view0 + ((e.clientX - r.left) / r.width) * span;
