@@ -25,9 +25,20 @@ type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'key
 
 const PER_PAGE = 6;
 
+type Tab = 'spiel' | 'aussehen' | 'audio' | 'komfort' | 'mehr';
+const TABS: [Tab, string][] = [['spiel', 'Spiel'], ['aussehen', 'Aussehen'], ['audio', 'Audio'], ['komfort', 'Komfort'], ['mehr', 'Mehr']];
+/** Bildschirme, bei denen die Lobby (Bestenliste links, Einstellungen rechts) mit angezeigt wird */
+const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate'];
+
 export class Menus {
+  /** Mitte: Song-Auswahl, Song-Detail mit Starten, Pause, Ergebnis */
   panel = new Panel(1.5);
-  screen: Screen = 'main';
+  /** links: Bestenliste zum gewaehlten Song */
+  board = new Panel(1.05);
+  /** rechts: Einstellungen in Gruppen */
+  side = new Panel(1.3);
+  private tab: Tab = 'aussehen';
+  screen: Screen = 'songs';
   songs: Song[] = [];
   private page = 0;
   private filter: 'all' | 'bundled' | 'uploaded' = 'all';
@@ -47,8 +58,40 @@ export class Menus {
   private backStack: Screen[] = [];
 
   constructor(parent: THREE.Object3D, private act: MenuActions) {
-    this.panel.position.set(0, 1.45, -1.6);
-    parent.add(this.panel);
+    parent.add(this.panel, this.board, this.side);
+    this.place();
+  }
+
+  /** kleine Lobby: alles in Reichweite um den Spieler, ohne sich bewegen zu muessen */
+  place() {
+    this.panel.position.set(0, 1.45, -1.6); this.panel.rotation.set(0, 0, 0);
+    this.board.position.set(-1.45, 1.45, -1.15); this.board.rotation.set(0, 0.8, 0);
+    this.side.position.set(1.55, 1.45, -1.05); this.side.rotation.set(0, -0.8, 0);
+  }
+
+  private panels(): [string, Panel][] { return [['', this.panel], ['L:', this.board], ['R:', this.side]]; }
+
+  /** Laserpointer: naechste getroffene Tafel; Knoepfe der Seitentafeln mit Praefix L:/R: */
+  pick(ray: THREE.Raycaster): string | null {
+    let best: { d: number; id: string | null } | null = null;
+    for (const [pre, p] of this.panels()) {
+      if (!p.visible) continue;
+      const d = p.hits(ray); if (d === null || d === undefined) continue;
+      if (!best || d < best.d) { const id = p.pick(ray); best = { d, id: id ? pre + id : null }; }
+    }
+    return best?.id ?? null;
+  }
+  hits(ray: THREE.Raycaster): number | null {
+    let best: number | null = null;
+    for (const [, p] of this.panels()) { if (!p.visible) continue; const d = p.hits(ray); if (d !== null && d !== undefined && (best === null || d < best)) best = d; }
+    return best;
+  }
+  setHover(id: string | null) {
+    for (const [pre, p] of this.panels()) {
+      if (!p.visible) continue;
+      const mine = id && (pre ? id.startsWith(pre) : !id.startsWith('L:') && !id.startsWith('R:')) ? id.slice(pre.length) : null;
+      p.setHover(mine);
+    }
   }
 
   // ---------- Daten ----------
@@ -72,10 +115,10 @@ export class Menus {
   }
 
   // ---------- Navigation ----------
-  go(s: Screen, push = true) { if (push && this.screen !== s && !['loading', 'pause', 'results'].includes(this.screen)) this.backStack.push(this.screen); this.screen = s; this.refresh(); }
-  back() { this.screen = this.backStack.pop() ?? 'main'; this.refresh(); }
+  go(s: Screen, push = true) { if (s === 'main') s = 'songs'; if (push && this.screen !== s && !['loading', 'pause', 'results'].includes(this.screen)) this.backStack.push(this.screen); this.screen = s; this.refresh(); }
+  back() { this.screen = this.backStack.pop() ?? 'songs'; this.refresh(); }
   show() { this.panel.visible = true; this.refresh(); }
-  hide() { this.panel.hide(); if (this.screen === 'loading') this.screen = 'main'; }
+  hide() { this.panel.hide(); this.board.hide(); this.side.hide(); if (this.screen === 'loading') this.screen = 'songs'; }
   get visible() { return this.panel.visible; }
 
   loading(text: string, p: number) { this.loadingText = text; this.loadingP = p; if (this.screen !== 'loading') { this.screen = 'loading'; } this.panel.visible = true; this.refresh(); }
@@ -89,19 +132,109 @@ export class Menus {
     if (!this.panel.visible) return;
     const spec = this.build();
     this.panel.show(spec);
+    if (LOBBY.includes(this.screen)) { this.board.show(this.buildBoard()); this.side.show(this.buildSettings()); }
+    else { this.board.hide(); this.side.hide(); }
+  }
+
+  // ---------- Lobby: Bestenliste ----------
+  private buildBoard(): Spec {
+    const s = this.sel;
+    if (!s || !['detail'].includes(this.screen)) return { title: 'Bestenliste', cols: 1, items: [
+      { type: 'text', text: 'Wähle in der Mitte einen Song – hier erscheinen dann die besten Ergebnisse.', size: 28, color: '#b8b0d6' },
+      { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8' },
+    ] };
+    const rows = this.scores.slice(0, 10);
+    return { title: 'Bestenliste', subtitle: `${s.title} · ${DIFFICULTY_LABEL[this.diff]}`, cols: 1, items: rows.length
+      ? rows.map((h, i) => ({ type: 'text', text: `${i + 1}.  ${h.name}   ${h.accuracy.toFixed(1)} %  ${h.rank}   ${h.score.toLocaleString('de-DE')}`, size: 28, color: i === 0 ? '#ffd23c' : i < 3 ? '#ffffff' : '#d8d0f0' }) as Item)
+      : [{ type: 'text', text: 'Noch keine Einträge. Spiel den Song und speichere dein Ergebnis!', size: 28, color: '#b8b0d6' }] };
+  }
+
+  // ---------- Lobby: Einstellungen (rechts, in Gruppen) ----------
+  private buildSettings(): Spec {
+    const C = 20;
+    const row = (id: string, label: string, value: string): Item[] => [
+      { type: 'button', id: `${id}-`, label: '−', span: 5, h: 64 }, { type: 'text', text: `${label}: ${value}`, align: 'center', size: 26, span: 10 }, { type: 'button', id: `${id}+`, label: '+', span: 5, h: 64 },
+    ];
+    const colorRow = (id: string, label: string, c: number, custom: boolean): Item[] => [
+      { type: 'button', id: `${id}-`, label: '◀', span: 5, h: 64 },
+      { type: 'text', text: `■■  ${label}${custom ? ' (eigene)' : ''}  ■■`, color: toHex(c), align: 'center', size: 28, span: 10 },
+      { type: 'button', id: `${id}+`, label: '▶', span: 5, h: 64 },
+    ];
+    const tog = (id: keyof typeof settings, label: string): Item => ({ type: 'button', id: `t:${id}`, label: `${label} ${settings[id] ? '✓' : '✗'}`, on: !!settings[id], span: 10, h: 64 });
+    const full = (id: string, label: string, extra: Partial<Item> = {}): Item => ({ type: 'button', id, label, span: C, h: 64, ...extra } as Item);
+    const half = (id: string, label: string): Item => ({ type: 'button', id, label, span: 10, h: 64 });
+    const tabs: Item[] = TABS.map(([t, l]) => ({ type: 'button', id: `tab:${t}`, label: l, on: this.tab === t, span: 4, h: 64 }) as Item);
+    let items: Item[] = [];
+    if (this.tab === 'spiel') items = [
+      full('arrows', `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, { on: settings.arrows === 'egal' } as Partial<Item>),
+      tog('missMute', 'Verfehlt = stumm'), tog('leftHanded', 'Linkshänder'),
+      full('name', `Name: ${settings.name}`),
+    ];
+    else if (this.tab === 'aussehen') items = [
+      half('cset', `Farben: ${currentSet().name} ⟳`), half('bskin', `Blöcke: ${blockName()} ⟳`),
+      ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
+      ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
+      ...(settings.colorLeft || settings.colorRight ? [full('creset', 'Eigene Farben zurücksetzen')] : []),
+      full('sskin', `Schwert: ${saberName()} ⟳`),
+      half('mapc', `Map: ${mapName()} ⟳`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ⟳`),
+      tog('glow', 'Leuchten'), { type: 'text', text: '', span: 10 },
+      ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
+    ];
+    else if (this.tab === 'audio') items = [
+      ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
+      ...row('lat', 'Latenz', `${settings.latencyMs} ms`),
+      full('calib', 'Latenz kalibrieren'),
+    ];
+    else if (this.tab === 'komfort') items = [
+      tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
+      ...row('off', 'Schwert-Offset', `${settings.saberOffsetCm} cm`),
+      ...row('ang', 'Schwert-Winkel', `${settings.saberAngle}°`),
+      ...row('hgt', 'Spielergröße', `${settings.playerHeight.toFixed(2)} m`),
+      ...(this.act.isMR() ? [half('floor', 'Boden setzen'), half('dir', 'Richtung setzen')] : [full('dir', 'Spielfeld zentrieren')]),
+    ];
+    else items = [
+      half('qr', 'Upload vom Handy'), half('credits', 'Credits'),
+      ...(this.act.inXR() ? [full('exit', 'Beenden', { main: true } as Partial<Item>)] : []),
+      { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8' },
+    ];
+    return { title: 'Einstellungen', cols: C, items: [...tabs, { type: 'gap', h: 6 }, ...items] };
+  }
+
+  private settingsClick(id: string) {
+    if (id.startsWith('tab:')) { this.tab = id.slice(4) as Tab; return this.refresh(); }
+    if (id === 'credits') return this.go('credits');
+    if (id === 'qr') return this.go('qr');
+    if (id === 'exit') return this.act.exitXR();
+    const step = (k: string, d: number) => {
+      if (k === 'lat') settings.latencyMs = Math.max(-300, Math.min(500, settings.latencyMs + d * 5));
+      if (k === 'off') settings.saberOffsetCm = Math.max(-20, Math.min(30, settings.saberOffsetCm + d));
+      if (k === 'ang') settings.saberAngle = Math.max(-45, Math.min(60, settings.saberAngle + d * 5));
+      if (k === 'hgt') settings.playerHeight = Math.round(Math.max(1.2, Math.min(2.2, settings.playerHeight + d * 0.05)) * 100) / 100;
+      if (k === 'vol') settings.volume = Math.round(Math.max(0, Math.min(1, settings.volume + d * 0.1)) * 10) / 10;
+      if (k === 'cl') settings.colorLeft = toHex(shiftHue(colorPair()[0], d * HUE_STEP));
+      if (k === 'cr') settings.colorRight = toHex(shiftHue(colorPair()[1], d * HUE_STEP));
+      if (k === 'lgt') settings.lightIntensity = Math.round(Math.max(0, Math.min(1, settings.lightIntensity + d * 0.1)) * 10) / 10;
+    };
+    const m = id.match(/^(\w+)([+-])$/);
+    if (m) step(m[1], m[2] === '+' ? 1 : -1);
+    else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps' | 'missMute' | 'glow'; settings[k] = !settings[k]; }
+    else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
+    else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
+    else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
+    else if (id === 'mapc') { const ids = ['zufall', ...mapItems().map((x) => x.id)]; settings.mapChoice = ids[(ids.indexOf(settings.mapChoice) + 1) % ids.length]; }
+    else if (id === 'wallc') { const ids = ['auto', ...wallItems().map((w) => w.id)]; settings.wallSkin = ids[(ids.indexOf(settings.wallSkin) + 1) % ids.length]; }
+    else if (id === 'sskin') { const l = saberSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentSaber()?.id); settings.saberSkin = l[(i + 1) % l.length].id; } }
+    else if (id === 'bskin') { const l = blockSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentBlock()?.id); settings.blockSkin = l[(i + 1) % l.length].id; } }
+    else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); this.act.applySettings(); });
+    else if (id === 'floor') this.act.setFloor();
+    else if (id === 'dir') this.act.setDirection();
+    else if (id === 'calib') return this.go('calibrate');
+    saveSettings(); this.act.applySettings(); this.refresh();
   }
 
   private build(): Spec {
     switch (this.screen) {
-      case 'main': return {
-        title: 'BeatBlade', subtitle: `${this.songs.filter(playable).length} Songs spielbereit${this.act.isMR() ? ' · Mixed Reality' : ''}`, cols: 2,
-        items: [
-          { type: 'button', id: 'songs', label: '▶  Spielen', main: true, h: 110 },
-          { type: 'button', id: 'settings', label: 'Einstellungen' }, { type: 'button', id: 'qr', label: 'Upload vom Handy' },
-          { type: 'button', id: 'credits', label: 'Credits' }, { type: 'button', id: 'calib', label: 'Latenz kalibrieren' },
-          ...(this.act.inXR() ? [{ type: 'button', id: 'exit', label: 'Beenden', main: true } as Item] : []),
-          { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8', span: 2 } as Item,
-        ] as Item[] };
+      case 'main': case 'settings':   // gibt es nicht mehr: Lobby beginnt mit der Song-Auswahl
       case 'songs': {
         const list = this.visibleSongs(), pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
         this.page = Math.min(this.page, pages - 1);
@@ -118,63 +251,27 @@ export class Menus {
           items.push({ type: 'button', id: `s:${s.id}`, label: s.title, sub: status, img: this.cover(s), disabled: !ok, span: 2, h: 110 });
         }
         if (!list.length) items.push({ type: 'text', text: this.songs.length ? 'Keine Treffer.' : 'Noch keine Songs. Über „Upload vom Handy“ welche hinzufügen.', align: 'center' });
-        items.push({ type: 'button', id: 'prev', label: '◀', disabled: this.page === 0 }, { type: 'button', id: 'back', label: 'Zurück' }, { type: 'button', id: 'next', label: '▶', disabled: this.page >= pages - 1 });
-        return { title: 'Songs', subtitle: `Seite ${this.page + 1}/${pages} · ${list.length} Songs · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
+        items.push({ type: 'button', id: 'prev', label: '◀', disabled: this.page === 0 }, { type: 'text', text: `${this.page + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'next', label: '▶', disabled: this.page >= pages - 1 });
+        return { title: 'Song wählen', subtitle: `Seite ${this.page + 1}/${pages} · ${list.length} Songs · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
       }
       case 'detail': {
         const s = this.sel!; const img = this.cover(s);
         const diffs = DIFFICULTIES.filter((d) => s.difficulties.includes(d));
         if (!diffs.includes(this.diff)) this.diff = diffs.includes('normal') ? 'normal' : diffs[0];
+        // klar gegliedert: Cover, Infos, Schwierigkeit gross, Modifikatoren, Starten
+        const C = 60, dSpan = Math.floor(C / diffs.length);
+        const mod = (id: string, label: string, on: boolean): Item => ({ type: 'button', id, label: `${label} ${on ? '✓' : ''}`, on, span: 20, h: 70 });
         const items: Item[] = [
           ...(img ? [{ type: 'image', img, h: 220 } as Item] : []),
           { type: 'text', text: `${s.artist || 'Unbekannt'} · ${fmtTime(s.duration)} · ${s.bpm ? Math.round(s.bpm) + ' BPM' : ''}${s.license ? ' · ' + s.license.split(' – ')[0] : ''}`, align: 'center', size: 28 },
-          ...diffs.map((d) => ({ type: 'button', id: `d:${d}`, label: DIFFICULTY_LABEL[d], on: this.diff === d, h: 70 }) as Item),
-          { type: 'gap', h: 4 },
-          { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht' : 'egal'}`, on: settings.arrows === 'egal', h: 64 },
-          { type: 'button', id: 'm:missMute', label: `Verfehlt = stumm ${settings.missMute ? '✓' : ''}`, on: settings.missMute, h: 64 },
-          { type: 'button', id: 'm:fastNotes', label: `Schneller ${settings.fastNotes ? '✓' : ''}`, on: settings.fastNotes, h: 64 },
-          { type: 'button', id: 'm:noWalls', label: `Keine Wände ${settings.noWalls ? '✓' : ''}`, on: settings.noWalls, h: 64 },
-          { type: 'button', id: 'm:noBombs', label: `Keine Bomben ${settings.noBombs ? '✓' : ''}`, on: settings.noBombs, h: 64 },
-          { type: 'button', id: 'seed', label: `Seed: ${this.seed ?? s.seed}  ⟳`, h: 64 },
-          { type: 'text', text: this.scores.length ? 'Highscores: ' + this.scores.slice(0, 5).map((h, i) => `${i + 1}. ${h.name} ${h.accuracy.toFixed(1)} % (${h.rank})`).join('   ') : 'Noch keine Highscores', size: 24, color: '#b8b0d6' },
-          { type: 'button', id: 'back', label: 'Zurück' },
-          { type: 'button', id: 'play', label: '▶  Spielen', main: true, h: 100 },
+          ...diffs.map((d) => ({ type: 'button', id: `d:${d}`, label: DIFFICULTY_LABEL[d], on: this.diff === d, span: dSpan, h: 84 }) as Item),
+          { type: 'gap', h: 6 },
+          mod('m:fastNotes', 'Schneller', settings.fastNotes), mod('m:noWalls', 'Keine Wände', settings.noWalls), mod('m:noBombs', 'Keine Bomben', settings.noBombs),
+          { type: 'button', id: 'seed', label: `Variante ${this.seed ?? s.seed} ⟳`, span: 30, h: 70 },
+          { type: 'button', id: 'back', label: 'Zurück', span: 30, h: 70 },
+          { type: 'button', id: 'play', label: '▶  Starten', main: true, h: 120 },
         ];
-        return { title: s.title, cols: Math.max(2, Math.min(5, diffs.length)), items: items.map((i) => (i.type === 'button' && i.id === 'back' ? { ...i, span: 1 } : i)) };
-      }
-      case 'settings': {
-        const row = (id: string, label: string, value: string): Item[] => [
-          { type: 'button', id: `${id}-`, label: '−', h: 70 }, { type: 'text', text: `${label}: ${value}`, align: 'center', size: 28, span: 2 }, { type: 'button', id: `${id}+`, label: '+', h: 70 },
-        ];
-        const colorRow = (id: string, label: string, c: number, custom: boolean): Item[] => [
-          { type: 'button', id: `${id}-`, label: '◀', h: 70 },
-          { type: 'text', text: `■■  ${label}${custom ? ' (eigene)' : ''}  ■■`, color: toHex(c), align: 'center', size: 30, span: 2 },
-          { type: 'button', id: `${id}+`, label: '▶', h: 70 },
-        ];
-        const tog = (id: keyof typeof settings, label: string): Item => ({ type: 'button', id: `t:${id}`, label: `${label} ${settings[id] ? '✓' : '✗'}`, on: !!settings[id], span: 2, h: 70 });
-        return { title: 'Einstellungen', cols: 4, items: [
-          ...row('lat', 'Latenz', `${settings.latencyMs} ms`),
-          ...row('off', 'Schwert-Offset', `${settings.saberOffsetCm} cm`),
-          ...row('ang', 'Schwert-Winkel', `${settings.saberAngle}°`),
-          ...row('hgt', 'Spielergröße', `${settings.playerHeight.toFixed(2)} m`),
-          ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
-          ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
-          { type: 'button', id: 'arrows', label: `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, on: settings.arrows === 'egal', span: 4, h: 70 },
-          // Farben: Farbset durchschalten, links/rechts frei im Farbton drehen
-          { type: 'button', id: 'cset', label: `Farben: ${currentSet().name}  ⟳`, span: 2, h: 70 },
-          { type: 'button', id: 'bskin', label: `Blöcke: ${blockName()}  ⟳`, span: 2, h: 70 },
-          { type: 'button', id: 'sskin', label: `Schwert: ${saberName()}  ⟳`, span: 4, h: 70 },
-          { type: 'button', id: 'mapc', label: `Map: ${mapName()}  ⟳`, span: 2, h: 70 },
-          { type: 'button', id: 'wallc', label: `Wände: ${wallName()}  ⟳`, span: 2, h: 70 },
-          ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
-          ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
-          ...(settings.colorLeft || settings.colorRight ? [{ type: 'button', id: 'creset', label: 'Eigene Farben zurücksetzen', span: 4, h: 60 } as Item] : []),
-          tog('missMute', 'Verfehlt = stumm'), tog('glow', 'Leuchten'), tog('leftHanded', 'Linkshänder'), tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
-          { type: 'button', id: 'name', label: `Name: ${settings.name}`, span: 2, h: 70 },
-          ...(this.act.isMR() ? [{ type: 'button', id: 'floor', label: 'Boden setzen', span: 2, h: 70 } as Item, { type: 'button', id: 'dir', label: 'Richtung setzen', span: 2, h: 70 } as Item]
-            : [{ type: 'button', id: 'dir', label: 'Spielfeld zentrieren', span: 4, h: 70 } as Item]),
-          { type: 'button', id: 'calib', label: 'Latenz kalibrieren', span: 2 }, { type: 'button', id: 'back', label: 'Zurück', span: 2, main: true },
-        ] };
+        return { title: s.title, cols: C, items };
       }
       case 'credits':
         if (!this.credits.length) api.credits().then((c) => { this.credits = c; this.refresh(); }).catch(() => {});
@@ -232,16 +329,11 @@ export class Menus {
 
   // ---------- Bedienung ----------
   click(id: string) {
+    if (id.startsWith('R:')) return this.settingsClick(id.slice(2));
+    if (id.startsWith('L:')) return;
     const s = this.screen;
     if (id === 'back') return this.back();
-    if (s === 'main') {
-      if (id === 'songs') { this.page = 0; this.go('songs'); }
-      else if (id === 'settings') this.go('settings');
-      else if (id === 'credits') this.go('credits');
-      else if (id === 'qr') this.go('qr');
-      else if (id === 'calib') this.go('calibrate');
-      else if (id === 'exit') this.act.exitXR();
-    } else if (s === 'songs') {
+    if (s === 'songs') {
       if (id.startsWith('f:')) { this.filter = id.slice(2) as typeof this.filter; this.page = 0; this.refresh(); }
       else if (id === 'sort') { this.sort = this.sort === 'new' ? 'title' : this.sort === 'title' ? 'bpm' : 'new'; this.refresh(); }
       else if (id === 'search') this.keyboard('Suche', this.search, (v) => { this.search = v.trim(); this.page = 0; });
@@ -257,32 +349,6 @@ export class Menus {
       else if (id.startsWith('m:')) { const k = id.slice(2) as 'fastNotes' | 'noWalls' | 'noBombs' | 'missMute'; settings[k] = !settings[k]; saveSettings(); this.refresh(); }
       else if (id === 'seed') { this.seed = Math.floor(Math.random() * 999999) + 1; this.refresh(); }
       else if (id === 'play') this.act.play(this.sel, this.diff, this.seed ?? this.sel.seed);
-    } else if (s === 'settings') {
-      const step = (k: string, d: number) => {
-        if (k === 'lat') settings.latencyMs = Math.max(-300, Math.min(500, settings.latencyMs + d * 5));
-        if (k === 'off') settings.saberOffsetCm = Math.max(-20, Math.min(30, settings.saberOffsetCm + d));
-        if (k === 'ang') settings.saberAngle = Math.max(-45, Math.min(60, settings.saberAngle + d * 5));
-        if (k === 'hgt') settings.playerHeight = Math.round(Math.max(1.2, Math.min(2.2, settings.playerHeight + d * 0.05)) * 100) / 100;
-        if (k === 'vol') settings.volume = Math.round(Math.max(0, Math.min(1, settings.volume + d * 0.1)) * 10) / 10;
-        if (k === 'cl') settings.colorLeft = toHex(shiftHue(colorPair()[0], d * HUE_STEP));
-        if (k === 'cr') settings.colorRight = toHex(shiftHue(colorPair()[1], d * HUE_STEP));
-        if (k === 'lgt') settings.lightIntensity = Math.round(Math.max(0, Math.min(1, settings.lightIntensity + d * 0.1)) * 10) / 10;
-      };
-      const m = id.match(/^(\w+)([+-])$/);
-      if (m) step(m[1], m[2] === '+' ? 1 : -1);
-      else if (id.startsWith('t:')) { const k = id.slice(2) as 'leftHanded' | 'comfort' | 'showFps' | 'missMute' | 'glow'; settings[k] = !settings[k]; }
-      else if (id === 'arrows') settings.arrows = settings.arrows === 'pflicht' ? 'egal' : 'pflicht';
-      else if (id === 'cset') { const sets = colorSets(), i = sets.findIndex((x) => x.id === currentSet().id); settings.colorSet = sets[(i + 1) % sets.length].id; settings.colorLeft = settings.colorRight = null; }
-      else if (id === 'creset') settings.colorLeft = settings.colorRight = null;
-      else if (id === 'mapc') { const ids = ['zufall', ...mapItems().map((m) => m.id)]; settings.mapChoice = ids[(ids.indexOf(settings.mapChoice) + 1) % ids.length]; }
-      else if (id === 'wallc') { const ids = ['auto', ...wallItems().map((w) => w.id)]; settings.wallSkin = ids[(ids.indexOf(settings.wallSkin) + 1) % ids.length]; }
-      else if (id === 'sskin') { const l = saberSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentSaber()?.id); settings.saberSkin = l[(i + 1) % l.length].id; } }
-      else if (id === 'bskin') { const l = blockSkins(); if (l.length) { const i = l.findIndex((b) => b.id === currentBlock()?.id); settings.blockSkin = l[(i + 1) % l.length].id; } }
-      else if (id === 'name') return this.keyboard('Spielername', settings.name, (v) => { settings.name = v.trim().slice(0, 20) || 'Spieler'; saveSettings(); });
-      else if (id === 'floor') this.act.setFloor();
-      else if (id === 'dir') this.act.setDirection();
-      else if (id === 'calib') return this.go('calibrate');
-      saveSettings(); this.act.applySettings(); this.refresh();
     } else if (s === 'keyboard' && this.kb) {
       const k = this.kb;
       if (id.startsWith('k:')) k.value = (k.value + id.slice(2)).slice(0, 24);

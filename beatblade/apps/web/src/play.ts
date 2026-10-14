@@ -3,7 +3,7 @@ import './style.css';
 import * as THREE from 'three';
 import type { Difficulty, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
-import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle } from './look';
+import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems } from './look';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, pruneSong } from './storage/cache';
@@ -115,7 +115,7 @@ function onSelect(inp: Input) {
   tapTimes.push(audio.ctx.currentTime);
   if (!menus.visible) return;
   setRayFrom(inp.ray);
-  const id = menus.panel.pick(raycaster);
+  const id = menus.pick(raycaster);
   if (id) { pulse(inp.source?.handedness === 'left' ? 0 : 1, 0.3, 20); menus.click(id); }
 }
 
@@ -131,7 +131,7 @@ renderer.domElement.addEventListener('pointerdown', () => {
   tapTimes.push(audio.ctx.currentTime);
   if (!menus.visible) return;
   raycaster.setFromCamera(mouse, camera);
-  const id = menus.panel.pick(raycaster); if (id) menus.click(id);
+  const id = menus.pick(raycaster); if (id) menus.click(id);
 });
 renderer.domElement.addEventListener('wheel', (e) => { if (menus.visible) menus.scroll(e.deltaY > 0 ? 1 : -1); });
 addEventListener('keydown', (e) => {
@@ -144,6 +144,11 @@ let autoplay = true;
 
 /** Block-Skin auf Bloecke und geschnittene Haelften anwenden */
 let saberKey = '';
+/** Lobby-Hintergrund: immer eine zufaellige Map */
+function lobbyMap() {
+  const list = mapItems();
+  if (env && list.length) env.setMap(mapStyle(list[Math.floor(Math.random() * list.length)]));
+}
 /** Map (gewaehlt oder zufaellig) und passende Waende setzen */
 function applyMap() {
   const m = pickMap();
@@ -205,7 +210,7 @@ function finish() {
   setTimeout(() => { hud.show(false); if (current) menus.results(game.score, current.song, current.d); }, 800);
 }
 
-function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); }
+function toMenu() { state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); }
 
 // ---------- Latenz-Kalibrierung ----------
 let tapTimes: number[] = [];
@@ -237,7 +242,7 @@ function setDirection() {
   root.rotation.y = Math.atan2(-fwd.x, -fwd.z);
   placeMenu();
 }
-function placeMenu() { menus.panel.position.set(0, 1.45, -1.6); menus.panel.rotation.set(0, 0, 0); }
+function placeMenu() { menus.place(); }
 
 // ---------- Start ----------
 async function startXR(m: 'vr' | 'ar') {
@@ -254,7 +259,7 @@ async function startXR(m: 'vr' | 'ar') {
 function setup(m: XRMode) {
   mode = m;
   $('start').hidden = true; renderer.domElement.style.display = 'block';
-  if (!env) { env = new Environment(scene, m === 'ar'); applyMap(); }
+  if (!env) { env = new Environment(scene, m === 'ar'); lobbyMap(); }
   root.position.y = m === 'ar' ? settings.floorOffset : 0;
   hud.fps.visible = settings.showFps;
   audio.resume();
@@ -335,11 +340,11 @@ renderer.setAnimationLoop((_t, frame) => {
     inp.line.visible = xr && menus.visible && !!inp.source;
     if (!inp.line.visible) continue;
     setRayFrom(inp.ray);
-    const id = menus.panel.pick(raycaster); if (id) hover = id;
-    const d = menus.panel.hits(raycaster); inp.line.scale.z = d ?? 2;
+    const id = menus.pick(raycaster); if (id) hover = id;
+    const d = menus.hits(raycaster); inp.line.scale.z = d ?? 2;
   }
-  if (!xr && mouseIn && menus.visible) { raycaster.setFromCamera(mouse, camera); hover = menus.panel.pick(raycaster); }
-  if (menus.visible) menus.panel.setHover(hover);
+  if (!xr && mouseIn && menus.visible) { raycaster.setFromCamera(mouse, camera); hover = menus.pick(raycaster); }
+  if (menus.visible) menus.setHover(hover);
 
   // Spiel
   if (state === 'playing') game.update(songT, dt, headLocal, false);
@@ -408,4 +413,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { game, menus, audio, settings, sabers, camera, get state() { return state; } };

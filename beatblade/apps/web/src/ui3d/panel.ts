@@ -87,9 +87,14 @@ export class Panel extends THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMateri
         let tx = x + 22;
         if (it.img) { try { c.save(); rr(c, x + 10, yy + 10, h - 20, h - 20, 12); c.clip(); c.drawImage(it.img, x + 10, yy + 10, h - 20, h - 20); c.restore(); } catch { /* Bild noch nicht geladen */ } tx = x + h + 6; }
         c.textAlign = it.img || it.sub ? 'left' : 'center';
-        c.fillStyle = '#fff'; c.font = `${it.main ? 800 : 650} ${it.sub ? 32 : 34}px system-ui, sans-serif`;
         const lx = it.img || it.sub ? tx : x + w / 2;
-        c.fillText(it.label, lx, yy + (it.sub ? h * 0.36 : h / 2), w - (lx - x) - 16);
+        // verfuegbare Breite: zentriert die ganze Knopfbreite, sonst ab Textanfang
+        const maxW = it.img || it.sub ? w - (lx - x) - 16 : w - 24;
+        // Schrift verkleinern statt stauchen (bis 20 px)
+        let fs = it.sub ? 32 : 34;
+        c.fillStyle = '#fff'; c.font = `${it.main ? 800 : 650} ${fs}px system-ui, sans-serif`;
+        while (fs > 20 && c.measureText(it.label).width > maxW) { fs -= 2; c.font = `${it.main ? 800 : 650} ${fs}px system-ui, sans-serif`; }
+        c.fillText(it.label, lx, yy + (it.sub ? h * 0.36 : h / 2), maxW);
         if (it.sub) { c.fillStyle = hot ? '#ffe' : '#b8b0d6'; c.font = '500 25px system-ui, sans-serif'; c.fillText(it.sub, lx, yy + h * 0.7, w - (lx - x) - 16); }
         this.rects.push({ id: it.id, x, y: yy, w, h, disabled: it.disabled });
       } else if (it.type === 'text') {
