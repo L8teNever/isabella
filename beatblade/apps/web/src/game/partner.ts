@@ -9,22 +9,22 @@ import { Slicer } from './slicer';
 import { Saber } from './sabers';
 import { Game } from './game';
 import { OrbitGame } from './orbit/orbit';
-import { HIT_Z, rowY, LANE_W } from './layout';
+import { HIT_Z, rowY, LANE_W, DUET_LANE_X } from './layout';
 import { buildSaberVisual, type SaberVisual } from './sabervisuals';
 import type { HandOrbVisual } from './orbit/orbskins';
 import { buildSaberFor, buildHandOrbFor, loadBlockSkin, loadOrbNoteSkin } from '../look';
 
 // ---------- Stellschrauben ----------
-/** Mitte der Partnerspur: so weit rechts neben meiner Spielfeld-Mitte (m) */
-export const PARTNER_OFFSET = 1.6;
+/** Mitte der Partnerspur: so weit rechts neben meiner Spielfeld-Mitte (m) – eigene, volle Bahn in der Map */
+export const PARTNER_OFFSET = DUET_LANE_X;
 /** Charakter leicht zu mir gedreht (rad) */
 export const PARTNER_YAW = 0.35;
 /** seitliche Bewegung des Partners: auf seiner Spur gehalten (m) */
 export const PARTNER_SIDE_MAX = 0.6;
 /** Haende nie naeher an meine Spur als das (x in m) */
-export const PARTNER_HAND_MIN_X = 1.0;
-/** Partnerspur verkleinert, damit sie meine nie beruehrt */
-export const PARTNER_LANE_SCALE = 0.55;
+export const PARTNER_HAND_MIN_X = 1.6;
+/** Partnerspur in voller Groesse auf seiner eigenen Bahn (kleiner als 1 = verkleinert) */
+export const PARTNER_LANE_SCALE = 1;
 /** Bildschirm-Debug: Charakter nach vorn ins Bild holen (m) */
 export const PARTNER_DESKTOP_FORWARD = 1.4;
 /** Interpolations-Puffer (ms) */

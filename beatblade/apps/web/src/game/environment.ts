@@ -2,6 +2,7 @@
 // VR: Neon-Laufsteg, Laser, Ringe, Nebel – reagieren auf Licht-Events (Flash, Farbe, Laser, Burst).
 // MR: keine Umgebung, nur dezente Bodenmarkierung und Akzentlicht (echter Raum bleibt sichtbar).
 import * as THREE from 'three';
+import { DUET_LANE_X } from './layout';
 import type { LightEvent } from '@beatblade/core';
 import { settings } from '../settings';
 
@@ -39,6 +40,8 @@ export class Environment {
   /** Lichter mit eigener Farbe (Kuerbisse, Baumlichter, Korallen): pulsieren mit der Lichtshow, Farbe bleibt */
   private keep: { m: THREE.MeshBasicMaterial; c: THREE.Color }[] = [];
   style = 'neon-runway';
+  /** Duett: zweite Bahn rechts, Deko auf der rechten Seite rueckt nach aussen */
+  duet = false;
 
   /** scene: Lichter, Nebel, Hintergrund; parent: alles Sichtbare der Map (gemeinsame Buehne mit dem Spielfeld) */
   constructor(scene: THREE.Scene, parent: THREE.Object3D, public mr: boolean) {
@@ -58,6 +61,30 @@ export class Environment {
     this.style = style; this.build();
   }
 
+  /** Duett an/aus: Map mit zweiter Bahn fuer den Partner neu aufbauen */
+  setDuet(on: boolean) {
+    if (on === this.duet) return;
+    this.duet = on; this.build();
+  }
+
+  /**
+   * Duett: Bahn-Teile (Bahnflaeche, Leuchtstreifen, Ringe ueber der Bahn) fuer die Partnerbahn bei DUET_LANE_X verdoppeln,
+   * alles rechts neben der Bahn um diese Breite nach aussen schieben – so steht keine Deko auf seiner Bahn.
+   */
+  private widen() {
+    const off = DUET_LANE_X;
+    for (const c of [...this.group.children]) {
+      const x = c.position.x;
+      const geo = (c as THREE.Mesh).geometry as THREE.BufferGeometry & { parameters?: { width?: number } } | undefined;
+      // Ringe sind gross genug fuer beide Bahnen: nur in die Mitte zwischen beide ruecken
+      if (this.rings.includes(c as THREE.Mesh)) { c.position.x = x + off / 2; continue; }
+      const laneLike = c.userData.lane === true || geo?.parameters?.width === 2.6;
+      if (laneLike && Math.abs(x) <= 1.5) {
+        const k = c.clone(); k.position.x = x + off; this.group.add(k);
+      } else if (x > 1.5) c.position.x += off;
+    }
+  }
+
   private clear() {
     for (const c of [...this.group.children]) {
       this.group.remove(c);
@@ -68,6 +95,11 @@ export class Environment {
   }
 
   private build() {
+    this.buildMap();
+    if (this.duet) this.widen();
+  }
+
+  private buildMap() {
     this.clear();
     const g = this.group, scene = this.scene;
     if (this.mr) {
@@ -76,7 +108,7 @@ export class Environment {
       g.add(ring);
       for (const x of [-1.15, 1.15]) {
         const line = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 6).rotateX(-Math.PI / 2), this.floorMat);
-        line.position.set(x, 0.006, -3.5); g.add(line);
+        line.position.set(x, 0.006, -3.5); line.userData.lane = true; g.add(line);
       }
       // MR: die Map-Deko (Schnee, Baeume, Kuerbisse, Mond ...) erscheint im echten Raum;
       // Himmel, Nebel, Boden und Bahn bleiben weg, damit das Zimmer sichtbar bleibt
@@ -90,7 +122,7 @@ export class Environment {
       for (const x of xs) {
         const m = additive(0x7a4dff);
         const st = new THREE.Mesh(new THREE.PlaneGeometry(Math.abs(x) > 2 ? 0.05 : 0.035, len).rotateX(-Math.PI / 2), m);
-        st.position.set(x, 0.004, -len / 2 + 2); g.add(st); this.strips.push(m);
+        st.position.set(x, 0.004, -len / 2 + 2); st.userData.lane = true; g.add(st); this.strips.push(m);
       }
     };
     const lasers = (dist: number, count: number, height = 40) => {

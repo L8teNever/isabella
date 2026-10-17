@@ -142,7 +142,7 @@ Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppe
   steigt an der richtigen Stelle wieder ein; danach spielt der Verbliebene allein zu Ende (ohne Bestenliste).
 - **Testen am PC:** `play.html` in zwei Browser-Fenstern öffnen (zwei verschiedene Profile oder ein privates Fenster, damit es
   zwei Geräte sind), beide „Am Bildschirm testen“ – Autoplay spielt mit.
-- Grenzen: höchstens 2 Spieler je Lobby; die Partnerspur ist verkleinert (sonst würde sie bei 1,6 m Abstand deine berühren);
+- Grenzen: höchstens 2 Spieler je Lobby; jede Map bekommt im Duett eine zweite, volle Bahn rechts (`DUET_LANE_X` = 2,8 m in `apps/web/src/game/layout.ts`), die Deko rechts rückt nach außen, die Ringe sitzen mittig über beiden Bahnen;
   der Oberkörper ist angedeutet (aus der Kopfpose geschätzt, keine Körpererfassung); in MR steht der Partner virtuell daneben (keine gemeinsame Raum-Ausrichtung zweier Brillen);
   Lobbys leben im Speicher (ein Server-Neustart beendet sie, laufende Songs spielen lokal zu Ende).
 
@@ -158,8 +158,8 @@ Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppe
 | `MP_DRIFT_LOG`, `MP_DRIFT_RESYNC` | dto. | 40 ms protokollieren, ab 250 ms einmal neu ansetzen |
 | `MP_RATE_FAST`, `MP_RATE_SLOW`, `MP_MAX_BYTES` | dto. | 60/s Pose, 5/s Rest, 16 KB |
 | `MP_CLOCK_SAMPLES`, `MP_CLOCK_EVERY_MS` | `apps/web/src/net/mp.ts` | 8 Proben, alle 30 s |
-| `PARTNER_OFFSET`, `PARTNER_YAW`, `PARTNER_SIDE_MAX`, `PARTNER_HAND_MIN_X` | `apps/web/src/game/partner.ts` | 1,6 m, 0,35 rad, ±0,6 m, 1,0 m |
-| `PARTNER_LANE_SCALE`, `PARTNER_NOTE_OPACITY`, `PARTNER_DELAY`, `PARTNER_DESKTOP_FORWARD` | dto. | 0,55, 0,35, 100 ms, 1,4 m (nur Bildschirm) |
+| `PARTNER_OFFSET`, `PARTNER_YAW`, `PARTNER_SIDE_MAX`, `PARTNER_HAND_MIN_X` | `apps/web/src/game/partner.ts` | = `DUET_LANE_X` (2,8 m), 0,35 rad, ±0,6 m, 1,6 m |
+| `PARTNER_LANE_SCALE`, `PARTNER_NOTE_OPACITY`, `PARTNER_DELAY`, `PARTNER_DESKTOP_FORWARD` | dto. | 1 (volle Größe), 0,35, 100 ms, 1,4 m (nur Bildschirm) |
 | `PARTNER_HIT_VOLUME`, `PARTNER_MISS_VOLUME`, `PARTNER_LATE_MAX` | `apps/web/src/audio/player.ts` | 0,3, 1, 300 ms |
 | `COLOR_MIN_HUE_DIFF`, `COLOR_MIN_LIGHT_DIFF`, `DUET_FALLBACK_COLORS` | `packages/core/src/multiplayer.ts` | 45°, 0,18, Orange/Grün … |
 

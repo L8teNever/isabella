@@ -340,6 +340,8 @@ function restoreColors() {
 /** Partner-Charakter aus dem Lobby-Zustand (Name, Farben, Skins, Modus) */
 function syncPartner() {
   const l = mp.lobby, p = mp.partner;
+  // Map bekommt im Duett eine zweite Bahn fuer den Partner
+  env?.setDuet(!!(l && p));
   if (!l || !p) { partner.hideChar(); return; }
   partner.setInfo(p.name, p.colors, p.look, l.mode);
 }
