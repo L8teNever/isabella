@@ -5,7 +5,7 @@ import { BANDS, type Difficulty, type LightEvent, type Obstacle, type OrbitMap, 
 import { ANALYSIS_VERSION, ORBIT_MAPPING_VERSION } from '../../version.js';
 import { MAPPING } from '../../tuning.js';
 import { lightShow } from '../lights.js';
-import { fitsDensity, pickTiming, STEPS, type Slot } from '../timing.js';
+import { fitsDensity, pickTiming, STEPS, type Slot, type Timing, type TimingParams } from '../timing.js';
 import { Rng, beatToTime, beatOfBar, barOfBeat, sectionAtBeat } from '../util.js';
 import { ORBIT, ORBIT_DIFFICULTY, ORBIT_MOTIONS, ORBIT_SECTION_DENSITY, type OrbitMotion } from './tuning.js';
 import { checkOrbit, orbitPlayability, railAt, speedViolations, wallActive, wallSpan } from './validate.js';
@@ -28,15 +28,37 @@ function motion(m: OrbitMotion, u: number): [number, number] {
   }
 }
 
-export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: number): OrbitMap {
+/** Parameter der Zeitauswahl fuer Orbit; density > 1 = mehr Noten (Duett: beide Stimmen zusammen) */
+export function orbitTiming(difficulty: Difficulty, density = 1): TimingParams {
   const D = ORBIT_DIFFICULTY[difficulty];
+  return {
+    subdivisions: D.subdivisions, nps: D.nps * density, minGap: D.minGap, maxLocalNps: D.maxLocalNps * density,
+    longDropPause: difficulty === 'easy', bursts: difficulty === 'expertplus', sectionDensity: ORBIT_SECTION_DENSITY,
+  };
+}
+
+export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: number): OrbitMap {
   const rng = new Rng(`${seed}:${difficulty}:orbit`);
+  const timing = pickTiming(a, orbitTiming(difficulty), rng);
+  return buildOrbitFromSlots(a, difficulty, seed, timing.chosen, timing, { rngRails: rng, rngNotes: rng });
+}
+
+export interface OrbitBuildOptions {
+  /** Zufall fuer Rails und fuer Noten/Gold (Solo: derselbe Strom wie die Zeitauswahl, bitgenau wie vorher) */
+  rngRails: Rng;
+  rngNotes: Rng;
+  /** Duett: gehoert eine Rail (Startzeit) zu dieser Stimme? */
+  railOwner?: (t0: number) => boolean;
+}
+
+/** Rails, Haende, Gold, Positionen, Gruen, Geschwindigkeit auf einer fertigen Slot-Liste */
+export function buildOrbitFromSlots(a: SongAnalysis, difficulty: Difficulty, seed: number, chosen: Slot[],
+  timing: Pick<Timing, 'startT' | 'endT' | 'pauseBefore'>, opts: OrbitBuildOptions): OrbitMap {
+  const D = ORBIT_DIFFICULTY[difficulty];
   const beats = a.beats;
   const nBeats = beats.length - 1;
-  const { chosen, startT, endT, pauseBefore, dropStarts } = pickTiming(a, {
-    subdivisions: D.subdivisions, nps: D.nps, minGap: D.minGap, maxLocalNps: D.maxLocalNps,
-    longDropPause: difficulty === 'easy', bursts: difficulty === 'expertplus', sectionDensity: ORBIT_SECTION_DENSITY,
-  }, rng);
+  const { startT, endT, pauseBefore } = timing;
+  let rng = opts.rngRails;
   const sortedE = [...a.barEnergy].sort((x, y) => x - y);
   const quant = (q: number) => sortedE.length ? sortedE[Math.min(sortedE.length - 1, Math.floor(q * sortedE.length))] : 0.5;
   const goldE = quant(ORBIT.goldEnergy), greenE = quant(ORBIT.greenEnergy);
@@ -154,6 +176,13 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
       }
       points.push({ t: r3(t), x: r3(x), y: r3(y) });
     }
+    // Duett: Rail gehoert einer Stimme – die andere laesst sie aus (Zufall/Zustand laufen gleich weiter)
+    if (opts.railOwner && !opts.railOwner(points[0].t)) {
+      railUsed += t1 - t0; railFree[hand] = k + L + ORBIT.railRestBeats;
+      if (gold) railFree[1 - hand] = railFree[hand];
+      nextHand = (1 - hand) as 0 | 1; k += L;
+      continue;
+    }
     const ri = rails.length;
     const kind = gold ? 'gold' : 'normal';
     rails.push({ hand, kind, points, t0: points[0].t, t1: points[points.length - 1].t });
@@ -175,6 +204,7 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
   const railOf = (t: number) => rails.find((r) => t >= r.t0 - D.minGap && t <= r.t1 + D.minGap);
 
   // ---------- 3. Haende, Gold, Positionen ----------
+  rng = opts.rngNotes;
   const notes: OrbitNote[] = [];
   const motionOf = new Map<string, OrbitMotion>();
   const phraseMotion = (sec: Section | undefined, phrase: number): OrbitMotion => {
@@ -328,7 +358,6 @@ export function generateOrbit(a: SongAnalysis, difficulty: Difficulty, seed: num
     stats: { notes: 0, rails: 0, railSeconds: 0, nps: 0, peakNps: 0, gold: 0, green: 0, obstacles: 0, maxHandSpeed: 0, playability: 100, issues: {} },
   };
   map.stats = orbitStats(map, startT, endT);
-  void dropStarts;
   return map;
 }
 

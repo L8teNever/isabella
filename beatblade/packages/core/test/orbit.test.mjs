@@ -124,3 +124,20 @@ test('Orbit-Validierung: Kugel in der Ecke ist ausser Reichweite', () => {
   n.x = 0.75; n.y = 0.92;
   assert.ok(checkOrbit(m).outOfReach > 0, 'outOfReach nicht erkannt');
 });
+
+// Schutz: Orbit-Level duerfen sich durch gemeinsame Generator-Teile (z. B. Duett) nicht aendern.
+// Bei einer gewollten Aenderung: ORBIT_MAPPING_VERSION erhoehen und mit UPDATE_SNAPSHOT=1 neu erzeugen.
+test('Orbit-Level unverändert (Fingerabdruck)', async () => {
+  const { readFileSync, writeFileSync, existsSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  const file = new URL('./orbit-snapshot.json', import.meta.url);
+  const snap = existsSync(file) ? JSON.parse(readFileSync(file)) : {}, next = {};
+  songs.slice(0, 2).forEach((a, i) => {
+    for (const d of DIFFICULTIES) {
+      const h = createHash('sha256').update(JSON.stringify(generateOrbit(a, d, 7))).digest('hex').slice(0, 16);
+      next[`${i}/${d}`] = h;
+      if (!process.env.UPDATE_SNAPSHOT) assert.equal(h, snap[`${i}/${d}`], `${a.bpm} BPM ${d}: Orbit-Level hat sich verändert`);
+    }
+  });
+  if (process.env.UPDATE_SNAPSHOT) writeFileSync(file, JSON.stringify(next, null, 2) + '\n');
+});

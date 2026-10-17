@@ -107,3 +107,40 @@ test('Duett: nur eine Klangart -> Frage-Antwort je Phrase, ausgeglichen', () => 
     for (const p of phrases) assert.ok(!sp.parts[1 - v].some((s) => Math.floor(s.bar / 2) === p), `Phrase ${p} geteilt`);
   }
 });
+
+// ---------- Orbit-Duett ----------
+import { generateOrbitDuet, generateOrbit, checkOrbit } from '../dist/index.js';
+
+test('Orbit-Duett: deterministisch, Stimmen getrennt, jede Rail genau einer Stimme', () => {
+  for (const a of songs) for (const d of DIFFICULTIES) {
+    const m1 = generateOrbitDuet(a, d, 7), m2 = generateOrbitDuet(a, d, 7);
+    assert.deepEqual(m1, m2, `${a.bpm} ${d}: gleicher Seed`);
+    const own = (p) => new Set(p.notes.filter((n) => n.rail === undefined).map((n) => k(n.t)));
+    const t0 = own(m1.parts[0]), t1 = own(m1.parts[1]), uni = new Set(m1.unison.map(k));
+    for (const t of t0) if (t1.has(t)) assert.ok(uni.has(t), `${a.bpm} ${d}: ${t / 1000}s in beiden Stimmen`);
+    const r0 = m1.parts[0].rails.map((r) => r.t0), r1 = m1.parts[1].rails.map((r) => r.t0);
+    for (const t of r0) assert.ok(!r1.includes(t), `${a.bpm} ${d}: Rail ${t}s in beiden Stimmen`);
+    m1.parts.forEach((p, v) => {
+      assert.deepEqual(checkOrbit(p), {}, `${a.bpm} ${d} Stimme ${v + 1}: ${JSON.stringify(checkOrbit(p))}`);
+      assert.equal(p.stats.playability, 100);
+    });
+  }
+  const a = songs[0];
+  assert.notDeepEqual(generateOrbitDuet(a, 'hard', 7).parts[0].notes, generateOrbitDuet(a, 'hard', 8).parts[0].notes, 'anderer Seed');
+});
+
+test('Orbit-Duett: Dichte jeder Stimme steigt mit der Schwierigkeit', () => {
+  for (const a of songs) {
+    // zusammen streng steigend; je Stimme hoechstens leichte Schwankung (Rails wechseln die Stimme)
+    let prevSum = 0; const prev = [0, 0], first = [];
+    for (const d of DIFFICULTIES) {
+      const m = generateOrbitDuet(a, d, 7), sum = m.parts[0].notes.length + m.parts[1].notes.length;
+      assert.ok(sum > prevSum, `${a.bpm} ${d}: zusammen ${sum} <= ${prevSum}`); prevSum = sum;
+      m.parts.forEach((p, v) => {
+        assert.ok(p.notes.length >= prev[v] * 0.92, `${a.bpm} ${d} Stimme ${v + 1}: ${p.notes.length} < ${prev[v]}`);
+        prev[v] = p.notes.length; first[v] ??= p.notes.length;
+      });
+    }
+    for (const v of [0, 1]) assert.ok(prev[v] > first[v] * 2, `${a.bpm} Stimme ${v + 1}: Expert+ kaum dichter als Easy`);
+  }
+});
