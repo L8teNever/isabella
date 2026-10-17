@@ -18,7 +18,7 @@ import { cutFor, newHand, nextSwing, type Flavor, type HandState, type Swing } f
 import { validate } from './validate.js';
 import { lightShow } from './lights.js';
 
-import { pickTiming, type Slot } from './timing.js';
+import { pickTiming, type Slot, type TimingParams } from './timing.js';
 export { fitsDensity } from './timing.js';
 
 interface Planned extends Slot {
@@ -32,18 +32,37 @@ interface Planned extends Slot {
   phraseIdx: number;
 }
 
+/** Parameter der Zeitauswahl fuer Schnitt; density > 1 = mehr Noten (Duett: beide Stimmen zusammen) */
+export function schnittTiming(difficulty: Difficulty, density = 1): TimingParams {
+  const D = DIFFICULTY[difficulty];
+  return {
+    subdivisions: D.subdivisions, nps: D.nps * density, minGap: D.minGap, maxLocalNps: D.maxLocalNps * density,
+    longDropPause: difficulty === 'easy', bursts: !!D.patterns.burst,
+  };
+}
+
 export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Beatmap {
+  const rngMain = new Rng(`${seed}:${difficulty}:main`);
+  // ---------- 1.+2. Zeitpunkte (gemeinsam mit Orbit) ----------
+  const { chosen, startT, endT } = pickTiming(a, schnittTiming(difficulty), rngMain);
+  return buildFromSlots(a, difficulty, seed, chosen, { startT, endT });
+}
+
+export interface BuildOptions {
+  /** Musik-Anfang/-Ende aus der Zeitauswahl (fuer Waende) */
+  startT: number;
+  endT: number;
+  /** Zusatz fuer die Zufallsstroeme (Duett-Stimmen: ':v1'/':v2'); leer = Solo, bitgenau wie vorher */
+  salt?: string;
+}
+
+/** Schritte 3–6 auf einer fertigen Slot-Liste: Muster, Parity, Positionen, Waende, Bomben, Lichtshow, Validierung */
+export function buildFromSlots(a: SongAnalysis, difficulty: Difficulty, seed: number, chosen: Slot[], opts: BuildOptions): Beatmap {
   const D = DIFFICULTY[difficulty];
   const ROWS = { ...ROWS_BASE, ...ROWS_BY_DIFFICULTY[difficulty] };
   const beats = a.beats;
-  const nBeats = beats.length - 1;
-  const rngMain = new Rng(`${seed}:${difficulty}:main`);
-
-  // ---------- 1.+2. Zeitpunkte (gemeinsam mit Orbit) ----------
-  const { chosen, startT, endT, pauseBefore } = pickTiming(a, {
-    subdivisions: D.subdivisions, nps: D.nps, minGap: D.minGap, maxLocalNps: D.maxLocalNps,
-    longDropPause: difficulty === 'easy', bursts: !!D.patterns.burst,
-  }, rngMain);
+  const { startT, endT } = opts;
+  const rk = `${seed}:${difficulty}${opts.salt ?? ''}`;   // Zufalls-Schluessel
 
   // ---------- 3. Phrasen und Muster ----------
   const planned: Planned[] = [];
@@ -56,7 +75,7 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
     if (key !== phraseKey) {
       phraseKey = key; phraseIdx++;
       // gleicher Zufallsstrom fuer wiederholte Abschnitte (Gruppe + Phrasenposition) -> gleiche Muster
-      const r = new Rng(`${seed}:${difficulty}:g${sec?.group}:p${pIn}`);
+      const r = new Rng(`${rk}:g${sec?.group}:p${pIn}`);
       const w: Partial<Record<PatternName, number>> = {};
       const secW = SECTION_PATTERNS[sec?.type ?? 'verse'];
       for (const [k, v] of Object.entries(D.patterns) as [PatternName, number][]) {
@@ -116,7 +135,7 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
   // ---------- 4. Haende, Richtungen, Positionen ----------
   const notes: Note[] = [];
   const hands: [HandState, HandState] = [newHand(0), newHand(1)];
-  const rng = new Rng(`${seed}:${difficulty}:place`);
+  const rng = new Rng(`${rk}:place`);
   let lastHand: 0 | 1 = 1;
   let stairStep = 0, windStep = 0, lastPhrase = -1;
   const put = (p: Planned, hand: 0 | 1, swing: Swing, flavor: Flavor, x: number, y: number, dot = false) => {
@@ -246,7 +265,7 @@ export function generate(a: SongAnalysis, difficulty: Difficulty, seed = 0): Bea
   // ---------- 6. Bomben (ab Hard): sparsam, als Reset-Hilfe in ruhigen Passagen ----------
   const bombs: Bomb[] = [];
   if (D.bombs) {
-    const r = new Rng(`${seed}:${difficulty}:bombs`);
+    const r = new Rng(`${rk}:bombs`);
     // Bombe auf der Seite der Hand, die gerade Pause hat (aeussere Spalte, mittlere Reihe):
     // sichtbar, aber nicht im Schlagweg der aktiven Hand
     for (let i = 1; i < notes.length; i++) {

@@ -269,3 +269,19 @@ export interface OrbitMap {
   lights: LightEvent[];
   stats: OrbitStats;
 }
+
+/** Duett: dasselbe Lied in zwei Stimmen (1 = Rhythmus, 2 = Melodie/Glanz). Zusammen ergeben sie das ganze Lied. */
+export interface DuetMap<P = Beatmap> {
+  mode: GameModeId;
+  version: number;
+  analysisVersion: number;
+  difficulty: Difficulty;
+  seed: number;
+  /** parts[0] = Stimme 1, parts[1] = Stimme 2 – jede eine vollstaendige Zwei-Hand-Map */
+  parts: [P, P];
+  /** Zeitpunkte (s), die beide Stimmen gemeinsam spielen (Drop-Einsaetze) */
+  unison: number[];
+  /** alle Zeitpunkte (s) beider Stimmen zusammen, sortiert */
+  slots: number[];
+  stats: { share: [number, number]; unison: number };
+}

@@ -2,7 +2,8 @@ export * from './types.js';
 export * from './tuning.js';
 export * from './version.js';
 export { analyze, waveform, GRID_STEPS } from './analysis/analyze.js';
-export { generate } from './mapping/generator.js';
+export { generate, buildFromSlots, schnittTiming } from './mapping/generator.js';
+export { generateDuet, splitSlots, DUET_DENSITY, DUET_TIE, DUET_MIN_SHARE, DUET_MAX_SHARE, DUET_MONO } from './mapping/duet.js';
 export { validate, countProblems } from './mapping/validate.js';
 export { cutVector, swingOf } from './mapping/parity.js';
 export { SECTION_PALETTE } from './mapping/lights.js';
@@ -13,3 +14,4 @@ export { ORBIT, ORBIT_DIFFICULTY, ORBIT_SECTION_DENSITY } from './mapping/orbit/
 export { timingReport, type TimingReport } from './mapping/report.js';
 export { toReach, goldToReach, outOfReach, reachRadius } from './mapping/orbit/reach.js';
 export { duckAt } from './mapping/orbit/validate.js';
+export { pickTiming } from './mapping/timing.js';
