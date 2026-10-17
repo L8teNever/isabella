@@ -42,6 +42,9 @@ etwa einer Minute sind sie spielbar.
 - Der Container lauscht auf Port 3000; alles liegt unter `BASE_PATH` (Web-App und `BASE_PATH/api`).
 - Cloudflare Tunnel: Ingress-Regel für den Hostnamen mit Pfad `^/beatblade` auf `http://<host>:3000`.
 - Server-Sent Events (`/api/events`) brauchen ungepuffertes Weiterleiten (Header `X-Accel-Buffering: no` ist gesetzt; bei nginx `proxy_buffering off`).
+- „Zusammen spielen“ nutzt einen WebSocket (`/api/mp`). Cloudflare-Tunnel leitet WebSockets ohne Zusatz weiter
+  (Leerlauf wird per Heartbeat alle 20 s verhindert). Bei nginx davor:
+  `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade"; proxy_read_timeout 120s;`
 - Bei `AUTH_MODE=cloudflare` eine Access-Application für `host/beatblade` anlegen.
 
 ## Bedienung
@@ -103,6 +106,54 @@ Rails aus den Analyse-Werten `sustain`/`pitch`, Gold/Grün, Wände; danach Valid
 Überkreuzen, Abstand gleichzeitiger Kugeln, Kugeln in Wänden, Bereich, Rails, Dichte) mit Spielbarkeits-Score.
 Alle Stellschrauben: `packages/core/src/mapping/orbit/tuning.ts`. Orbit-Levels haben eine eigene Version
 (`ORBIT_MAPPING_VERSION`): Änderungen erzeugen nur die Orbit-Levels neu, Schnitt bleibt unberührt.
+
+## Zusammen spielen (Duett)
+
+Zwei Spieler spielen denselben Song gleichzeitig – jeder bekommt **eine eigene Stimme** desselben Liedes.
+Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppelt (außer Drop-Einsätze, die beide spielen).
+
+- **Stimme 1 = Rhythmus** (Kick, Snare, Bass), **Stimme 2 = Melodie und Glanz** (Hi-Hat, Melodie, Gesang). Jede Stimme ist ein
+  vollständiges Zwei-Hand-Level mit eigener Parity – keine Stimme ist „nur die linke Hand“. Wände und Lichtshow sind für beide gleich.
+- **Wer ist online?** In der Song-Liste „👥 Zusammen spielen“: alle, die BeatBlade gerade offen haben (Brille, Handy, PC), mit
+  Status (im Menü, in einer Lobby, spielt Song X, abwesend). Die Bibliothek (Handy/PC) zeigt dieselbe Liste; „Einladen“ öffnet dort das Spiel.
+- **Einladen:** „Einladen“ neben einer Person – sie bekommt die Einladung sofort (auch in der Brille, mit Haptik) und kann annehmen
+  oder ablehnen (60 s gültig). Mitten im Song kommt sie dezent und erst danach als Tafel. Oder: **Lobby-Code** (4 Zeichen) bzw.
+  QR-Code/Link `play.html?lobby=CODE` in der Lobby.
+- **Lobby:** Der Host wählt den Song über die normale Song-Auswahl („Für die Lobby wählen“), dazu Modus, Schwierigkeit, Variante und
+  die gemeinsamen Modifikatoren (keine Wände, keine Bomben, schneller). Persönlich bleiben Linkshänder, Pfeile, Spielergröße,
+  Latenz, Skins, Farben und Map. „Stimmen tauschen“, „Bereit“, dann startet der Host „▶ Zusammen starten“.
+- **Synchron:** Beide laden Audio und Duett-Level, dann startet der Server den Song für beide zur selben Zeit (Uhr-Abgleich,
+  Ausgabe-Latenz und Kalibrierung werden eingerechnet – Ziel unter ~20 ms Unterschied, auch im selben Raum hörbar gleich).
+- **Pause:** Pausiert einer (B/Y, Brille ab), pausieren beide. Weiter geht es gemeinsam (wer pausiert hat, oder beide drücken Weiter)
+  mit 3-s-Countdown. Neu starten und Zurück zur Lobby macht der Host.
+- **Partner sehen:** Kopf und Hände bzw. Schwerter als einfacher Avatar auf einer Nachbarspur rechts, darüber sein Name;
+  seine Noten halbtransparent (Einstellung „Partner-Noten (Duett)“), seine Live-Wertung im HUD.
+- **Ergebnis:** beide Spieler mit Prozent und Sternen, dazu die **Team-Wertung** (nach Notenzahl gewichteter Mittelwert).
+  Duett-Bestenliste je Song; Solo-Highscores werden im Duett nicht eingetragen.
+- **Verbindung weg:** Der Song läuft lokal weiter, der Partner sieht „Verbindung verloren“. Wer innerhalb von 20 s zurückkommt,
+  steigt an der richtigen Stelle wieder ein; danach spielt der Verbliebene allein zu Ende (ohne Bestenliste).
+- **Testen am PC:** `play.html` in zwei Browser-Fenstern öffnen (zwei verschiedene Profile oder ein privates Fenster, damit es
+  zwei Geräte sind), beide „Am Bildschirm testen“ – Autoplay spielt mit.
+- Grenzen: höchstens 2 Spieler je Lobby; in MR steht der Partner virtuell daneben (keine gemeinsame Raum-Ausrichtung zweier Brillen);
+  Lobbys leben im Speicher (ein Server-Neustart beendet sie, laufende Songs spielen lokal zu Ende).
+
+| Stellschraube | Datei | Wert |
+|---|---|---|
+| `DUET_DENSITY` | `packages/core/src/mapping/duet.ts` | 1.7 (Gesamtdichte beider Stimmen relativ zu Solo) |
+| `DUET_TIE` | dto. | 0.15 (darunter entscheidet die 2-Takt-Phrase) |
+| `DUET_MIN_SHARE` / `DUET_MAX_SHARE` | dto. | 0.35 / 0.65 je Abschnitt |
+| `DUET_MONO` | dto. | 0.85 (ab da Frage-Antwort je Phrase) |
+| `DUET_MAPPING_VERSION` | `packages/core/src/version.ts` | erhöhen, wenn sich Duett-Levels ändern |
+| `MP_INVITE_MS`, `MP_GRACE_MS` | `apps/server/src/multiplayer.ts` | 60 s Einladung, 20 s Gnadenfrist |
+| `MP_START_LEAD_MS`, `MP_RESUME_LEAD_MS` | dto. | 4 s Vorlauf, 3 s Countdown |
+| `MP_DRIFT_LOG`, `MP_DRIFT_RESYNC` | dto. | 40 ms protokollieren, ab 250 ms einmal neu ansetzen |
+| `MP_RATE_FAST`, `MP_RATE_SLOW`, `MP_MAX_BYTES` | dto. | 60/s Pose, 5/s Rest, 16 KB |
+| `MP_CLOCK_SAMPLES`, `MP_CLOCK_EVERY_MS` | `apps/web/src/net/mp.ts` | 8 Proben, alle 30 s |
+| `PARTNER_OFFSET`, `PARTNER_TURN`, `PARTNER_DELAY`, `PARTNER_NOTE_OPACITY` | `apps/web/src/game/partner.ts` | 2,2 m, 0,3 rad, 100 ms, 0,3 |
+
+Technik: WebSocket `/api/mp` (Nachrichtentypen geteilt in `packages/core/src/multiplayer.ts`, `MP_PROTOCOL`), Duett-Levels per
+`GET /api/songs/:id/duet?mode=&difficulty=&seed=` (nur bei Bedarf erzeugt, Dateien in `beatmaps/duet/`), Bestenliste
+`GET /api/songs/:id/duet-scores` (eingetragen vom Server, wenn beide fertig sind).
 
 ## Wertung
 
