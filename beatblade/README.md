@@ -126,15 +126,24 @@ Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppe
   Ausgabe-Latenz und Kalibrierung werden eingerechnet – Ziel unter ~20 ms Unterschied, auch im selben Raum hörbar gleich).
 - **Pause:** Pausiert einer (B/Y, Brille ab), pausieren beide. Weiter geht es gemeinsam (wer pausiert hat, oder beide drücken Weiter)
   mit 3-s-Countdown. Neu starten und Zurück zur Lobby macht der Host.
-- **Partner sehen:** Kopf und Hände bzw. Schwerter als einfacher Avatar auf einer Nachbarspur rechts, darüber sein Name;
-  seine Noten halbtransparent (Einstellung „Partner-Noten (Duett)“), seine Live-Wertung im HUD.
+- **Partner sehen:** Jeder sieht den anderen immer **rechts** neben sich (VR, MR, Lobby und Song): leuchtender Kopf, Oberkörper,
+  zwei Hände mit **seinen** Schwertern bzw. Handkugeln (seine Skins, auch links/rechts verschieden), Namensschild. Er bleibt auf
+  seiner Spur (seitlich ±0,6 m, Hände nie in deiner Spur). Seine Noten laufen halbtransparent auf seiner eigenen, verkleinerten
+  Spur rechts (nie überlappend mit deiner), mit seinen Block-/Kugel-Skins (Einstellung „Partner-Noten (Duett)“); Live-Wertung im HUD.
+- **Eigene Farben:** Stimme 1 behält ihre Farben (bzw. das Farbset einer Themen-Map), Stimme 2 bekommt automatisch ein klar anderes
+  Farbset, wenn sich die Farben zu ähnlich sind (Farbton-Abstand unter 45°). Die Lobby zeigt die Farben beider als Farbfelder.
+- **Gleiche Welt:** Die Map wählt der Host (seine Map-Einstellung; „Zufällig“ wird beim Start einmal für beide gezogen).
+- **Partner hören:** Seine Treffer (leise) und vor allem seine Fehler (dumpfer Fehl-Ton, Bombe, Wand, Rail verloren) als Raumklang
+  von rechts; dazu blinkt seine Spur rot und über seinem Kopf steht „Verpasst“. Lautstärke: Einstellungen › Audio › „Partner hören“
+  (0 = aus). Fehler des Partners schalten deine Musik nie stumm.
 - **Ergebnis:** beide Spieler mit Prozent und Sternen, dazu die **Team-Wertung** (nach Notenzahl gewichteter Mittelwert).
   Duett-Bestenliste je Song; Solo-Highscores werden im Duett nicht eingetragen.
 - **Verbindung weg:** Der Song läuft lokal weiter, der Partner sieht „Verbindung verloren“. Wer innerhalb von 20 s zurückkommt,
   steigt an der richtigen Stelle wieder ein; danach spielt der Verbliebene allein zu Ende (ohne Bestenliste).
 - **Testen am PC:** `play.html` in zwei Browser-Fenstern öffnen (zwei verschiedene Profile oder ein privates Fenster, damit es
   zwei Geräte sind), beide „Am Bildschirm testen“ – Autoplay spielt mit.
-- Grenzen: höchstens 2 Spieler je Lobby; in MR steht der Partner virtuell daneben (keine gemeinsame Raum-Ausrichtung zweier Brillen);
+- Grenzen: höchstens 2 Spieler je Lobby; die Partnerspur ist verkleinert (sonst würde sie bei 1,6 m Abstand deine berühren);
+  der Oberkörper ist angedeutet (aus der Kopfpose geschätzt, keine Körpererfassung); in MR steht der Partner virtuell daneben (keine gemeinsame Raum-Ausrichtung zweier Brillen);
   Lobbys leben im Speicher (ein Server-Neustart beendet sie, laufende Songs spielen lokal zu Ende).
 
 | Stellschraube | Datei | Wert |
@@ -149,7 +158,10 @@ Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppe
 | `MP_DRIFT_LOG`, `MP_DRIFT_RESYNC` | dto. | 40 ms protokollieren, ab 250 ms einmal neu ansetzen |
 | `MP_RATE_FAST`, `MP_RATE_SLOW`, `MP_MAX_BYTES` | dto. | 60/s Pose, 5/s Rest, 16 KB |
 | `MP_CLOCK_SAMPLES`, `MP_CLOCK_EVERY_MS` | `apps/web/src/net/mp.ts` | 8 Proben, alle 30 s |
-| `PARTNER_OFFSET`, `PARTNER_TURN`, `PARTNER_DELAY`, `PARTNER_NOTE_OPACITY` | `apps/web/src/game/partner.ts` | 2,2 m, 0,3 rad, 100 ms, 0,3 |
+| `PARTNER_OFFSET`, `PARTNER_YAW`, `PARTNER_SIDE_MAX`, `PARTNER_HAND_MIN_X` | `apps/web/src/game/partner.ts` | 1,6 m, 0,35 rad, ±0,6 m, 1,0 m |
+| `PARTNER_LANE_SCALE`, `PARTNER_NOTE_OPACITY`, `PARTNER_DELAY`, `PARTNER_DESKTOP_FORWARD` | dto. | 0,55, 0,35, 100 ms, 1,4 m (nur Bildschirm) |
+| `PARTNER_HIT_VOLUME`, `PARTNER_MISS_VOLUME`, `PARTNER_LATE_MAX` | `apps/web/src/audio/player.ts` | 0,3, 1, 300 ms |
+| `COLOR_MIN_HUE_DIFF`, `COLOR_MIN_LIGHT_DIFF`, `DUET_FALLBACK_COLORS` | `packages/core/src/multiplayer.ts` | 45°, 0,18, Orange/Grün … |
 
 Technik: WebSocket `/api/mp` (Nachrichtentypen geteilt in `packages/core/src/multiplayer.ts`, `MP_PROTOCOL`), Duett-Levels per
 `GET /api/songs/:id/duet?mode=&difficulty=&seed=` (nur bei Bedarf erzeugt, Dateien in `beatmaps/duet/`), Bestenliste
