@@ -6,7 +6,7 @@ import { api, subscribe } from './api';
 import { mrSafeBlending } from './game/mrblend';
 import { loadLook, loadBlockSkin, buildSaber, currentSaber, currentBlock, currentOrb, currentOrbNote, colorPair, toHex, pickMap, mapStyle, wallFor, wallStyle, mapItems, loadOrbNoteSkin, orbStyle, orbModel } from './look';
 import { handOrbFromModel } from './game/orbit/orbskins';
-import { settings, saveSettings } from './settings';
+import { settings, saveSettings, runtime } from './settings';
 import { AudioPlayer } from './audio/player';
 import { loadAudio, loadBeatmap, loadOrbitMap, loadDuet, pruneSong } from './storage/cache';
 import { Mp, guessDevice } from './net/mp';
@@ -314,7 +314,7 @@ function presence(away = document.visibilityState === 'hidden') {
 }
 document.addEventListener('visibilitychange', () => presence());
 
-function duetEnd() { duet = null; partner.setGhost(null); hud.setPartner(''); restoreColors(); }
+function duetEnd() { duet = null; runtime.arrows = null; partner.setGhost(null); hud.setPartner(''); restoreColors(); }
 
 // ---------- Duett: Aussehen, Farben ----------
 /** eigenes Aussehen (Skins + eigene Farben) fuer den Partner */
@@ -349,7 +349,7 @@ function syncPartner() {
 /** gemeinsame Modifikatoren (Host) gelten fuer beide; persoenliche Einstellungen bleiben lokal */
 function withShared<T>(m: MpSharedModifiers, fn: () => T): T {
   const keep = { noWalls: settings.noWalls, noBombs: settings.noBombs, fastNotes: settings.fastNotes };
-  Object.assign(settings, m);
+  Object.assign(settings, { noWalls: m.noWalls, noBombs: m.noBombs, fastNotes: m.fastNotes });
   try { return fn(); } finally { Object.assign(settings, keep); }
 }
 
@@ -374,6 +374,8 @@ async function duetPrepare(m: Extract<MpServerMsg, { t: 'prepare' }>) {
   try {
     const song = menus.songs.find((x) => x.id === m.song.id) ?? await api.song(m.song.id);
     const partnerM = mp.lobby?.members.find((x) => x.clientId !== mp.me);
+    // Pfeile wie in der Lobby eingestellt (Host)
+    runtime.arrows = m.sharedModifiers.anyDirection ? 'egal' : 'pflicht';
     duet = { song, d: m.difficulty, seed: m.seed, mode: m.mode, part: m.part, partnerName: partnerM?.name ?? 'Partner', lastScore: 0, lastSync: 0, partnerCombo: 0, solo: false };
     current = { song, d: m.difficulty, seed: m.seed, mode: m.mode };
     presence();
@@ -529,12 +531,11 @@ mp.on('results', (m) => {
   hud.show(false);
   menus.duetResults(m, d.song, d.d, d.mode);
 });
-let mapSentFor = '';
 mp.on('lobby.state', (m) => {
   const l = m.lobby;
   syncPartner();
-  // neue Lobby: Map des Hosts gleich uebernehmen
-  if (l && mp.isHost && l.state === 'waiting' && mapSentFor !== l.id) { mapSentFor = l.id; if (l.map !== settings.mapChoice) mp.send({ t: 'lobby.update', map: settings.mapChoice }); }
+  // als Host gelten meine Einstellungen automatisch fuer die Party (auch wenn das Menue gerade zu ist)
+  if (l && mp.isHost) menus.syncLobby();
   if (l && !m.lobby?.members.some((x) => x.clientId === mp.me && x.look)) sendLook();
   // Host hat zurueck zur Lobby geschickt, oder Laden abgebrochen: Spiel beenden
   if (duet && l && l.state === 'waiting' && ['loading', 'mpready', 'playing', 'paused', 'resuming'].includes(state)) {

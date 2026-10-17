@@ -28,7 +28,7 @@ export interface MpPerson {
 }
 
 /** Modifikatoren, die der Host fuer beide festlegt (aendern Inhalt bzw. Timing) */
-export interface MpSharedModifiers { noWalls: boolean; noBombs: boolean; fastNotes: boolean }
+export interface MpSharedModifiers { noWalls: boolean; noBombs: boolean; fastNotes: boolean; /** Richtung egal: jeder saubere Schnitt zaehlt */ anyDirection: boolean }
 
 /** Aussehen eines Spielers (Ordnernamen aus content/, Farben #rrggbb links/rechts) */
 export interface MpLook {

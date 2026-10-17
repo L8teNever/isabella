@@ -59,6 +59,11 @@ export const settings: Settings = (() => {
 
 export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify({ ...settings, v: SETTINGS_V })); } catch { /* privat/voll */ } }
 
+/** Laufzeit-Vorgaben, die eigene Einstellungen ueberstimmen (Duett: Einstellungen des Hosts), nicht gespeichert */
+export const runtime: { arrows: Settings['arrows'] | null } = { arrows: null };
+/** gilt gerade: Pfeile Pflicht oder egal (im Duett die Lobby-Einstellung) */
+export const arrowsMode = (): Settings['arrows'] => runtime.arrows ?? settings.arrows;
+
 export function modifiersLabel(s: Settings = settings): string {
   return [s.arrows === 'egal' && 'PE', s.fastNotes && 'FN', s.noWalls && 'NW', s.noBombs && 'NB'].filter(Boolean).join(',');
 }

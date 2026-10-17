@@ -114,22 +114,27 @@ Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppe
 
 - **Stimme 1 = Rhythmus** (Kick, Snare, Bass), **Stimme 2 = Melodie und Glanz** (Hi-Hat, Melodie, Gesang). Jede Stimme ist ein
   vollständiges Zwei-Hand-Level mit eigener Parity – keine Stimme ist „nur die linke Hand“. Wände und Lichtshow sind für beide gleich.
-- **Wer ist online?** In der Song-Liste „👥 Zusammen spielen“: alle, die BeatBlade gerade offen haben (Brille, Handy, PC), mit
+- **Menüs:** Mitte Song-Auswahl, rechts Einstellungen (oben „🎨 Skins & Aussehen“, darunter die Reiter Spiel, Audio, Körper, Mehr),
+  links die **Party** (Mitspieler, Einladen, Code) mit der Bestenliste darunter. „Skins & Aussehen“ öffnet ein eigenes Menü mit
+  Reitern für Schwerter (linke/rechte Hand), Blöcke, Wände, Farben (mit Feineinstellung), Map und Orbit (Handkugeln, Noten-Kugeln).
+- **Wer ist online?** Links in der Party-Tafel „＋ Einladen“: alle, die BeatBlade gerade offen haben (Brille, Handy, PC), mit
   Status (im Menü, in einer Lobby, spielt Song X, abwesend). Die Bibliothek (Handy/PC) zeigt dieselbe Liste; „Einladen“ öffnet dort das Spiel.
 - **Einladen:** „Einladen“ neben einer Person – sie bekommt die Einladung sofort (auch in der Brille, mit Haptik) und kann annehmen
   oder ablehnen (60 s gültig). Mitten im Song kommt sie dezent und erst danach als Tafel. Oder: **Lobby-Code** (4 Zeichen) bzw.
   QR-Code/Link `play.html?lobby=CODE` in der Lobby.
-- **Lobby:** Der Host wählt den Song über die normale Song-Auswahl („Für die Lobby wählen“), dazu Modus, Schwierigkeit, Variante und
-  die gemeinsamen Modifikatoren (keine Wände, keine Bomben, schneller). Persönlich bleiben Linkshänder, Pfeile, Spielergröße,
-  Latenz, Skins, Farben und Map. „Stimmen tauschen“, „Bereit“, dann startet der Host „▶ Zusammen starten“.
+- **Party:** Du bist immer in deiner Party – allein spielst du ganz normal, wer dazukommt, spielt jeden Song mit. Der Host benutzt
+  einfach seine normalen Einstellungen: gewählter Song, Modus, Schwierigkeit, Variante, Modifikatoren (keine Wände, keine Bomben,
+  schneller), **Richtung zählt / nur treffen** und Map gelten automatisch für die Party. Im Song-Detail heißt der Knopf dann
+  „▶ Zusammen starten“ (kein Bereit-Klicken). Der Gast sieht die Party-Übersicht mit allem, was gilt; persönlich bleiben
+  Linkshänder, Spielergröße, Latenz, Lautstärke, Skins und Farben. Nach dem Song: „Nächster Song“ oder „Nochmal“.
 - **Synchron:** Beide laden Audio und Duett-Level, dann startet der Server den Song für beide zur selben Zeit (Uhr-Abgleich,
   Ausgabe-Latenz und Kalibrierung werden eingerechnet – Ziel unter ~20 ms Unterschied, auch im selben Raum hörbar gleich).
 - **Pause:** Pausiert einer (B/Y, Brille ab), pausieren beide. Weiter geht es gemeinsam (wer pausiert hat, oder beide drücken Weiter)
   mit 3-s-Countdown. Neu starten und Zurück zur Lobby macht der Host.
 - **Partner sehen:** Jeder sieht den anderen immer **rechts** neben sich (VR, MR, Lobby und Song): leuchtender Kopf, Oberkörper,
   zwei Hände mit **seinen** Schwertern bzw. Handkugeln (seine Skins, auch links/rechts verschieden), Namensschild. Er bleibt auf
-  seiner Spur (seitlich ±0,6 m, Hände nie in deiner Spur). Seine Noten laufen halbtransparent auf seiner eigenen, verkleinerten
-  Spur rechts (nie überlappend mit deiner), mit seinen Block-/Kugel-Skins (Einstellung „Partner-Noten (Duett)“); Live-Wertung im HUD.
+  seiner Spur (seitlich ±0,6 m, Hände nie in deiner Spur). Seine Noten laufen halbtransparent auf seiner eigenen Bahn
+  rechts (nie überlappend mit deiner), mit seinen Block-/Kugel-Skins (Einstellung „Partner-Noten (Duett)“); Live-Wertung im HUD.
 - **Eigene Farben:** Stimme 1 behält ihre Farben (bzw. das Farbset einer Themen-Map), Stimme 2 bekommt automatisch ein klar anderes
   Farbset, wenn sich die Farben zu ähnlich sind (Farbton-Abstand unter 45°). Die Lobby zeigt die Farben beider als Farbfelder.
 - **Gleiche Welt:** Die Map wählt der Host (seine Map-Einstellung; „Zufällig“ wird beim Start einmal für beide gezogen).

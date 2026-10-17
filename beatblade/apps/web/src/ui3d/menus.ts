@@ -31,13 +31,16 @@ export interface MenuActions {
 type Screen = 'main' | 'songs' | 'detail' | 'settings' | 'credits' | 'qr' | 'keyboard' | 'loading' | 'pause' | 'results' | 'calibrate' | 'pick' | 'sc'
   | 'online' | 'lobby' | 'invite' | 'duetresults';
 type PickKind = 'maps' | 'colors' | 'blocks' | 'sabers' | 'sabersR' | 'walls' | 'orbs' | 'orbnotes';
-const PICK_TITLE: Record<PickKind, string> = { maps: 'Map wählen', colors: 'Farben wählen', blocks: 'Blöcke wählen', sabers: 'Schwert wählen (links / beide)', sabersR: 'Schwert rechts wählen', walls: 'Wände wählen', orbs: 'Handkugeln wählen (Orbit)', orbnotes: 'Orbit-Noten wählen' };
-const PICK_PER_PAGE = 9;
+/** Skins-Menue: Reiter oben, darunter die Auswahl mit Vorschaubildern */
+type SkinTab = 'sabers' | 'blocks' | 'walls' | 'colors' | 'maps' | 'orbit';
+const SKIN_TABS: [SkinTab, string, PickKind][] = [['sabers', 'Schwerter', 'sabers'], ['blocks', 'Blöcke', 'blocks'], ['walls', 'Wände', 'walls'], ['colors', 'Farben', 'colors'], ['maps', 'Map', 'maps'], ['orbit', 'Orbit', 'orbs']];
+const skinTab = (k: PickKind): SkinTab => (k === 'sabersR' ? 'sabers' : k === 'orbs' || k === 'orbnotes' ? 'orbit' : k);
+const PICK_PER_PAGE = 6;
 
 const PER_PAGE = 6;
 
-type Tab = 'spiel' | 'aussehen' | 'audio' | 'komfort' | 'mehr';
-const TABS: [Tab, string][] = [['spiel', 'Spiel'], ['aussehen', 'Aussehen'], ['audio', 'Audio'], ['komfort', 'Komfort'], ['mehr', 'Mehr']];
+type Tab = 'spiel' | 'audio' | 'koerper' | 'mehr';
+const TABS: [Tab, string][] = [['spiel', 'Spiel'], ['audio', 'Audio'], ['koerper', 'Körper'], ['mehr', 'Mehr']];
 /** Bildschirme, bei denen die Lobby (Bestenliste links, Einstellungen rechts) mit angezeigt wird */
 const LOBBY: Screen[] = ['main', 'songs', 'detail', 'credits', 'qr', 'keyboard', 'calibrate', 'pick', 'sc', 'online', 'lobby', 'invite'];
 const SC_PER_PAGE = 5;
@@ -45,12 +48,12 @@ const SC_PER_PAGE = 5;
 export class Menus {
   /** Mitte: Song-Auswahl, Song-Detail mit Starten, Pause, Ergebnis */
   panel = new Panel(1.5);
-  /** links: Bestenliste zum gewaehlten Song */
+  /** links: Party (Mitspieler, Einladen) und Bestenliste zum gewaehlten Song */
   board = new Panel(1.05);
   /** rechts: Einstellungen in Gruppen */
   side = new Panel(1.3);
-  private tab: Tab = 'aussehen';
-  private pickKind: PickKind = 'maps';
+  private tab: Tab = 'spiel';
+  private pickKind: PickKind = 'sabers';
   private pickPage = 0;
   private thumbs = new Map<string, HTMLImageElement>();
   // SoundCloud in VR: Treffer, Seite, Hinweis, Status je Song-Link, Download-Job -> Link
@@ -88,6 +91,8 @@ export class Menus {
   private duetResult: { results: MpResultLine[]; team: { accuracy: number; score: number }; ranked: boolean; song: Song | null; d: Difficulty; mode: ModeId } | null = null;
   private duetScores: DuetScore[] = [];
   private mpTimer: ReturnType<typeof setInterval> | null = null;
+  /** zuletzt an die Lobby geschickte Einstellungen (nur Aenderungen senden) */
+  private lastSync = '';
   /** Hinweis in der Lobby (Fehler vom Server etc.) */
   mpNote = '';
 
@@ -224,7 +229,9 @@ export class Menus {
   }
 
   /** Auswahl-Menue oeffnen (mit Vorschaubildern) */
-  openPicker(kind: PickKind) { this.pickKind = kind; const i = this.pickCards().findIndex((c) => c.on); this.pickPage = Math.max(0, Math.floor(i / PICK_PER_PAGE)); this.go('pick'); }
+  openPicker(kind: PickKind) { this.setPick(kind, false); this.go('pick'); }
+  /** Reiter/Unterreiter im Skins-Menue wechseln: Seite mit der aktuellen Auswahl zeigen */
+  private setPick(kind: PickKind, draw = true) { this.pickKind = kind; const i = this.pickCards().findIndex((c) => c.on); this.pickPage = Math.max(0, Math.floor(i / PICK_PER_PAGE)); if (draw) this.refresh(); }
 
   private visibleSongs(): Song[] {
     let l = this.songs.filter((s) => !s.hidden && (this.filter === 'all' || (this.filter === 'bundled' ? s.bundled : !s.bundled)));
@@ -234,8 +241,10 @@ export class Menus {
   }
 
   // ---------- Navigation ----------
-  go(s: Screen, push = true) { if (s === 'main') s = 'songs'; this.tickInvite(s === 'invite'); if (push && this.screen !== s && !['loading', 'pause', 'results'].includes(this.screen)) this.backStack.push(this.screen); this.screen = s; this.refresh(); }
-  back() { this.screen = this.backStack.pop() ?? 'songs'; this.refresh(); }
+  /** in einer Party, aber nicht Host: Song-Auswahl macht der Host, ich sehe die Party-Uebersicht */
+  partyGuest() { const l = this.mp?.lobby; return !!l && !this.mp!.isHost && l.members.length >= 2; }
+  go(s: Screen, push = true) { if (s === 'main') s = 'songs'; if ((s === 'songs' || s === 'detail') && this.partyGuest()) s = 'lobby'; this.tickInvite(s === 'invite'); if (push && this.screen !== s && !['loading', 'pause', 'results'].includes(this.screen)) this.backStack.push(this.screen); this.screen = s; this.refresh(); }
+  back() { let s = this.backStack.pop() ?? 'songs'; if ((s === 'songs' || s === 'detail') && this.partyGuest()) s = 'lobby'; this.screen = s; this.refresh(); }
   show() { this.panel.visible = true; this.refresh(); }
   hide() { this.panel.hide(); this.board.hide(); this.side.hide(); if (this.screen === 'loading') this.screen = 'songs'; }
   get visible() { return this.panel.visible; }
@@ -249,83 +258,110 @@ export class Menus {
     // nur zeichnen, wenn das Menue sichtbar ist – sonst holt ein Song-Update (z. B. Level neu erzeugt)
     // waehrend des Spiels den alten 'Level laden …'-Bildschirm zurueck
     if (!this.panel.visible) return;
+    this.syncLobby();
+    // Gast in einer Party: keine eigene Song-Auswahl (die macht der Host)
+    if ((this.screen === 'songs' || this.screen === 'detail') && this.partyGuest()) this.screen = 'lobby';
     const spec = this.build();
     this.panel.show(spec);
-    if (LOBBY.includes(this.screen)) { this.board.show(this.buildBoard()); this.side.show(this.buildSettings()); }
+    if (LOBBY.includes(this.screen)) { this.board.show(this.buildParty()); this.side.show(this.buildSettings()); }
     else { this.board.hide(); this.side.hide(); }
   }
 
-  // ---------- Lobby: Bestenliste ----------
-  private buildBoard(): Spec {
+  // ---------- Party (links): Mitspieler, Einladen, darunter die Bestenliste ----------
+  private buildParty(): Spec {
+    const C = 6, items: Item[] = [];
+    const mp = this.mp, l = mp?.lobby, duo = !!l && l.members.length >= 2;
+    const btn = (id: string, label: string, span: number, extra: Partial<Item> = {}): Item => ({ type: 'button', id, label, span, h: 70, ...extra } as Item);
+    if (mp) {
+      const inv = this.invites[this.invites.length - 1];
+      if (inv) items.push(
+        { type: 'text', text: `✉ ${inv.from.name} (${DEVICE_LABEL[inv.from.device]}) lädt dich ein`, size: 28, color: '#ffd9a0', span: C },
+        btn('mp:accept', '✓ Annehmen', 3, { color: '#3dd68c' }), btn('mp:decline', '✗ Ablehnen', 3), { type: 'gap', h: 8 },
+      );
+      if (!duo) {
+        const others = mp.online.filter((p) => p.clientId !== mp.me).length;
+        items.push(
+          { type: 'text', text: mp.connected ? 'Nur du. Lade jemanden ein – dann spielt ihr jeden Song zusammen, jeder mit eigener Stimme und eigener Bahn.' : 'Keine Verbindung zum Server … wird neu verbunden.', size: 24, color: '#b8b0d6', span: C },
+          btn('mp:online', `＋ Einladen${others ? ` (${others} online)` : ''}`, C, { h: 84, color: '#ffb44d', disabled: !mp.connected }),
+          btn('mp:code', '⌨ Code eingeben', 3), l ? btn('mp:lobby', `Code ${l.code} ›`, 3) : btn('mp:create', 'Code erstellen', 3, { disabled: !mp.connected }),
+        );
+      } else {
+        for (const m of [...l!.members].sort((a, b) => a.part - b.part)) {
+          const st = !m.connected ? ' · Verbindung weg' : m.away ? ' · abwesend' : '';
+          items.push({ type: 'image', img: this.swatch(parseInt(m.colors[0].slice(1), 16), parseInt(m.colors[1].slice(1), 16)), h: 60, span: 1 });
+          items.push({ type: 'text', text: `${mp.label(m)}${m.clientId === mp.me ? ' (du)' : ''}${m.clientId === l!.hostId ? ' ★ Host' : ''}\nStimme ${m.part} · ${m.part === 1 ? 'Rhythmus' : 'Melodie'}${st}`, size: 24, color: m.clientId === mp.me ? '#ffffff' : '#ffe08a', span: C - 1 });
+        }
+        items.push(
+          btn('mp:swap', '⇄ Stimmen tauschen', 3, { disabled: !['waiting', 'results'].includes(l!.state) }),
+          btn('mp:pnotes', `Partner-Noten ${settings.partnerNotes ? '✓' : '✗'}`, 3, { on: settings.partnerNotes }),
+          btn('mp:lobby', 'Party-Übersicht ›', 3), btn('mp:leave', 'Verlassen', 3),
+        );
+      }
+      if (duo && this.mpNote === 'Einladung gesendet …') this.mpNote = '';
+      if (this.mpNote) items.push({ type: 'text', text: this.mpNote, size: 22, align: 'center', color: '#ff9db0', span: C });
+      items.push({ type: 'gap', h: 10 });
+    }
+    // Bestenliste zum gewaehlten Song
     const s = this.sel;
-    if (!s || !['detail'].includes(this.screen)) return { title: 'Bestenliste', cols: 1, items: [
-      { type: 'text', text: 'Wähle in der Mitte einen Song – hier erscheinen dann die besten Ergebnisse.', size: 28, color: '#b8b0d6' },
-      { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8' },
-    ] };
-    const rows = this.scores.slice(0, 10);
-    return { title: 'Bestenliste', subtitle: `${s.title} · ${DIFFICULTY_LABEL[this.diff]} · ${MODE_LABEL[this.mode]}`, cols: 1, items: rows.length
-      ? rows.map((h, i) => ({ type: 'text', text: `${i + 1}.  ${h.name}   ${h.accuracy.toFixed(1)} %  ${h.rank}   ${h.score.toLocaleString('de-DE')}`, size: 28, color: i === 0 ? '#ffd23c' : i < 3 ? '#ffffff' : '#d8d0f0' }) as Item)
-      : [{ type: 'text', text: 'Noch keine Einträge. Spiel den Song und speichere dein Ergebnis!', size: 28, color: '#b8b0d6' }] };
+    items.push({ type: 'text', text: '🏆 Bestenliste', size: 32, color: '#ffffff', span: C });
+    if (!s || this.screen !== 'detail') items.push({ type: 'text', text: 'Wähle einen Song – hier stehen dann die besten Ergebnisse.', size: 24, color: '#b8b0d6', span: C });
+    else {
+      items.push({ type: 'text', text: `${s.title} · ${DIFFICULTY_LABEL[this.diff]} · ${MODE_LABEL[this.mode]}`, size: 22, color: '#b8b0d6', span: C });
+      const rows = this.scores.slice(0, 5);
+      if (!rows.length) items.push({ type: 'text', text: 'Noch keine Einträge.', size: 24, color: '#b8b0d6', span: C });
+      for (const [i, h] of rows.entries()) items.push({ type: 'text', text: `${i + 1}.  ${h.name}   ${h.accuracy.toFixed(1)} %   ${h.score.toLocaleString('de-DE')}`, size: 24, color: i === 0 ? '#ffd23c' : '#e8e2ff', span: C });
+    }
+    return { title: duo ? `Party · ${l!.code}` : 'Party', subtitle: duo ? (mp!.isHost ? 'Du wählst – deine Einstellungen gelten für beide' : 'Der Host wählt Song und Einstellungen') : undefined, cols: C, items };
   }
 
-  // ---------- Lobby: Einstellungen (rechts, in Gruppen) ----------
+  // ---------- Einstellungen (rechts): Skins-Knopf oben, darunter wenige Reiter ----------
   private buildSettings(): Spec {
     const C = 20;
     const row = (id: string, label: string, value: string): Item[] => [
       { type: 'button', id: `${id}-`, label: '−', span: 5, h: 64 }, { type: 'text', text: `${label}: ${value}`, align: 'center', size: 26, span: 10 }, { type: 'button', id: `${id}+`, label: '+', span: 5, h: 64 },
     ];
-    const colorRow = (id: string, label: string, c: number, custom: boolean): Item[] => [
-      { type: 'button', id: `${id}-`, label: '◀', span: 5, h: 64 },
-      { type: 'text', text: `■■  ${label}${custom ? ' (eigene)' : ''}  ■■`, color: toHex(c), align: 'center', size: 28, span: 10 },
-      { type: 'button', id: `${id}+`, label: '▶', span: 5, h: 64 },
-    ];
     const tog = (id: keyof typeof settings, label: string): Item => ({ type: 'button', id: `t:${id}`, label: `${label} ${settings[id] ? '✓' : '✗'}`, on: !!settings[id], span: 10, h: 64 });
     const full = (id: string, label: string, extra: Partial<Item> = {}): Item => ({ type: 'button', id, label, span: C, h: 64, ...extra } as Item);
     const half = (id: string, label: string): Item => ({ type: 'button', id, label, span: 10, h: 64 });
-    const tabs: Item[] = TABS.map(([t, l]) => ({ type: 'button', id: `tab:${t}`, label: l, on: this.tab === t, span: 4, h: 64 }) as Item);
+    const tabs: Item[] = TABS.map(([t, l]) => ({ type: 'button', id: `tab:${t}`, label: l, on: this.tab === t, span: 5, h: 64 }) as Item);
+    const guest = this.partyGuest();
     let items: Item[] = [];
     if (this.tab === 'spiel') items = [
-      full('arrows', `Pfeile: ${settings.arrows === 'pflicht' ? 'Pflicht (Richtung zählt)' : 'egal (nur treffen)'}`, { on: settings.arrows === 'egal' } as Partial<Item>),
-      tog('missMute', 'Verfehlt = stumm'), tog('leftHanded', 'Linkshänder'),
-      tog('partnerNotes', 'Partner-Noten (Duett)'), { type: 'text', text: '', span: 10 },
       full('name', `Name: ${settings.name}`),
-    ];
-    else if (this.tab === 'aussehen') items = [
-      half('cset', `Farben: ${currentSet().name} ›`), half('bskin', `Blöcke: ${blockName()} ›`),
-      ...colorRow('cl', 'Links', colorPair()[0], !!settings.colorLeft),
-      ...colorRow('cr', 'Rechts', colorPair()[1], !!settings.colorRight),
-      ...(settings.colorLeft || settings.colorRight ? [full('creset', 'Eigene Farben zurücksetzen')] : []),
-      half('sskin', `Schwert links: ${saberName(0)} ›`), half('sskinr', `Schwert rechts: ${settings.saberSkinRight ? saberName(1) : 'wie links'} ›`),
-      half('oskin', `Handkugeln: ${orbName()} ›`), half('onskin', `Orbit-Noten: ${orbNoteName()} ›`),
-      half('mapc', `Map: ${mapName()} ›`), half('wallc', `Wände: ${wallName().replace(' (passend zur Map)', '')} ›`),
-      tog('glow', 'Leuchten'), { type: 'text', text: '', span: 10 },
-      ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
+      // Gast: Richtung legt der Host fest – hier nur anzeigen, was in der Party gilt
+      guest
+        ? { type: 'text', text: `Party (Host): ${this.mp!.lobby!.sharedModifiers.anyDirection ? 'Nur treffen (Richtung egal)' : 'Richtung zählt'}`, size: 26, align: 'center', color: '#ffd9a0', span: C } as Item
+        : full('arrows', settings.arrows === 'pflicht' ? 'Richtung zählt (Pfeile beachten)' : 'Nur treffen (Richtung egal)', { on: settings.arrows === 'egal' } as Partial<Item>),
+      tog('missMute', 'Verfehlt = stumm'), tog('leftHanded', 'Linkshänder'),
     ];
     else if (this.tab === 'audio') items = [
       ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
+      ...row('pvol', 'Partner hören', settings.partnerVolume > 0 ? `${Math.round(settings.partnerVolume * 100)} %` : 'aus'),
       ...row('lat', 'Latenz', `${settings.latencyMs} ms`),
       full('calib', 'Latenz kalibrieren'),
-      ...row('pvol', 'Partner hören', settings.partnerVolume > 0 ? `${Math.round(settings.partnerVolume * 100)} %` : 'aus'),
     ];
-    else if (this.tab === 'komfort') items = [
-      tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
-      ...row('off', 'Schwert-Offset', `${settings.saberOffsetCm} cm`),
-      ...row('ang', 'Schwert-Winkel', `${settings.saberAngle}°`),
-      ...row('hgt', 'Spielergröße', `${settings.playerHeight.toFixed(2)} m`),
+    else if (this.tab === 'koerper') items = [
+      ...row('hgt', 'Größe', `${settings.playerHeight.toFixed(2)} m`),
+      ...row('off', 'Griff vor', `${settings.saberOffsetCm} cm`),
+      ...row('ang', 'Winkel', `${settings.saberAngle}°`),
+      tog('comfort', 'Komfortmodus'), tog('glow', 'Leuchten'),
+      ...row('lgt', 'Lichteffekte', `${Math.round(settings.lightIntensity * 100)} %`),
       ...(this.act.isMR() ? [half('floor', 'Boden setzen'), half('dir', 'Richtung setzen')] : [full('dir', 'Spielfeld zentrieren')]),
     ];
     else items = [
       half('qr', 'Upload vom Handy'), half('credits', 'Credits'),
+      tog('showFps', 'FPS-Anzeige'), { type: 'text', text: '', span: 10 },
       ...(this.act.inXR() ? [full('exit', 'Beenden', { main: true } as Partial<Item>)] : []),
-      { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8' },
+      { type: 'text', text: BUILD_INFO, align: 'center', size: 20, color: '#8a84a8', span: C },
     ];
-    return { title: 'Einstellungen', cols: C, items: [...tabs, { type: 'gap', h: 6 }, ...items] };
+    return { title: 'Einstellungen', cols: C, items: [full('skins', '🎨  Skins & Aussehen  ›', { h: 84, color: 'rgba(180,107,255,0.6)' } as Partial<Item>), ...tabs, { type: 'gap', h: 6 }, ...items] };
   }
 
   private settingsClick(id: string) {
     if (id.startsWith('tab:')) { this.tab = id.slice(4) as Tab; return this.refresh(); }
     if (id === 'credits') return this.go('credits');
     if (id === 'qr') return this.go('qr');
+    if (id === 'skins') return this.screen === 'pick' ? undefined : this.openPicker(this.pickKind);
     if (id === 'exit') return this.act.exitXR();
     const step = (k: string, d: number) => {
       if (k === 'lat') settings.latencyMs = Math.max(-300, Math.min(500, settings.latencyMs + d * 5));
@@ -364,15 +400,14 @@ export class Menus {
       case 'songs': {
         const list = this.visibleSongs(), pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
         this.page = Math.min(this.page, pages - 1);
+        // oben nur das Noetigste: Suchen, Filter, Sortierung · Modus, Songs hinzufuegen, Skins
         const items: Item[] = [
-          { type: 'button', id: 'f:all', label: 'Alle', on: this.filter === 'all', h: 64 },
-          { type: 'button', id: 'f:bundled', label: 'Mitgeliefert', on: this.filter === 'bundled', h: 64 },
-          { type: 'button', id: 'f:uploaded', label: 'Hochgeladen', on: this.filter === 'uploaded', h: 64 },
-          { type: 'button', id: 'sort', label: `Sortierung: ${{ new: 'Neu', title: 'Titel', bpm: 'BPM' }[this.sort]}`, h: 64 },
-          { type: 'button', id: 'search', label: this.search ? `Suche: ${this.search}` : '🔍 Suchen', h: 64, span: 2 },
-          { type: 'button', id: 'scopen', label: '＋ Songs hinzufügen (SoundCloud)', h: 64, span: 2, main: false, color: '#ff7a1a' },
-          { type: 'button', id: 'mode', label: `Modus: ${MODE_LABEL[this.mode]} ⇄`, h: 64, on: this.mode === 'orbit' },
-          ...(this.mp ? [this.togetherButton()] : []),
+          { type: 'button', id: 'search', label: this.search ? `🔍 ${this.search}` : '🔍 Suchen', h: 64, on: !!this.search },
+          { type: 'button', id: 'filter', label: { all: 'Alle Songs', bundled: 'Mitgeliefert', uploaded: 'Hochgeladen' }[this.filter] + ' ⇄', h: 64, on: this.filter !== 'all' },
+          { type: 'button', id: 'sort', label: `Nach ${{ new: 'Neu', title: 'Titel', bpm: 'BPM' }[this.sort]} ⇄`, h: 64 },
+          { type: 'button', id: 'mode', label: `${this.mode === 'orbit' ? '◉' : '⚔'} ${MODE_LABEL[this.mode]} ⇄`, h: 64, on: this.mode === 'orbit' },
+          { type: 'button', id: 'scopen', label: '＋ Songs (SoundCloud)', h: 64, color: '#ff7a1a' },
+          { type: 'button', id: 'R:skins', label: '🎨 Skins', h: 64, color: 'rgba(180,107,255,0.6)' },
         ];
         for (const s of list.slice(this.page * PER_PAGE, (this.page + 1) * PER_PAGE)) {
           const ok = playable(s);
@@ -383,7 +418,8 @@ export class Menus {
         }
         if (!list.length) items.push({ type: 'text', text: this.songs.length ? 'Keine Treffer.' : 'Noch keine Songs. Über „Upload vom Handy“ welche hinzufügen.', align: 'center' });
         items.push({ type: 'button', id: 'prev', label: '◀', disabled: this.page === 0 }, { type: 'text', text: `${this.page + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'next', label: '▶', disabled: this.page >= pages - 1 });
-        return { title: 'Song wählen', subtitle: `${list.length} Songs · Bestwerte ${MODE_LABEL[this.mode]} ${DIFFICULTY_LABEL[this.diff]} · neue erscheinen automatisch`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
+        const duo = this.mp?.partner ? ` · Party mit ${this.mp.partner.name}: der Song gilt für euch beide` : '';
+        return { title: 'Song wählen', subtitle: `${list.length} Songs · Bestwerte ${MODE_LABEL[this.mode]} ${DIFFICULTY_LABEL[this.diff]}${duo}`, cols: 3, items: items.map((i) => (i.type === 'button' && i.span === 2 ? { ...i, span: 3 } : i)) };
       }
       case 'detail': {
         const s = this.sel!; const img = this.cover(s);
@@ -405,24 +441,43 @@ export class Menus {
           { type: 'gap', h: 6 },
           ...(orbit
             ? [mod('m:fastNotes', 'Schneller', settings.fastNotes), { ...mod('m:noWalls', 'Keine Wände', settings.noWalls), span: 40 } as Item]
-            : [mod('m:fastNotes', 'Schneller', settings.fastNotes), mod('m:noWalls', 'Keine Wände', settings.noWalls), mod('m:noBombs', 'Keine Bomben', settings.noBombs)]),
+            : [{ ...mod('m:fastNotes', 'Schneller', settings.fastNotes), span: 15 } as Item, { ...mod('m:noWalls', 'Keine Wände', settings.noWalls), span: 15 } as Item, { ...mod('m:noBombs', 'Keine Bomben', settings.noBombs), span: 15 } as Item,
+              { type: 'button', id: 'arrows', label: settings.arrows === 'egal' ? 'Nur treffen ✓' : 'Richtung zählt', on: settings.arrows === 'egal', span: 15, h: 70 } as Item]),
           { type: 'button', id: 'seed', label: `Variante ${this.seed ?? s.seed} ⟳`, span: 30, h: 70 },
           { type: 'button', id: 'back', label: 'Zurück', span: 30, h: 70 },
-          ...(this.mp?.lobby && this.mp.isHost ? this.lobbyPlayButtons(s, diffs.length > 0) : [{ type: 'button', id: 'play', label: `▶  Starten (${MODE_LABEL[this.mode]})`, main: true, h: 120, disabled: !diffs.length } as Item]),
+          ...(this.mp?.partner && this.mp.isHost
+            ? [{ type: 'button', id: 'mp:start', label: `▶  Zusammen starten (mit ${this.mp.partner.name})`, main: true, h: 120, disabled: !diffs.length || !this.mp.partner.connected || this.mp.partner.away } as Item,
+              { type: 'text', text: 'Alles hier gilt automatisch für euch beide – jeder bekommt seine eigene Stimme.', align: 'center', size: 24, color: '#ffd9a0' } as Item]
+            : [{ type: 'button', id: 'play', label: `▶  Starten (${MODE_LABEL[this.mode]})`, main: true, h: 120, disabled: !diffs.length } as Item]),
         ];
         return { title: s.title, cols: C, items };
       }
       case 'pick': {
+        const C = 6, tab = skinTab(this.pickKind);
         const cards = this.pickCards(), pages = Math.max(1, Math.ceil(cards.length / PICK_PER_PAGE));
         this.pickPage = Math.min(this.pickPage, pages - 1);
-        const items: Item[] = cards.slice(this.pickPage * PICK_PER_PAGE, (this.pickPage + 1) * PICK_PER_PAGE).map((c) => ({
-          type: 'button', id: `pk:${c.id}`, label: `${c.on ? '✓ ' : ''}${c.name}`, img: c.img, on: c.on, h: 150,
-        }) as Item);
+        const items: Item[] = SKIN_TABS.map(([t, l]) => ({ type: 'button', id: `sk:${t}`, label: l, on: tab === t, h: 64, span: 1 }) as Item);
+        const sub = (k: PickKind, label: string): Item => ({ type: 'button', id: `pkk:${k}`, label, on: this.pickKind === k, h: 58, span: 3 });
+        if (tab === 'sabers') items.push(sub('sabers', 'Linke Hand (und beide)'), sub('sabersR', 'Rechte Hand'));
+        if (tab === 'orbit') items.push(sub('orbs', 'Handkugeln'), sub('orbnotes', 'Noten-Kugeln'));
         items.push({ type: 'gap', h: 4 });
-        if (pages > 1) items.push({ type: 'button', id: 'pkprev', label: '◀', disabled: this.pickPage === 0 }, { type: 'text', text: `${this.pickPage + 1} / ${pages}`, align: 'center', span: 1 }, { type: 'button', id: 'pknext', label: '▶', disabled: this.pickPage >= pages - 1 });
-        items.push({ type: 'button', id: 'back', label: 'Fertig', main: true });
+        items.push(...cards.slice(this.pickPage * PICK_PER_PAGE, (this.pickPage + 1) * PICK_PER_PAGE).map((c) => ({
+          type: 'button', id: `pk:${c.id}`, label: `${c.on ? '✓ ' : ''}${c.name}`, img: c.img, on: c.on, h: 140, span: 2,
+        }) as Item));
+        if (pages > 1) items.push({ type: 'button', id: 'pkprev', label: '◀', disabled: this.pickPage === 0, span: 2, h: 64 }, { type: 'text', text: `${this.pickPage + 1} / ${pages}`, align: 'center', span: 2 }, { type: 'button', id: 'pknext', label: '▶', disabled: this.pickPage >= pages - 1, span: 2, h: 64 });
+        if (tab === 'colors') {
+          const cr = (id: string, label: string, c: number, custom: boolean): Item[] => [
+            { type: 'button', id: `${id}-`, label: '◀', span: 1, h: 64 },
+            { type: 'text', text: `■■  ${label} feiner${custom ? ' (eigene)' : ''}  ■■`, color: toHex(c), align: 'center', size: 28, span: 4 },
+            { type: 'button', id: `${id}+`, label: '▶', span: 1, h: 64 },
+          ];
+          items.push(...cr('cl', 'Links', colorPair()[0], !!settings.colorLeft), ...cr('cr', 'Rechts', colorPair()[1], !!settings.colorRight));
+          if (settings.colorLeft || settings.colorRight) items.push({ type: 'button', id: 'creset', label: 'Eigene Farben zurücksetzen', span: C, h: 60 });
+        }
+        if (tab === 'maps' && this.mp?.partner) items.push({ type: 'text', text: this.mp.isHost ? 'Die Map gilt in der Party für euch beide.' : 'In der Party gilt die Map des Hosts.', align: 'center', size: 22, color: '#ffd9a0', span: C });
+        items.push({ type: 'button', id: 'back', label: 'Fertig', main: true, span: C, h: 80 });
         const cur = cards.find((c) => c.on);
-        return { title: PICK_TITLE[this.pickKind], subtitle: cur ? `${cur.name}: ${cur.desc}` : 'Antippen zum Auswählen', cols: 3, items };
+        return { title: 'Skins & Aussehen', subtitle: cur ? `${cur.name}${cur.desc ? `: ${cur.desc}` : ''}` : 'Antippen zum Auswählen', cols: C, items };
       }
       case 'sc': {
         const pages = Math.max(1, Math.ceil(this.scItems.length / SC_PER_PAGE));
@@ -508,7 +563,7 @@ export class Menus {
   // ---------- Bedienung ----------
   click(id: string) {
     if (id.startsWith('R:')) return this.settingsClick(id.slice(2));
-    if (id.startsWith('L:')) return;
+    if (id.startsWith('L:')) { const x = id.slice(2); return x.startsWith('mp:') ? this.mpClick(x.slice(3)) : undefined; }
     const s = this.screen;
     if (id.startsWith('mp:')) return this.mpClick(id.slice(3));
     if (id === 'back') return this.back();
@@ -523,6 +578,9 @@ export class Menus {
       return;
     }
     if (s === 'pick') {
+      if (id.startsWith('sk:')) { const t = SKIN_TABS.find((x) => x[0] === id.slice(3)); if (t) this.setPick(t[2]); return; }
+      if (id.startsWith('pkk:')) return this.setPick(id.slice(4) as PickKind);
+      if (/^(cl|cr)[+-]$/.test(id) || id === 'creset') return this.settingsClick(id);
       if (id === 'pkprev') { this.pickPage = Math.max(0, this.pickPage - 1); return this.refresh(); }
       if (id === 'pknext') { this.pickPage++; return this.refresh(); }
       if (!id.startsWith('pk:')) return;
@@ -540,7 +598,7 @@ export class Menus {
     }
     if (s === 'songs') {
       if (id === 'scopen') return this.go('sc');
-      if (id.startsWith('f:')) { this.filter = id.slice(2) as typeof this.filter; this.page = 0; this.refresh(); }
+      if (id === 'filter') { this.filter = this.filter === 'all' ? 'bundled' : this.filter === 'bundled' ? 'uploaded' : 'all'; this.page = 0; this.refresh(); }
       else if (id === 'mode') this.setMode(this.mode === 'orbit' ? 'schnitt' : 'orbit');
       else if (id === 'sort') { this.sort = this.sort === 'new' ? 'title' : this.sort === 'title' ? 'bpm' : 'new'; this.refresh(); }
       else if (id === 'search') this.keyboard('Suche', this.search, (v) => { this.search = v.trim(); this.page = 0; });
@@ -598,26 +656,6 @@ export class Menus {
   // ---------- Zusammen spielen: Bildschirme ----------
   inDuet() { const l = this.mp?.lobby; return !!l && ['loading', 'countdown', 'playing', 'paused'].includes(l.state); }
 
-  private togetherButton(): Item {
-    const mp = this.mp!, l = mp.lobby, others = mp.online.filter((p) => p.clientId !== mp.me).length;
-    const partner = mp.partner;
-    if (this.invites.length) { const i = this.invites[this.invites.length - 1]; return { type: 'button', id: 'mp:showinv', label: `✉ Einladung von ${i.from.name}`, h: 64, span: 3, on: true, color: '#ffb44d' }; }
-    const label = l ? `👥 Lobby ${l.code}${partner ? ` · ${partner.name}` : ' · wartet'}` : `👥 Zusammen spielen${others ? ` (${others} online)` : ''}`;
-    return { type: 'button', id: 'mp:open', label, h: 64, span: 3, on: !!l, color: '#ffb44d' };
-  }
-
-  private lobbyPlayButtons(song: Song, ok: boolean): Item[] {
-    const l = this.mp!.lobby!;
-    const seed = this.seed ?? song.seed;
-    const same = l.song?.id === song.id && l.mode === this.mode && l.difficulty === this.diff && l.seed === seed;
-    const allReady = l.members.length >= 2 && l.members.every((m) => m.ready && m.connected);
-    if (same && allReady) return [{ type: 'button', id: 'mp:start', label: '▶  Zusammen starten', main: true, h: 120, disabled: !ok }];
-    return [
-      { type: 'button', id: 'mp:pick', label: same ? '✓ Für die Lobby gewählt – zur Lobby' : '👥 Für die Lobby wählen', main: true, h: 100, disabled: !ok },
-      { type: 'text', text: same ? 'Starten geht, sobald beide in der Lobby „Bereit“ gedrückt haben.' : 'Ihr spielt diesen Song zusammen – jeder bekommt eine eigene Stimme.', align: 'center', size: 24, color: '#ffd9a0' },
-    ];
-  }
-
   private buildOnline(): Spec {
     const mp = this.mp!;
     const people = mp.online.filter((p) => p.clientId !== mp.me);
@@ -636,48 +674,55 @@ export class Menus {
     return { title: 'Zusammen spielen', subtitle: `Gerade online · du bist „${mp.name}“`, cols: 2, items };
   }
 
+  /** Party-Uebersicht: wer spielt mit, was ist gewaehlt, mit welchen Einstellungen */
   private buildLobby(): Spec {
     const mp = this.mp!, l = mp.lobby;
-    if (!l) return { title: 'Lobby', cols: 1, items: [
-      { type: 'text', text: this.mpNote || 'Du bist in keiner Lobby.', align: 'center', color: '#ffd9a0' },
-      { type: 'button', id: 'mp:open', label: 'Zusammen spielen', main: true },
+    if (!l) return { title: 'Party', cols: 1, items: [
+      { type: 'text', text: this.mpNote || 'Du spielst gerade allein.', align: 'center', color: '#ffd9a0' },
+      { type: 'button', id: 'mp:online', label: '＋ Jemanden einladen', main: true },
       { type: 'button', id: 'back', label: 'Zurück' },
     ] };
-    const host = mp.isHost, me = mp.myMember;
-    const C = 6;
-    const stateTxt: Record<string, string> = { waiting: 'Warten auf beide', loading: 'Laden …', countdown: 'Gleich geht’s los', playing: 'Spielt', paused: 'Pause', results: 'Ergebnis' };
+    const host = mp.isHost, duo = l.members.length >= 2, C = 6;
+    const free = l.state === 'waiting' || l.state === 'results';
+    const stateTxt: Record<string, string> = { waiting: duo ? 'Bereit für den nächsten Song' : 'Warte auf Mitspieler', loading: 'Laden …', countdown: 'Gleich geht’s los', playing: 'Spielt', paused: 'Pause', results: 'Ergebnis' };
     const items: Item[] = [];
     for (const m of [...l.members].sort((a, b) => a.part - b.part)) {
-      const conn = m.connected ? '' : ' · Verbindung weg';
-      const extra = l.state === 'loading' ? ` · ${m.loaded ? 'geladen ✓' : `${Math.round(m.progress * 100)} %`}` : m.away ? ' · abwesend' : ` · ${m.ready ? 'bereit ✓' : 'nicht bereit'}`;
-      // Farben je Spieler als Farbfelder (Stimme 2 wird angepasst, wenn sie Stimme 1 zu aehnlich ist)
+      const extra = l.state === 'loading' ? ` · ${m.loaded ? 'geladen ✓' : `${Math.round(m.progress * 100)} %`}` : !m.connected ? ' · Verbindung weg' : m.away ? ' · abwesend' : '';
       items.push({ type: 'image', img: this.swatch(parseInt(m.colors[0].slice(1), 16), parseInt(m.colors[1].slice(1), 16)), h: 56, span: 1 });
-      items.push({ type: 'text', text: `Stimme ${m.part} (${m.part === 1 ? 'Rhythmus' : 'Melodie'}) · ${mp.label(m)}${m.clientId === l.hostId ? ' · Host' : ''}${m.clientId === mp.me ? ' · du' : ''}${extra}${conn}`, size: 28, color: m.ready ? '#9fe8c4' : '#ffffff', span: C - 1 });
+      items.push({ type: 'text', text: `${mp.label(m)}${m.clientId === mp.me ? ' (du)' : ''}${m.clientId === l.hostId ? ' ★ Host' : ''} · Stimme ${m.part} (${m.part === 1 ? 'Rhythmus' : 'Melodie'})${extra}`, size: 28, color: m.clientId === mp.me ? '#ffffff' : '#ffe08a', span: C - 1 });
     }
     if (l.members.some((m) => m.colorsAdjusted)) items.push({ type: 'text', text: 'Farben angepasst, damit ihr euch unterscheidet', size: 22, color: '#ffd9a0', align: 'center', span: C });
-    if (l.members.length < 2) items.push({ type: 'text', text: 'Warte auf Mitspieler – einladen oder Code teilen.', size: 26, color: '#b8b0d6', span: C });
+    items.push({ type: 'gap', h: 8 });
+    // gewaehlt: Song + alle Einstellungen, die fuer beide gelten
+    const song = l.song ? this.songs.find((x) => x.id === l.song!.id) : undefined;
+    const cover = song ? this.cover(song) : null;
     const mapLabel = l.map === 'zufall' ? 'Zufällig' : mapItems().find((x) => x.id === l.map)?.name ?? l.map;
-    items.push({ type: 'text', text: l.song ? `Song: ${l.song.title} · ${MODE_LABEL[l.mode]} · ${DIFFICULTY_LABEL[l.difficulty]} · Variante ${l.seed} · Map: ${mapLabel}` : `Noch kein Song gewählt · Map: ${mapLabel}`, size: 28, align: 'center', color: '#ffd23c', span: C });
-    const mods: [keyof MpSharedModifiers, string][] = [['noWalls', 'Keine Wände'], ['noBombs', 'Keine Bomben'], ['fastNotes', 'Schneller']];
-    for (const [k, lbl] of mods) items.push({ type: 'button', id: `mp:mod:${k}`, label: `${lbl} ${l.sharedModifiers[k] ? '✓' : ''}`, on: l.sharedModifiers[k], disabled: !host || l.state !== 'waiting', span: 2, h: 66 });
-    const allReady = l.members.length >= 2 && l.members.every((m) => m.ready && m.connected);
-    items.push(
-      ...(host ? [{ type: 'button', id: 'mp:songs', label: l.song ? 'Song ändern ›' : 'Song wählen ›', span: 3, h: 76, disabled: l.state !== 'waiting' && l.state !== 'results' } as Item] : []),
-      { type: 'button', id: 'mp:swap', label: `Stimmen tauschen (du: ${me?.part ?? '–'})`, span: host ? 3 : 6, h: 76, disabled: !me || l.state !== 'waiting' && l.state !== 'results' },
-      { type: 'button', id: 'mp:ready', label: me?.ready ? 'Bereit ✓ (zurücknehmen)' : 'Bereit', on: !!me?.ready, span: 3, h: 86, disabled: l.state !== 'waiting' && l.state !== 'results' },
-      host ? (() => { const off = !allReady || !l.song || l.state !== 'waiting' && l.state !== 'results'; return { type: 'button', id: 'mp:start', label: off ? '▶ Zusammen starten (beide bereit?)' : '▶ Zusammen starten', span: 3, h: 86, disabled: off, ...(off ? {} : { color: '#3dd68c' }) } as Item; })()
-        : { type: 'text', text: 'Den Song wählt und startet der Host.', size: 24, align: 'center', color: '#b8b0d6', span: 3 } as Item,
+    const sm = l.sharedModifiers;
+    const mods = [sm.anyDirection ? 'Nur treffen (Richtung egal)' : 'Richtung zählt', sm.fastNotes && 'Schneller', sm.noWalls && 'Keine Wände', sm.noBombs && 'Keine Bomben'].filter(Boolean).join(' · ');
+    if (cover) items.push({ type: 'image', img: cover, h: 150, span: 2 });
+    items.push({ type: 'text', text: l.song ? `♪ ${l.song.title}\n${MODE_LABEL[l.mode]} · ${DIFFICULTY_LABEL[l.difficulty]} · Variante ${l.seed}\nMap: ${mapLabel}\n${mods}` : `Noch kein Song gewählt\nMap: ${mapLabel} · ${mods}`, size: 26, color: '#ffd23c', span: cover ? C - 2 : C });
+    if (host) items.push(
+      { type: 'button', id: 'mp:songs', label: l.song ? '♪ Song ändern ›' : '♪ Song wählen ›', span: 3, h: 84, disabled: !free },
+      (() => { const off = !duo || !l.song || !free || l.members.some((m) => !m.connected || m.away); return { type: 'button', id: 'mp:start', label: '▶ Zusammen starten', span: 3, h: 84, disabled: off, ...(off ? {} : { color: '#3dd68c' }) } as Item; })(),
+      { type: 'text', text: 'Einstellungen änderst du ganz normal (Song, Schwierigkeit, Modifikatoren, Map) – sie gelten automatisch für die Party.', size: 22, align: 'center', color: '#b8b0d6', span: C },
     );
+    else items.push({ type: 'text', text: `${l.members.find((m) => m.clientId === l.hostId)?.name ?? 'Der Host'} wählt Song und Einstellungen und startet. Deine Skins, Farben und Lautstärke bleiben deine.`, size: 24, align: 'center', color: '#b8b0d6', span: C });
     if (l.note || this.mpNote) items.push({ type: 'text', text: l.note || this.mpNote, size: 24, align: 'center', color: '#ff9db0', span: C });
-    // Code + QR zum Beitreten
-    const link = `${this.qrUrl.replace(/\/?$/, '/')}play.html?lobby=${l.code}`;
-    const qr = qrcode(0, 'M'); qr.addData(link); qr.make();
-    const n = qr.getModuleCount(), px = 5, c = document.createElement('canvas'); c.width = c.height = (n + 6) * px;
-    const g = c.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
-    for (let r = 0; r < n; r++) for (let q = 0; q < n; q++) if (qr.isDark(r, q)) g.fillRect((q + 3) * px, (r + 3) * px, px, px);
-    items.push({ type: 'image', img: c, h: 200, span: 2 }, { type: 'text', text: `Code ${l.code}\n${link}`, size: 24, color: '#3db8ff', span: 4 });
-    items.push({ type: 'button', id: 'mp:online', label: 'Jemanden einladen', span: 3, h: 70, disabled: l.members.length >= 2 }, { type: 'button', id: 'mp:leave', label: 'Lobby verlassen', span: 3, h: 70 });
-    return { title: `Lobby ${l.code}`, subtitle: stateTxt[l.state] ?? l.state, cols: C, items };
+    // allein: Code + QR zum Beitreten
+    if (!duo) {
+      const link = `${this.qrUrl.replace(/\/?$/, '/')}play.html?lobby=${l.code}`;
+      const qr = qrcode(0, 'M'); qr.addData(link); qr.make();
+      const n = qr.getModuleCount(), px = 5, c = document.createElement('canvas'); c.width = c.height = (n + 6) * px;
+      const g = c.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+      for (let r = 0; r < n; r++) for (let q = 0; q < n; q++) if (qr.isDark(r, q)) g.fillRect((q + 3) * px, (r + 3) * px, px, px);
+      items.push({ type: 'image', img: c, h: 190, span: 2 }, { type: 'text', text: `Code ${l.code}\n${link}`, size: 24, color: '#3db8ff', span: 4 });
+      items.push({ type: 'button', id: 'mp:online', label: '＋ Jemanden einladen', span: 3, h: 70 }, { type: 'button', id: 'mp:leave', label: 'Party auflösen', span: 3, h: 70 });
+    } else items.push(
+      { type: 'button', id: 'mp:swap', label: '⇄ Stimmen tauschen', span: 2, h: 70, disabled: !free },
+      { type: 'button', id: 'back', label: 'Zurück', span: 2, h: 70 },
+      { type: 'button', id: 'mp:leave', label: 'Verlassen', span: 2, h: 70 },
+    );
+    return { title: `Party ${l.code}`, subtitle: stateTxt[l.state] ?? l.state, cols: C, items };
   }
 
   private buildInvite(): Spec {
@@ -713,9 +758,10 @@ export class Menus {
     if (this.duetScores.length) items.push({ type: 'text', text: 'Duett-Bestenliste: ' + this.duetScores.slice(0, 5).map((h, i) => `${i + 1}. ${h.name1} + ${h.name2} ${h.teamAccuracy.toFixed(1)} %`).join('   '), size: 22, color: '#d8d0f0', span: 2 });
     const host = this.mp?.isHost;
     items.push(
-      host ? { type: 'button', id: 'mp:again', label: 'Nochmal (beide)', h: 86 } as Item : { type: 'text', text: 'Nochmal startet der Host.', size: 24, align: 'center', color: '#b8b0d6' } as Item,
-      { type: 'button', id: 'mp:lobby', label: 'Zur Lobby', h: 86 },
-      { type: 'button', id: 'mp:leave', label: 'Lobby verlassen', h: 76, span: 2 },
+      ...(host
+        ? [{ type: 'button', id: 'mp:next', label: '♪ Nächster Song', h: 96, color: '#3dd68c' } as Item, { type: 'button', id: 'mp:again', label: '↻ Nochmal', h: 96 } as Item]
+        : [{ type: 'text', text: 'Den nächsten Song wählt der Host.', size: 24, align: 'center', color: '#b8b0d6' } as Item, { type: 'button', id: 'mp:lobby', label: 'Zur Party', h: 86 } as Item]),
+      { type: 'button', id: 'mp:leave', label: 'Party verlassen', h: 70, span: 2 },
     );
     return { title: `Team ${r.team.accuracy.toFixed(1)} %  ${starString(starsFor(r.team.accuracy))}`, subtitle: `Duett · ${r.song?.title ?? ''} · ${DIFFICULTY_LABEL[r.d]} · ${MODE_LABEL[r.mode]} · Team-Punkte ${r.team.score.toLocaleString('de-DE')}`, cols: 2, items };
   }
@@ -770,14 +816,35 @@ export class Menus {
     if (!l) return this.refresh();
     if (id === 'leave') { mp.send({ t: 'lobby.leave' }); this.act.toLobby?.(); this.backStack = []; return this.go('songs', false); }
     if (id === 'swap') return mp.send({ t: 'lobby.part', part: mp.myMember?.part === 1 ? 2 : 1 });
-    if (id === 'ready') return mp.send({ t: 'lobby.ready', ready: !mp.myMember?.ready });
+    if (id === 'pnotes') { settings.partnerNotes = !settings.partnerNotes; saveSettings(); this.act.applySettings(); return this.refresh(); }
     if (id === 'songs') return this.go('songs');
-    if (id.startsWith('mod:')) { const k = id.slice(4) as keyof MpSharedModifiers; return mp.send({ t: 'lobby.update', sharedModifiers: { ...l.sharedModifiers, [k]: !l.sharedModifiers[k] } }); }
-    if (id === 'pick' && this.sel) {
-      mp.send({ t: 'lobby.update', song: { id: this.sel.id, title: this.sel.title, updatedAt: this.sel.updatedAt }, mode: this.mode, difficulty: this.diff, seed: this.seed ?? this.sel.seed, map: settings.mapChoice });
-      return this.go('lobby');
+    if (id === 'next') {
+      // Host: zurueck in die Party und gleich den naechsten Song aussuchen
+      if (mp.isHost) mp.send({ t: 'lobby.back' });
+      this.act.toLobby?.(); this.backStack = []; return this.go('songs', false);
     }
-    if (id === 'start' || id === 'again') { mp.send({ t: id === 'again' ? 'restart' : 'lobby.start' }); return; }
+    if (id.startsWith('mod:')) { const k = id.slice(4) as keyof MpSharedModifiers; return mp.send({ t: 'lobby.update', sharedModifiers: { ...l.sharedModifiers, [k]: !l.sharedModifiers[k] } }); }
+    if (id === 'start') { this.syncLobby(true); mp.send({ t: 'lobby.start' }); return; }
+    if (id === 'again') { mp.send({ t: 'restart' }); return; }
+  }
+
+  /**
+   * Party: als Host gelten meine Einstellungen automatisch fuer die Lobby – gewaehlter Song, Modus, Schwierigkeit, Variante,
+   * Modifikatoren, Richtung und Map. Gesendet wird nur, was sich geaendert hat (force: auf jeden Fall, z. B. vor dem Start).
+   */
+  syncLobby(force = false) {
+    const mp = this.mp, l = mp?.lobby;
+    if (!mp || !l || !mp.isHost || (l.state !== 'waiting' && l.state !== 'results')) return;
+    const s = this.sel;
+    const want = {
+      ...(s ? { song: { id: s.id, title: s.title, updatedAt: s.updatedAt }, seed: this.seed ?? s.seed } : {}),
+      mode: this.mode, difficulty: this.diff, map: settings.mapChoice,
+      sharedModifiers: { noWalls: settings.noWalls, noBombs: settings.noBombs, fastNotes: settings.fastNotes, anyDirection: settings.arrows === 'egal' },
+    };
+    const key = `${l.id}|${l.members.length}|${JSON.stringify(want)}`;
+    if (!force && key === this.lastSync) return;
+    this.lastSync = key;
+    mp.send({ t: 'lobby.update', ...want });
   }
 
   /** Seite blaettern per Thumbstick */

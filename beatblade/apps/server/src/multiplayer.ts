@@ -167,7 +167,7 @@ function createLobby(s: Session): Lobby {
   leaveLobby(s.clientId, 'neue Lobby');
   const l: Lobby = {
     id: crypto.randomUUID(), code: newCode(), hostId: s.clientId, members: [memberFor(s, 1)], mode: 'schnitt', difficulty: 'normal',
-    seed: 0, shared: { noWalls: false, noBombs: false, fastNotes: false }, map: 'zufall', state: 'waiting', resumeVotes: new Set(), results: new Map(),
+    seed: 0, shared: { noWalls: false, noBombs: false, fastNotes: false, anyDirection: false }, map: 'zufall', state: 'waiting', resumeVotes: new Set(), results: new Map(),
     resynced: new Set(), broken: false,
   };
   lobbies.set(l.id, l); lobbyOf.set(s.clientId, l.id);
@@ -456,7 +456,7 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
       if (typeof m.map === 'string' && (m.map === 'zufall' || CONTENT_ID.test(m.map))) { l.map = m.map; l.mapResolved = undefined; changed = true; }
       if (m.sharedModifiers && typeof m.sharedModifiers === 'object') {
         const sm = m.sharedModifiers;
-        l.shared = { noWalls: sm.noWalls === true, noBombs: sm.noBombs === true, fastNotes: sm.fastNotes === true }; changed = true;
+        l.shared = { noWalls: sm.noWalls === true, noBombs: sm.noBombs === true, fastNotes: sm.fastNotes === true, anyDirection: sm.anyDirection === true }; changed = true;
       }
       if (changed) { l.state = 'waiting'; l.note = undefined; for (const x of l.members) x.ready = false; pushState(l); }
       return;
@@ -479,7 +479,8 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
       if (!isHost || (l.state !== 'waiting' && l.state !== 'results')) return;
       if (l.members.length < 2) return send(s, { t: 'error', message: 'Warte auf deinen Partner' });
       if (!l.song) return send(s, { t: 'error', message: 'Bitte zuerst einen Song wählen' });
-      if (!l.members.every((x) => x.ready && x.connected)) return send(s, { t: 'error', message: 'Noch nicht alle bereit' });
+      // kein Bereit-Klicken mehr: der Host startet, sobald alle verbunden und nicht abwesend sind
+      if (!l.members.every((x) => x.connected && !x.away)) return send(s, { t: 'error', message: 'Dein Partner ist gerade nicht da' });
       startLoading(l); return;
     }
     case 'loading': if (l.state === 'loading' && isNum(m.p, 0, 1)) { me.progress = Math.round(m.p * 100) / 100; pushState(l); } return;
