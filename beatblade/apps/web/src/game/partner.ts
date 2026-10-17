@@ -9,7 +9,7 @@ import { Slicer } from './slicer';
 import { Saber } from './sabers';
 import { Game } from './game';
 import { OrbitGame } from './orbit/orbit';
-import { HIT_Z, rowY, LANE_W, DUET_LANE_X } from './layout';
+import { HIT_Z, rowY, LANE_W, DUET_LANE_X, FIELD_HALF, DUET_GAP, SABER_LEN } from './layout';
 import { buildSaberVisual, type SaberVisual } from './sabervisuals';
 import type { HandOrbVisual } from './orbit/orbskins';
 import { buildSaberFor, buildHandOrbFor, loadBlockSkin, loadOrbNoteSkin } from '../look';
@@ -21,8 +21,8 @@ export const PARTNER_OFFSET = DUET_LANE_X;
 export const PARTNER_YAW = 0.35;
 /** seitliche Bewegung des Partners: auf seiner Spur gehalten (m) */
 export const PARTNER_SIDE_MAX = 0.6;
-/** Haende nie naeher an meine Spur als das (x in m) */
-export const PARTNER_HAND_MIN_X = 1.6;
+/** Haende nie naeher an meine Spur als das (x in m): Mitte der Luecke zwischen beiden Spielfeldern */
+export const PARTNER_HAND_MIN_X = FIELD_HALF + DUET_GAP / 2;
 /** Partnerspur in voller Groesse auf seiner eigenen Bahn (kleiner als 1 = verkleinert) */
 export const PARTNER_LANE_SCALE = 1;
 /** Bildschirm-Debug: Charakter nach vorn ins Bild holen (m) */
@@ -31,6 +31,11 @@ export const PARTNER_DESKTOP_FORWARD = 1.4;
 export const PARTNER_DELAY = 100;
 /** Deckkraft der Partner-Noten */
 export const PARTNER_NOTE_OPACITY = 0.35;
+
+/** Abstand der Partner-Klingenspitze zu meinem Spielfeldrand (m) */
+export const PARTNER_BLADE_MARGIN = 0.15;
+const TMP_Q = new THREE.Quaternion(), TMP_Q2 = new THREE.Quaternion(), TMP_F = new THREE.Quaternion(), TMP_E = new THREE.Euler();
+const TMP_P = new THREE.Vector3(), TMP_D = new THREE.Vector3(), TMP_N = new THREE.Vector3();
 
 interface Sample { t: number; head: number[]; hands: number[] }
 const parseHex = (c: string) => parseInt(c.slice(1), 16);
@@ -210,6 +215,20 @@ export class Partner {
   }
 
   /** Kopf des Partner-Charakters in Buehnen-Koordinaten (fuer den Raumklang) */
+  /** Klinge nie in mein Spielfeld: zeigt sie zu weit nach links, wird sie bis zur Kante (FIELD_HALF + Rand) hochgedreht */
+  private keepBladeOut(h: THREE.Object3D) {
+    const qc = TMP_Q.setFromEuler(TMP_E.set(0, PARTNER_YAW, 0));
+    const p = TMP_P.copy(h.position).applyQuaternion(qc); p.x += PARTNER_OFFSET;
+    const q = TMP_Q2.copy(qc).multiply(h.quaternion);
+    const d = TMP_D.set(0, 0, -1).applyQuaternion(q);
+    const lim = FIELD_HALF + PARTNER_BLADE_MARGIN;
+    if (d.x >= 0 || p.x + d.x * SABER_LEN >= lim) return;
+    const nx = Math.max(-1, Math.min(0, (lim - p.x) / SABER_LEN)), r = Math.hypot(d.y, d.z), s = Math.sqrt(1 - nx * nx);
+    const nd = r > 1e-4 ? TMP_N.set(nx, (d.y / r) * s, (d.z / r) * s) : TMP_N.set(nx, s, 0);
+    const fix = TMP_F.setFromUnitVectors(d, nd);
+    h.quaternion.copy(qc.invert().multiply(fix).multiply(q));
+  }
+
   headPos(out: THREE.Vector3): THREE.Vector3 { return out.copy(this.head.position).applyMatrix4(this.char.matrix).applyMatrix4(this.group.matrix); }
   get visible() { return this.char.visible; }
 
@@ -240,7 +259,7 @@ export class Partner {
     const hx = this.head.position.x, cx = Math.max(-PARTNER_SIDE_MAX, Math.min(PARTNER_SIDE_MAX, hx)), dx = cx - hx;
     this.head.position.x = cx;
     const fwd = this.desktop ? -PARTNER_DESKTOP_FORWARD : 0;
-    for (const h of this.hands) { h.position.x = Math.max(PARTNER_HAND_MIN_X - PARTNER_OFFSET, h.position.x + dx); h.position.z += fwd; }
+    for (const h of this.hands) { h.position.x = Math.max(PARTNER_HAND_MIN_X - PARTNER_OFFSET, h.position.x + dx); h.position.z += fwd; this.keepBladeOut(h); }
     this.head.position.z += fwd;
     // Oberkoerper haengt unter dem Kopf und dreht sich nur um die Hochachse mit
     const e = new THREE.Euler().setFromQuaternion(this.head.quaternion, 'YXZ');

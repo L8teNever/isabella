@@ -6,8 +6,15 @@ export const ROW_H = 0.5;              // Abstand der Reihen (m)
 export const NOTE_SIZE = 0.42;         // Kantenlaenge der Bloecke
 export const HIT_Z = -0.95;            // Z, an dem eine Note "auf dem Beat" ist (bequeme Schlagdistanz)
 export const SABER_LEN = 1.0;
-/** Duett: Mitte der zweiten Bahn (Partner) rechts neben meiner – eine Bahnbreite (2,6 m) plus Abstand */
-export const DUET_LANE_X = 2.8;
+/**
+ * Halbe Breite des Spielfelds (m): aeusserste Kante von Bloecken und Waenden (4 Spalten = ±2 LANE_W) bzw. Orbit-Waenden (±1,0 m).
+ * Nichts aus meinem Spiel ragt weiter zur Seite.
+ */
+export const FIELD_HALF = Math.max(2 * LANE_W, 1.0);
+/** Duett: freier Streifen zwischen meinem und dem Partner-Spielfeld (m) */
+export const DUET_GAP = 1.0;
+/** Duett: Mitte der zweiten Bahn (Partner) rechts neben meiner – zwei halbe Spielfelder plus Luecke, so beruehren sich Noten und Waende nie */
+export const DUET_LANE_X = 2 * FIELD_HALF + DUET_GAP;
 export const COLORS = { left: 0xff3d6e, right: 0x3db8ff, bomb: 0x2a2a33 };
 
 /** x-Position einer Spalte 0..3 */
