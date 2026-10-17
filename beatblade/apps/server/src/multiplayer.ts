@@ -5,12 +5,14 @@ import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from '@fastify/websocket';
 import {
-  DIFFICULTIES, DUET_MAPPING_VERSION, GAME_MODES, MP_CODE_CHARS, MP_CODE_LEN, MP_MAX_MEMBERS, MP_PROTOCOL, cleanName, teamAccuracy,
+  DIFFICULTIES, DUET_MAPPING_VERSION, GAME_MODES, MP_CODE_CHARS, MP_CODE_LEN, MP_MAX_MEMBERS, MP_PLAY_EVENTS, MP_PROTOCOL, cleanName, duetColors, isHexColor, teamAccuracy,
+  type MpLook,
   type Difficulty, type GameModeId, type MpClientMsg, type MpDevice, type MpLobby, type MpMember, type MpPart, type MpPerson,
   type MpResult, type MpResultLine, type MpServerMsg, type MpSharedModifiers, type MpSongRef,
 } from '@beatblade/core';
 import { config } from './config.js';
 import { getSong, insertDuetScore } from './db.js';
+import { contentByKind } from './content.js';
 
 // ---------- Stellschrauben ----------
 /** Heartbeat (WebSocket-Ping) – Cloudflare kappt Leerlauf-Verbindungen */
@@ -34,7 +36,10 @@ export const MP_RATE_SLOW = 5;
 export const MP_MAX_BYTES = 16 * 1024;
 
 const DEVICES: MpDevice[] = ['vr', 'mr', 'desktop', 'phone'];
-const FAST = new Set(['pose', 'ping', 'score', 'sync', 'loading']);
+const FAST = new Set(['pose', 'ping', 'score', 'sync', 'loading', 'play.event']);
+/** Farben, wenn jemand (noch) nichts gemeldet hat: Farbset klassisch */
+const DEFAULT_COLORS: [string, string] = ['#ff3d6e', '#3db8ff'];
+const CONTENT_ID = /^[a-z0-9][a-z0-9_-]{0,47}$/;
 
 interface Session {
   id: string;
@@ -48,6 +53,7 @@ interface Session {
   alive: boolean;
   tokens: { fast: number; slow: number; t: number };
   hello: boolean;
+  look?: MpLook;
 }
 
 interface Lobby {
@@ -60,6 +66,9 @@ interface Lobby {
   difficulty: Difficulty;
   seed: number;
   shared: MpSharedModifiers;
+  /** Map-Wahl des Hosts ('zufall' oder Ordnername) und die beim Start gezogene */
+  map: string;
+  mapResolved?: string;
   state: MpLobby['state'];
   note?: string;
   /** Songuhr: zur Serverzeit at (ms) war die Songposition from (s) */
@@ -122,23 +131,43 @@ function newCode(): string {
     if (![...lobbies.values()].some((l) => l.code === c)) return c;
   }
 }
+// Farbsets aus content/colors und Themen-Farbset einer Map
+function colorSetsFromContent(): Map<string, [string, string]> {
+  const out = new Map<string, [string, string]>();
+  for (const it of contentByKind().colors ?? []) if (isHexColor(it.data.left) && isHexColor(it.data.right)) out.set(it.id, [it.data.left, it.data.right]);
+  return out;
+}
+/** Farben im Duett: Stimme 1 behaelt ihre (bzw. das Themen-Farbset der Map), Stimme 2 wird bei Bedarf angepasst */
+function assignColors(l: Lobby) {
+  const sets = colorSetsFromContent();
+  const map = contentByKind().maps?.find((m) => m.id === (l.mapResolved ?? l.map));
+  const theme = typeof map?.data.colorSet === 'string' ? sets.get(map.data.colorSet) : undefined;
+  const byPart = [...l.members].sort((a, b) => a.part - b.part);
+  const one = byPart[0], two = byPart[1];
+  if (one) { one.colors = theme ?? one.look?.colors ?? DEFAULT_COLORS; one.colorsAdjusted = false; }
+  if (one && two) {
+    const r = duetColors(one.colors, two.look?.colors ?? DEFAULT_COLORS, [...sets.values()]);
+    two.colors = r.colors; two.colorsAdjusted = r.adjusted;
+  }
+}
 function view(l: Lobby): MpLobby {
+  assignColors(l);
   return {
-    id: l.id, code: l.code, hostId: l.hostId, members: l.members.map((m) => ({ ...m })), song: l.song, mode: l.mode, difficulty: l.difficulty,
-    seed: l.seed, sharedModifiers: { ...l.shared }, state: l.state, pausedBy: l.pausedBy, note: l.note,
+    id: l.id, code: l.code, hostId: l.hostId, members: l.members.map((m) => ({ ...m, colors: [...m.colors] as [string, string] })), song: l.song, mode: l.mode, difficulty: l.difficulty,
+    seed: l.seed, sharedModifiers: { ...l.shared }, map: l.mapResolved ?? l.map, state: l.state, pausedBy: l.pausedBy, note: l.note,
   };
 }
 function pushState(l: Lobby) { toLobby(l, { t: 'lobby.state', lobby: view(l) }); presenceChanged(); }
 
 function memberFor(s: Session, part: MpPart): MpMember {
-  return { clientId: s.clientId, name: s.name, device: s.device, part, ready: false, progress: 0, loaded: false, connected: true, away: s.status === 'away' };
+  return { clientId: s.clientId, name: s.name, device: s.device, part, ready: false, progress: 0, loaded: false, connected: true, away: s.status === 'away', look: s.look, colors: s.look?.colors ?? DEFAULT_COLORS, colorsAdjusted: false };
 }
 
 function createLobby(s: Session): Lobby {
   leaveLobby(s.clientId, 'neue Lobby');
   const l: Lobby = {
     id: crypto.randomUUID(), code: newCode(), hostId: s.clientId, members: [memberFor(s, 1)], mode: 'schnitt', difficulty: 'normal',
-    seed: 0, shared: { noWalls: false, noBombs: false, fastNotes: false }, state: 'waiting', resumeVotes: new Set(), results: new Map(),
+    seed: 0, shared: { noWalls: false, noBombs: false, fastNotes: false }, map: 'zufall', state: 'waiting', resumeVotes: new Set(), results: new Map(),
     resynced: new Set(), broken: false,
   };
   lobbies.set(l.id, l); lobbyOf.set(s.clientId, l.id);
@@ -239,6 +268,9 @@ function startLoading(l: Lobby) {
   const song = l.song ? getSong(l.song.id) : null;
   if (!song || !['ready', 'outdated'].includes(song.status)) { l.note = 'Der Song ist noch nicht bereit'; pushState(l); return; }
   l.song = { id: song.id, title: song.title, updatedAt: song.updatedAt };
+  // Map fuer beide gleich: 'zufall' wird hier einmal gezogen
+  const maps = (contentByKind().maps ?? []).map((m) => m.id);
+  l.mapResolved = maps.includes(l.map) ? l.map : maps.length ? maps[crypto.randomInt(maps.length)] : l.map;
   l.state = 'loading'; l.note = undefined; l.broken = false; l.results.clear(); l.resynced.clear(); l.clock = undefined;
   l.pausedBy = undefined; l.resumeVotes.clear();
   for (const m of l.members) { m.loaded = false; m.progress = 0; }
@@ -255,7 +287,7 @@ function startLoading(l: Lobby) {
   pushState(l);
 }
 function sendPrepare(l: Lobby, m: MpMember) {
-  toClient(m.clientId, { t: 'prepare', song: l.song!, mode: l.mode, difficulty: l.difficulty, seed: l.seed, sharedModifiers: { ...l.shared }, part: m.part, duetVersion: DUET_MAPPING_VERSION });
+  toClient(m.clientId, { t: 'prepare', song: l.song!, mode: l.mode, difficulty: l.difficulty, seed: l.seed, sharedModifiers: { ...l.shared }, part: m.part, duetVersion: DUET_MAPPING_VERSION, map: l.mapResolved ?? l.map });
 }
 
 function loaded(s: Session, l: Lobby, ok: boolean, error?: string) {
@@ -396,6 +428,16 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
       joinLobby(s, t); return;
     }
     case 'lobby.leave': leaveLobby(s.clientId, 'verlassen'); return;
+    case 'look': {
+      const id = (v: unknown) => (typeof v === 'string' && (v === '' || CONTENT_ID.test(v)) ? v : '');
+      if (!Array.isArray(m.colors) || !isHexColor(m.colors[0]) || !isHexColor(m.colors[1])) return;
+      const look: MpLook = { saberSkin: id(m.saberSkin), saberSkinRight: id(m.saberSkinRight), blockSkin: id(m.blockSkin), orbSkin: id(m.orbSkin), orbNoteSkin: id(m.orbNoteSkin),
+        colors: [m.colors[0].toLowerCase(), m.colors[1].toLowerCase()] };
+      for (const x of sessionsOf(s.clientId)) x.look = look;
+      const mb = l?.members.find((x) => x.clientId === s.clientId);
+      if (l && mb) { mb.look = look; pushState(l); }
+      return;
+    }
   }
   if (!l) return;
   const me = l.members.find((x) => x.clientId === s.clientId)!;
@@ -411,6 +453,7 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
       if (m.mode !== undefined && GAME_MODES.includes(m.mode)) { l.mode = m.mode; changed = true; }
       if (m.difficulty !== undefined && DIFFICULTIES.includes(m.difficulty)) { l.difficulty = m.difficulty; changed = true; }
       if (m.seed !== undefined && isNum(m.seed, 0, 1e9)) { l.seed = Math.floor(m.seed); changed = true; }
+      if (typeof m.map === 'string' && (m.map === 'zufall' || CONTENT_ID.test(m.map))) { l.map = m.map; l.mapResolved = undefined; changed = true; }
       if (m.sharedModifiers && typeof m.sharedModifiers === 'object') {
         const sm = m.sharedModifiers;
         l.shared = { noWalls: sm.noWalls === true, noBombs: sm.noBombs === true, fastNotes: sm.fastNotes === true }; changed = true;
@@ -448,14 +491,20 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
     case 'restart': if (isHost && ['playing', 'paused', 'countdown', 'results'].includes(l.state)) startLoading(l); return;
     case 'lobby.back': {
       if (!isHost) return;
-      endLoading(l); l.state = 'waiting'; l.clock = undefined; l.pausedBy = undefined;
+      endLoading(l); l.state = 'waiting'; l.clock = undefined; l.pausedBy = undefined; l.mapResolved = undefined;
       for (const x of l.members) x.ready = false;
       pushState(l); return;
     }
     case 'pose': {
       const head = nums(m.head, 7, 50), hands = nums(m.hands, 14, 50);
-      if (!head || !hands || l.state !== 'playing' && l.state !== 'countdown' && l.state !== 'paused') return;
+      if (!head || !hands) return;     // auch in der Lobby: der Partner steht schon rechts neben dir
       toLobby(l, { t: 'pose', head, hands }, s.clientId); return;
+    }
+    case 'play.event': {
+      if (!MP_PLAY_EVENTS.includes(m.kind) || !isNum(m.at, -10, 1e5) || ![-1, 0, 1].includes(m.hand)) return;
+      if (l.state !== 'playing' && l.state !== 'countdown') return;
+      toLobby(l, { t: 'play.event', kind: m.kind, at: Math.round(m.at * 1000) / 1000, hand: m.hand, value: isNum(m.value, 0, 1e5) ? Math.round(m.value) : 0 }, s.clientId);
+      return;
     }
     case 'score': {
       if (!isNum(m.rating, 0, 100) || !isNum(m.score, 0, 1e9) || !isNum(m.combo, 0, 1e5) || !isNum(m.hits, 0, 1e5) || !isNum(m.misses, 0, 1e5)) return;

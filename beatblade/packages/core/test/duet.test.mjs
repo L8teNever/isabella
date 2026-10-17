@@ -144,3 +144,18 @@ test('Orbit-Duett: Dichte jeder Stimme steigt mit der Schwierigkeit', () => {
     for (const v of [0, 1]) assert.ok(prev[v] > first[v] * 2, `${a.bpm} Stimme ${v + 1}: Expert+ kaum dichter als Easy`);
   }
 });
+
+// ---------- Farben im Duett ----------
+import { duetColors, colorDistance, COLOR_MIN_HUE_DIFF } from '../dist/index.js';
+test('Duett-Farben: gleiche Farben -> Stimme 2 bekommt klar andere, unterschiedliche bleiben', () => {
+  const sets = [['#ff3d6e', '#3db8ff'], ['#7cff4d', '#b04dff'], ['#ff8a3d', '#b04dff'], ['#f2f2f2', '#6b6b80']];
+  const klassisch = ['#ff3d6e', '#3db8ff'];
+  const r = duetColors(klassisch, klassisch, sets);
+  assert.ok(r.adjusted);
+  for (const a of klassisch) for (const b of r.colors) assert.ok(colorDistance(a, b) >= COLOR_MIN_HUE_DIFF, `${a} vs ${b}`);
+  assert.ok(colorDistance(r.colors[0], r.colors[1]) >= COLOR_MIN_HUE_DIFF, 'links/rechts unterscheidbar');
+  const keep = duetColors(klassisch, ['#7cff4d', '#b04dff'], sets);
+  assert.equal(keep.adjusted, false);
+  // knapp daneben (Orange zu nah an Rot) -> anpassen
+  assert.ok(duetColors(klassisch, ['#ff8a3d', '#b04dff'], sets).adjusted);
+});
