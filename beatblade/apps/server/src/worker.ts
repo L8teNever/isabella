@@ -5,7 +5,7 @@ import path from 'node:path';
 import { analyze, waveform, generate, generateOrbit, generateDuet, generateOrbitDuet, DIFFICULTIES, type SongAnalysis, type Difficulty, type GameModeId } from '@beatblade/core';
 
 export type WorkerTask =
-  | { task: 'full'; id: string; dir: string; seed: number; pcm: Float32Array; sr: number }
+  | { task: 'full'; id: string; dir: string; seed: number; pcm: Float32Array; side?: Float32Array; sr: number }
   /** mode fehlt = beide Modi */
   | { task: 'map'; id: string; dir: string; seed: number; difficulties?: Difficulty[]; mode?: GameModeId }
   /** Duett-Level (Stimme 1 + 2) fuer eine Schwierigkeit, nur bei Bedarf */
@@ -69,12 +69,12 @@ parentPort!.on('message', (t: WorkerTask) => {
       let last = 0;
       const a = analyze(t.pcm, t.sr, (stage, p) => {
         // Merkmals-Extraktion ist der groesste Teil (~80 %)
-        const total = stage === 'features' ? p * 0.8 : stage === 'onsets' ? 0.82 : stage === 'tempo' ? 0.86 : stage === 'meter' ? 0.92 : 0.96;
+        const total = stage === 'features' ? p * 0.6 : stage === 'onsets' ? 0.62 : stage === 'tempo' ? 0.66 : stage === 'meter' ? 0.7 : stage === 'melody' ? 0.72 : 0.96;
         if (total - last > 0.02) { last = total; post({ type: 'progress', stage: 'analyzing', p: total }); }
-      });
+      }, t.side);
       write(path.join(t.dir, 'analysis.json'), a);
       write(path.join(t.dir, 'waveform.json'), waveform(t.pcm, t.sr));
-      post({ type: 'log', msg: `Analyse fertig in ${a.took} ms: ${a.bpm} BPM (Sicherheit ${Math.round(a.bpmConfidence * 100)} %), ${a.beatsPerBar}/4, ${a.beats.length} Beats, Abschnitte: ${a.sections.map((s) => `${s.type}(${s.endBar - s.startBar})`).join(' ')}` });
+      post({ type: 'log', msg: `Analyse fertig in ${a.took} ms: ${a.bpm} BPM (Sicherheit ${Math.round(a.bpmConfidence * 100)} %), ${a.beatsPerBar}/4, ${a.beats.length} Beats, Melodie aus ${(a.stereoWidth ?? 0) >= 0.12 ? 'den Stereo-Seiten (ohne Gesang)' : 'der Mitte (nur harte Anschläge)'} (Breite ${a.stereoWidth ?? 0}), ${a.leadOnsets?.length ?? 0} Melodie-Töne, Abschnitte: ${a.sections.map((s) => `${s.type}(${s.endBar - s.startBar})`).join(' ')}` });
       post({ type: 'progress', stage: 'mapping', p: 0 });
       // alte Levels entfernen (neue Analyse)
       fs.rmSync(path.join(t.dir, 'beatmaps'), { recursive: true, force: true });

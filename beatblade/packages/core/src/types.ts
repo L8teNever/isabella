@@ -47,14 +47,18 @@ export interface SongAnalysis {
   bars: number[];
   /** Energie pro Takt 0..1 */
   barEnergy: number[];
-  /** Melodie-/Gesangsaktivitaet pro Beat 0..1 */
+  /** Melodie pro Beat 0..1 – nur Instrumente, ohne Gesang (ab Analyse v5) */
   melody: number[];
   /** Onsets je Band */
   onsets: Record<Band, Onset[]>;
   /** Onset-Staerke pro Beat-Unterteilung (1/4 Beat) je Band, 0..1 – fuer das Mapping */
-  grid: { step: number; bands: Record<Band, number[]>; /** Gesang/Lead (neue Toene), fehlt bei alten Analysen */ vocal?: number[] };
-  /** Onsets von Gesang/Lead (neue Toene in melodischen Passagen). Fehlt bei alten Analysen. */
+  grid: { step: number; bands: Record<Band, number[]>; /** alt (v4): Gesang/Lead */ vocal?: number[]; /** Melodie-Instrumente (neue Toene, ohne Gesang) */ lead?: number[] };
+  /** alt (v4): Onsets von Gesang/Lead – wird nicht mehr benutzt */
   vocalOnsets?: Onset[];
+  /** Onsets der Melodie-Instrumente (neue Toene, ohne Gesang). Fehlt bei alten Analysen. */
+  leadOnsets?: Onset[];
+  /** Stereobreite (Seite/Mitte, 0 = mono): breit genug, um Gesang (Mitte) von Instrumenten (Seiten) zu trennen */
+  stereoWidth?: number;
   /** Tempo ist fest und das Raster exakt auf die Kicks eingerastet (rigidGrid). Fehlt bei alten Analysen. */
   fixedTempo?: boolean;
   /** Triolen-Neigung pro Beat 0..1 (1 = eher Triolen als 16tel) */

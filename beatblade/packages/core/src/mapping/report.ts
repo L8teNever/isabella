@@ -24,7 +24,7 @@ export interface TimingReport {
 }
 
 export function timingReport(a: SongAnalysis, notes: { t: number; b: number }[]): TimingReport {
-  const refOf = (min: number) => [...BANDS.flatMap((band) => a.onsets[band]), ...(a.vocalOnsets ?? [])].filter((o) => o.s >= min).map((o) => o.t).sort((x, y) => x - y);
+  const refOf = (min: number) => [...BANDS.flatMap((band) => a.onsets[band]), ...(a.leadOnsets ?? a.vocalOnsets ?? [])].filter((o) => o.s >= min).map((o) => o.t).sort((x, y) => x - y);
   const all = refOf(0.15), clear = refOf(0.5);
   const near = (ref: number[], t: number) => {
     let lo = 0, hi = ref.length - 1;

@@ -21,6 +21,8 @@ export interface FrameFeatures {
   rms: Float32Array;
   centroid: Float32Array;   // Hz
   chroma: Float32Array;     // n * 12
+  /** Chroma nur im Melodie-Bereich (220 Hz – 5 kHz, ohne Bass), auf max. 1 normiert */
+  chromaHi: Float32Array;   // n * 12
   mfcc: Float32Array;       // n * 13
   melodic: Float32Array;    // 0..1
 }
@@ -56,13 +58,14 @@ export function computeFeatures(pcm: Float32Array, sr = ANALYSIS.sampleRate, onP
   const flux = Object.fromEntries(BANDS.map((b) => [b, new Float32Array(n)])) as Record<Band, Float32Array>;
   const bandEnergy = Object.fromEntries(BANDS.map((b) => [b, new Float32Array(n)])) as Record<Band, Float32Array>;
   const rms = new Float32Array(n), centroid = new Float32Array(n), melodic = new Float32Array(n);
-  const chroma = new Float32Array(n * 12), mfcc = new Float32Array(n * N_MFCC);
+  const chroma = new Float32Array(n * 12), chromaHi = new Float32Array(n * 12), mfcc = new Float32Array(n * N_MFCC);
   // Chroma: Bin -> Tonklasse (nur 55 Hz – 5 kHz)
   const pc = new Int8Array(nBins).fill(-1);
   for (let k = 1; k < nBins; k++) {
     const f = hz(k); if (f < 55 || f > 5000) continue;
     pc[k] = ((Math.round(12 * Math.log2(f / 440) + 69) % 12) + 12) % 12;
   }
+  const hiFrom = Math.ceil((220 * N) / sr);
   const mels = melFilterbank(nBins, sr, N);
   const melE = new Float32Array(N_MEL);
   // DCT-II Matrix fuer MFCC
@@ -96,6 +99,9 @@ export function computeFeatures(pcm: Float32Array, sr = ANALYSIS.sampleRate, onP
     for (let k = 1; k < nBins; k++) if (pc[k] >= 0) chroma[cb + pc[k]] += logm[k];
     let cmax = 1e-9; for (let c = 0; c < 12; c++) cmax = Math.max(cmax, chroma[cb + c]);
     for (let c = 0; c < 12; c++) chroma[cb + c] /= cmax;
+    for (let k = hiFrom; k < nBins; k++) if (pc[k] >= 0) chromaHi[cb + pc[k]] += logm[k];
+    let hmax = 1e-9; for (let c = 0; c < 12; c++) hmax = Math.max(hmax, chromaHi[cb + c]);
+    for (let c = 0; c < 12; c++) chromaHi[cb + c] /= hmax;
     // MFCC
     for (let m = 0; m < N_MEL; m++) { const { s, w } = mels[m]; let e = 0; for (let k = 0; k < w.length; k++) e += w[k] * mag[s + k] * mag[s + k]; melE[m] = Math.log(e + 1e-10); }
     for (let c = 0; c < N_MFCC; c++) { let v = 0; for (let m = 0; m < N_MEL; m++) v += dct[c * N_MEL + m] * melE[m]; mfcc[i * N_MFCC + c] = v; }
@@ -106,7 +112,7 @@ export function computeFeatures(pcm: Float32Array, sr = ANALYSIS.sampleRate, onP
     prev.set(logm);
     if (onProgress && (i & 1023) === 0) onProgress(i / n);
   }
-  return { n, hop: H, sr, dt: H / sr, t0: N / 2 / sr, flux, bandEnergy, rms, centroid, chroma, mfcc, melodic };
+  return { n, hop: H, sr, dt: H / sr, t0: N / 2 / sr, flux, bandEnergy, rms, centroid, chroma, chromaHi, mfcc, melodic };
 }
 
 export const MFCC_DIM = N_MFCC;

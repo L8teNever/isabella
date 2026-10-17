@@ -62,12 +62,13 @@ export function sniffImage(b: Buffer): string | null {
 }
 
 /**
- * Dekodieren zu PCM 44,1 kHz Mono Float32 mit ffmpeg (asynchron, blockiert den Server nicht).
+ * Dekodieren zu PCM 44,1 kHz Float32 mit ffmpeg (asynchron, blockiert den Server nicht): Mitte (L+R)/2 fuer die Analyse und
+ * Seite (L-R)/2 – dort fehlt der Gesang (steht in der Mitte), die Melodie-Instrumente bleiben. Mono-Dateien: Seite = 0.
  * onProgress bekommt 0..1 anhand der von ffmpeg gemeldeten Zeit.
  */
-export function decode(file: string, duration: number, onProgress?: (p: number) => void): Promise<Float32Array> {
+export function decode(file: string, duration: number, onProgress?: (p: number) => void): Promise<{ mono: Float32Array; side: Float32Array }> {
   return new Promise((resolve, reject) => {
-    const p = spawn(config.ffmpeg, ['-hide_banner', '-nostdin', '-i', file, '-vn', '-ac', '1', '-ar', '44100', '-f', 'f32le', '-progress', 'pipe:2', 'pipe:1']);
+    const p = spawn(config.ffmpeg, ['-hide_banner', '-nostdin', '-i', file, '-vn', '-ac', '2', '-ar', '44100', '-f', 'f32le', '-progress', 'pipe:2', 'pipe:1']);
     const chunks: Buffer[] = []; let size = 0, err = '';
     p.stdout.on('data', (c: Buffer) => { chunks.push(c); size += c.length; if (size > 1.5e9) p.kill(); });
     p.stderr.on('data', (c: Buffer) => {
@@ -78,10 +79,10 @@ export function decode(file: string, duration: number, onProgress?: (p: number) 
     p.on('close', (code) => {
       if (code !== 0) return reject(new Error(`Datei konnte nicht dekodiert werden (ffmpeg ${code}): ${err.split('\n').filter((l) => /error|invalid/i.test(l)).slice(-2).join(' ') || 'unbekannter Fehler'}`));
       const buf = Buffer.concat(chunks, size);
-      // eigenes ArrayBuffer (ausgerichtet), damit es an den Worker uebergeben werden kann
-      const ab = new ArrayBuffer(buf.length - (buf.length % 4));
-      new Uint8Array(ab).set(buf.subarray(0, ab.byteLength));
-      resolve(new Float32Array(ab));
+      // L/R abwechselnd -> Mitte und Seite (je eigenes ArrayBuffer, damit es an den Worker uebergeben werden kann)
+      const n = Math.floor(buf.length / 8), mono = new Float32Array(n), side = new Float32Array(n);
+      for (let i = 0; i < n; i++) { const l = buf.readFloatLE(i * 8), r = buf.readFloatLE(i * 8 + 4); mono[i] = (l + r) / 2; side[i] = (l - r) / 2; }
+      resolve({ mono, side });
     });
   });
 }

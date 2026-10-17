@@ -96,11 +96,11 @@ async function runJob(job: { id: number; song_id: string; type: JobType }): Prom
     if (job.type === 'full') {
       set('decoding', 0);
       logSong(id, `Dekodieren (${row.ext})`);
-      const pcm = await decode(audioPath(id, row.ext as string), row.duration as number, (p) => { if (p - lastP > 0.05) { lastP = p; set('decoding', p); } });
+      const { mono: pcm, side } = await decode(audioPath(id, row.ext as string), row.duration as number, (p) => { if (p - lastP > 0.05) { lastP = p; set('decoding', p); } });
       lastP = -1;
       logSong(id, `Dekodiert: ${(pcm.length / 44100).toFixed(1)} s Audio in ${Date.now() - t0} ms`);
       set('analyzing', 0);
-      result = await pool.run({ task: 'full', id, dir: songDir(id), seed, pcm, sr: 44100 }, onMsg, [pcm.buffer as ArrayBuffer]);
+      result = await pool.run({ task: 'full', id, dir: songDir(id), seed, pcm, side, sr: 44100 }, onMsg, [pcm.buffer as ArrayBuffer, side.buffer as ArrayBuffer]);
       updateSong(id, { analysis_version: ANALYSIS_VERSION });
     } else {
       set('mapping', 0);

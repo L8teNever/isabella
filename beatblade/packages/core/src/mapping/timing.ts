@@ -92,15 +92,15 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
   // echte Onsets aller Baender: keine Note, wo nichts klingt
   const perc = onsetIndex(BANDS.flatMap((band) => a.onsets[band]));
   const realOnset = (t: number, win: number) => { const o = strongestNear(perc, t, Math.min(MAPPING.onsetWindow, win)); return o && o.s >= MAPPING.onsetMin ? o : null; };
-  // Gesang/Lead als eigene Spur: Abschnitte mit viel Melodie folgen dem Gesang (wie menschliche Mapper), sonst dem Schlagzeug
-  const vocIx = onsetIndex(a.vocalOnsets ?? []), vocGrid = a.grid.vocal;
+  // Melodie als eigene Spur (nur Instrumente, Gesang zaehlt nicht): Abschnitte mit Melodie folgen ihr, sonst dem Schlagzeug
+  const leadIx = onsetIndex(a.leadOnsets ?? []), leadGrid = a.grid.lead;
   const leadOf = new Map<Section | undefined, boolean>();
-  const vocalLead = (sec: Section | undefined) => {
+  const melodyLead = (sec: Section | undefined) => {
     let v = leadOf.get(sec);
     if (v === undefined) {
       let m = 0, n = 0;
-      if (sec && vocGrid) for (let k = 0; k < nBeats; k++) if (sectionAtBeat(a, k) === sec) { m += a.melody[k] ?? 0; n++; }
-      v = n > 0 && m / n >= MAPPING.vocalLeadMelody;
+      if (sec && leadGrid) for (let k = 0; k < nBeats; k++) if (sectionAtBeat(a, k) === sec) { m += a.melody[k] ?? 0; n++; }
+      v = n > 0 && m / n >= MAPPING.leadMelody;
       leadOf.set(sec, v);
     }
     return v;
@@ -139,7 +139,7 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         seen.add(gi);
         const idx = k * STEPS + gi;
         const kick = at('sub', idx), snare = Math.max(at('lowmid', idx) * 0.6, at('highmid', idx)), hat = at('high', idx);
-        const sec = sectionAtBeat(a, k), lead = vocalLead(sec), voc = vocGrid?.[idx] ?? 0;
+        const sec = sectionAtBeat(a, k), lead = melodyLead(sec), voc = leadGrid?.[idx] ?? 0;
         const mel = a.melody[k] ?? 0;
         const bar = barOfBeat(a, k), inBar = ((k - a.downbeatOffset) % a.beatsPerBar + a.beatsPerBar) % a.beatsPerBar + gi / STEPS;
         // metrische Position
@@ -151,14 +151,14 @@ export function pickTiming(a: SongAnalysis, P: TimingParams, rngMain: Rng): Timi
         const win = (beats[k + 1] - beats[k]) / s / 2;
         let on: { t: number; s: number } | null = realOnset(bt, win), vocOnly = false;
         if (!on && lead) {
-          // im Gesang-Abschnitt zaehlt auch eine Silbe/ein Lead-Ton als Sound (auf das Raster gerundet = gemeinter Rhythmus)
-          const v = strongestNear(vocIx, bt, Math.min(MAPPING.onsetWindow * 1.5, win));
+          // im Melodie-Abschnitt zaehlt auch ein Melodie-Ton als Sound (auf das Raster gerundet = gemeinter Rhythmus)
+          const v = strongestNear(leadIx, bt, Math.min(MAPPING.onsetWindow * 1.5, win));
           if (v && v.s >= MAPPING.onsetMin) { on = v; vocOnly = true; }
         }
         if (!on) continue;
         const W = MAPPING.bandSalience;
-        let sal = (W.sub * kick + W.lowmid * at('lowmid', idx) + W.highmid * at('highmid', idx) + W.high * hat) * (lead ? MAPPING.vocalLeadDrums : 1) + metric;
-        sal += (lead ? MAPPING.vocalLead : MAPPING.vocalOther) * voc;
+        let sal = (W.sub * kick + W.lowmid * at('lowmid', idx) + W.highmid * at('highmid', idx) + W.high * hat) * (lead ? MAPPING.leadDrums : 1) + metric;
+        sal += (lead ? MAPPING.leadWeight : MAPPING.leadOther) * voc;
         if (gi === 0 || gi === 12) sal += MAPPING.melody * mel;
         // feinere Unterteilungen brauchen einen echten Onset
         if (s >= 4 && gi % 12 !== 0 && Math.max(kick, snare, hat, lead ? voc : 0) < 0.35) continue;

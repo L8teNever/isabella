@@ -88,7 +88,7 @@ liegen dort frei im Raum (nicht in einem Raster); du berührst sie im Takt mit d
   daneben mitführen; bringen doppelte Rail-Punkte.
 - **Grün**: Läufe in ruhigen, melodischen Passagen – **eine Hand nach Wahl**: die Hand, die die erste grüne Kugel
   berührt, gilt für den ganzen Lauf (der Ring der restlichen Kugeln zeigt dann ihre Farbe).
-- **Rails**: leuchtende Bahnen auf gehaltenen Klängen (Pads, Gesang); die Hand folgt der Kurve, die Höhe folgt der
+- **Rails**: leuchtende Bahnen auf gehaltenen Klängen (Pads, Melodie-Instrumente – kein Gesang); die Hand folgt der Kurve, die Höhe folgt der
   Tonhöhe. Eine Rail zählt, wenn man mindestens **80 %** der Zeit an ihr bleibt; der gespielte Teil verschwindet.
   Die Rail färbt sich nach dem gehaltenen Anteil: voll in Handfarbe = sauber gefolgt, grau = verloren.
 - **Hindernisse**: dieselben Wände (und Wand-Skins) wie bei Schnitt – ausweichen oder ducken.
@@ -112,7 +112,7 @@ Alle Stellschrauben: `packages/core/src/mapping/orbit/tuning.ts`. Orbit-Levels h
 Zwei Spieler spielen denselben Song gleichzeitig – jeder bekommt **eine eigene Stimme** desselben Liedes.
 Zusammen ergeben beide Stimmen das ganze Lied: keine Note fehlt, keine ist doppelt (außer Drop-Einsätze, die beide spielen).
 
-- **Stimme 1 = Rhythmus** (Kick, Snare, Bass), **Stimme 2 = Melodie und Glanz** (Hi-Hat, Melodie, Gesang). Jede Stimme ist ein
+- **Stimme 1 = Rhythmus** (Kick, Snare, Bass), **Stimme 2 = Melodie und Glanz** (Hi-Hat, Melodie-Instrumente). Jede Stimme ist ein
   vollständiges Zwei-Hand-Level mit eigener Parity – keine Stimme ist „nur die linke Hand“. Wände und Lichtshow sind für beide gleich.
 - **Menüs:** Mitte Song-Auswahl, rechts Einstellungen (oben „🎨 Skins & Aussehen“, darunter die Reiter Spiel, Audio, Körper, Mehr),
   links die **Party** (Mitspieler, Einladen, Code) mit der Bestenliste darunter. „Skins & Aussehen“ öffnet ein eigenes Menü mit
@@ -264,7 +264,12 @@ seed-songs      credits.json (CC-BY-Songs, werden beim Build geladen)
 
 1. STFT (Hann 2048 / Hop 512, 44,1 kHz Mono) in einem Durchlauf: Spectral Flux in 4 Bändern
    (Sub 20–150, Low-Mid 150–800, High-Mid 800–5000, High 5–16 kHz), Band-Energie, RMS, Schwerpunkt,
-   Chroma, MFCC, Anteil 300–3400 Hz (Melodie/Gesang).
+   Chroma, MFCC, Anteil 300–3400 Hz.
+   **Melodie ohne Gesang:** Dekodiert wird in Stereo. Gesang steht im Mix fast immer genau in der Mitte, Melodie-Instrumente
+   (Synths, Leads, Gitarren, Pads) sind breit – die Seite (L−R) enthält sie ohne den Gesang. Daraus (ab Stereobreite 0,12)
+   kommen die Melodie-Töne: neue Töne (Chroma 220 Hz – 5 kHz, ohne Bass) mit Tonalität und Anschlag. Bei (fast) mono
+   gemischten Liedern zählen in der Mitte nur Töne mit hartem Anschlag (Instrumente), gesungene Silben setzen weich ein.
+   Skaliert wird absolut, damit reines Schlagzeug keine „Melodie“ bekommt (`ANALYSIS.lead` in `tuning.ts`).
 2. Onsets je Band: Normalisierung, adaptive Schwelle (gleitender Median × Faktor + Delta), Peak-Picking.
 3. Tempo: Tempogramm (gefensterte Autokorrelation), Harmonische, log-Gauss-Prior um 120 BPM; Oktav-Prüfung
    über Kick/Snare-Verteilung und bevorzugten Bereich 70–180 BPM.
@@ -287,8 +292,8 @@ Ducken ab Expert+), Bomben (ab Hard, sparsam) → Lichtshow → Validierung (Par
 Dichte, Wände, Bomben) mit Spielbarkeits-Score. Gleicher Song + Seed + Schwierigkeit = gleiches Level.
 
 **Musik-Treue:** Jede Note liegt auf einem hörbaren Sound – Rasterpunkte ohne echten Onset werden nicht belegt, der
-Taktbonus entscheidet nur zwischen ähnlich starken Sounds. Abschnitte mit viel Melodie folgen dem Gesang/Lead
-(eigene Onset-Spur, auf 1/2, 1/3, 1/4 gerundet), geswungene Abschnitte bekommen Offbeats auf 2/3, und jede Note wird
+Taktbonus entscheidet nur zwischen ähnlich starken Sounds. Abschnitte mit Melodie folgen der **Melodie – nie dem Gesang**
+(eigene Onset-Spur der Melodie-Instrumente, auf 1/2, 1/3, 1/4 gerundet), geswungene Abschnitte bekommen Offbeats auf 2/3, und jede Note wird
 auf den echten Anschlag innerhalb ±25 ms eingerastet (bei festem Tempo nur eine systematische Verschiebung).
 Messen: `pnpm --filter @beatblade/core build && node packages/core/scripts/timing-report.mjs typ=song.mp3 …`
 (Anteil Noten auf einem Sound, Abweichung, Vergleich mit allen Rasterpunkten; `--gen` vergleicht einen anderen Generator-Stand).

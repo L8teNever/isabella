@@ -17,6 +17,19 @@ export const ANALYSIS = {
   bandWeight: { sub: 1.0, lowmid: 0.8, highmid: 0.9, high: 0.5 } as Record<Band, number>,
   /** Log-Kompression der Magnituden: log(1 + gamma * |X|) */
   logGamma: 100,
+  /** Melodie ohne Gesang: Gesang steht im Stereobild in der Mitte, Instrumente sind breit */
+  lead: {
+    /** ab dieser Stereobreite (Seiten- zu Mitten-Pegel) kommt die Melodie aus den Seiten (L-R), sonst aus der Mitte */
+    minWidth: 0.12,
+    /** Tonalitaet = 12 / Summe der (auf max. 1 normierten) Chroma: ab tonalMin zaehlt ein Frame als Ton, voll ab tonalMin + tonalRange */
+    tonalMin: 1.4, tonalRange: 1.2,
+    /** Anteil der Energie 300–3400 Hz: darunter keine Melodie, voll ab melodicMin + melodicRange */
+    melodicMin: 0.06, melodicRange: 0.24,
+    /** Skalierung der Melodie-Anschlaege: mindestens durch diesen Wert teilen (reines Schlagzeug bleibt dann nahe 0) */
+    curveFloor: 0.08,
+    /** Melodie-Pegel je Beat: so viel gilt als volle Melodie */
+    levelRef: 0.15,
+  },
   onset: {
     /** gleitender Median (Sekunden) fuer die adaptive Schwelle */
     medianWindow: 0.5,
@@ -25,8 +38,8 @@ export const ANALYSIS = {
     delta: 0.04,
     /** Mindestabstand zweier Onsets im selben Band (Sekunden) */
     minGap: { sub: 0.09, lowmid: 0.07, highmid: 0.06, high: 0.05 } as Record<Band, number>,
-    /** Gesang/Lead-Onsets: Mindestabstand (Sekunden) */
-    vocalMinGap: 0.1,
+    /** Melodie-Onsets: Mindestabstand (Sekunden) */
+    leadMinGap: 0.1,
   },
   tempo: {
     minBpm: 60,
@@ -165,10 +178,10 @@ export const MAPPING = {
   /** Swing: Abschnitt gilt als geswungen, wenn so viel der Offbeat-Onsets auf 2/3 statt auf 1/2 des Beats liegen;
    *  dann kommen Offbeat-Noten auf die geswungene Position (auf allen Stufen, ohne zusaetzliche Noten) */
   swingMin: 0.65, swingMinOnsets: 0.25,
-  /** Gesang/Lead als Notenquelle: Abschnitte mit so viel Melodie (Mittel 0..1) folgen dem Gesang, sonst dem Schlagzeug */
-  vocalLeadMelody: 0.5,
-  /** Gewicht der Gesang-Onsets in Gesang-Abschnitten / sonst; Schlagzeug-Gewicht in Gesang-Abschnitten */
-  vocalLead: 0.8, vocalOther: 0.2, vocalLeadDrums: 0.7,
+  /** Melodie als Notenquelle (ohne Gesang): Abschnitte mit so viel Melodie (Mittel 0..1) folgen der Melodie, sonst dem Schlagzeug */
+  leadMelody: 0.35,
+  /** Gewicht der Melodie-Onsets in Melodie-Abschnitten / sonst; Schlagzeug-Gewicht in Melodie-Abschnitten */
+  leadWeight: 1.1, leadOther: 0.35, leadDrums: 0.4,
   /** Zeit ohne Noten vor einem Drop (Beats) */
   dropPause: 1,
   /** Parity-Reset: nach so viel Zeit darf eine Hand dieselbe Richtung wiederholen (s) */

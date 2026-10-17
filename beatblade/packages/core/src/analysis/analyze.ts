@@ -1,4 +1,4 @@
-// Komplette Song-Analyse: PCM (Mono, Float32) -> SongAnalysis.
+// Komplette Song-Analyse: PCM (Mono, Float32; optional die Stereo-Seite L-R fuer die Melodie ohne Gesang) -> SongAnalysis.
 import { ANALYSIS } from '../tuning.js';
 import { ANALYSIS_VERSION } from '../version.js';
 import { BANDS, type Band, type SongAnalysis, type Waveform } from '../types.js';
@@ -13,7 +13,7 @@ export const GRID_STEPS = 24;
 
 export type Progress = (stage: string, p: number) => void;
 
-export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?: Progress): SongAnalysis {
+export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?: Progress, side?: Float32Array): SongAnalysis {
   const t0 = Date.now();
   const duration = pcm.length / sr;
   const f = computeFeatures(pcm, sr, (p) => onProgress?.('features', p));
@@ -101,8 +101,6 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
   // festes Tempo (eingerastetes Raster oder gleichmaessig getrackt): ruhigere Abschnitte in 8er-Phrasen
   const fixedTempo = !!rigid || ref.steady;
   const sections = segment({ vec: barVec, energy: barEnergy }, bars, duration, fixedTempo ? { minBars: ANALYSIS.structure.minBarsFixed, phrase: 8 } : {});
-  // Melodie pro Beat (0..1)
-  const melN = normalizeArr(bf.melody);
   // Raster: Onset-Staerke je Band an 1/24-Beat-Positionen (max. im +-20-ms-Fenster)
   const win = Math.max(1, Math.round(0.02 / f.dt));
   const grid: SongAnalysis['grid'] = { step: 1 / GRID_STEPS, bands: {} as Record<Band, number[]> };
@@ -117,26 +115,64 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     }
     grid.bands[b] = arr;
   }
-  // Gesang/Lead als eigene Spur: neue Toene (positive Chroma-Aenderung) in melodischen Frames.
-  // Schlagzeug aendert die Chroma kaum, Silben und Lead-Toene schon.
-  const vocCurve = new Float32Array(f.n);
-  const melMax = percentile(f.melodic, 0.95) || 1;
-  for (let i = 2; i < f.n; i++) {
-    let d = 0;
-    for (let c = 0; c < 12; c++) d += Math.max(0, f.chroma[i * 12 + c] - f.chroma[(i - 2) * 12 + c]);
-    vocCurve[i] = d * Math.min(1, f.melodic[i] / melMax);
+  // ---------- Melodie ohne Gesang ----------
+  // Gesang steht im Stereobild fast immer genau in der Mitte, Melodie-Instrumente (Synths, Gitarren, Pads, Leads) sind breit.
+  // Die Seite (L-R) enthaelt deshalb die Instrumente ohne den Gesang. Ist das Lied (fast) mono, bleibt nur die Mitte:
+  // dort zaehlen nur Toene mit hartem Anschlag (Instrumente) – gesungene Silben setzen weich ein.
+  onProgress?.('melody', 0);
+  let src = f, stereoWidth = 0;
+  if (side) {
+    const sf = computeFeatures(side, sr);
+    const mean = (x: Float32Array) => { let s = 0; for (let i = 0; i < x.length; i++) s += x[i]; return s / (x.length || 1); };
+    stereoWidth = Math.round((mean(sf.rms) / (mean(f.rms) || 1)) * 1000) / 1000;
+    if (stereoWidth >= ANALYSIS.lead.minWidth) src = sf;
   }
-  const vocN = normalize(vocCurve);
-  const vocalOnsets = pickPeaks(vocN, f, ANALYSIS.onset.vocalMinGap).map((o) => ({ t: Math.round(o.t * 1000) / 1000, s: Math.round(o.s * 1000) / 1000 }));
-  const vocalGrid: number[] = [];
+  const fromSide = src !== f;
+  const lvlMax = percentile(src.rms, 0.9) || 1;
+  const atk = new Float32Array(src.n);
+  for (let i = 0; i < src.n; i++) atk[i] = src.flux.lowmid[i] + src.flux.highmid[i];
+  const atkMax = percentile(atk, 0.9) || 1;
+  const leadCurve = new Float32Array(src.n), leadLevel = new Float32Array(src.n);
+  for (let i = 2; i < src.n; i++) {
+    // neue Toene: positive Chroma-Aenderung (Schlagzeug aendert die Chroma kaum), nur wo es klingt und melodisch ist
+    let d = 0;
+    for (let c = 0; c < 12; c++) d += Math.max(0, src.chromaHi[i * 12 + c] - src.chromaHi[(i - 2) * 12 + c]);
+    // Anteil im Melodie-Bereich absolut (nicht am Song gemessen – sonst wird bei reinem Schlagzeug der Snare-Anteil zur „Melodie“)
+    const level = Math.min(1, src.rms[i] / lvlMax), mel = clamp01((src.melodic[i] - ANALYSIS.lead.melodicMin) / ANALYSIS.lead.melodicRange);
+    const attack = Math.min(1, Math.max(atk[i], atk[i - 1]) / atkMax);
+    // Tonalitaet: echte Toene sammeln sich auf wenigen Tonklassen, Schlagzeug/Rauschen verteilt sich auf alle
+    let sum = 0; for (let c = 0; c < 12; c++) sum += src.chromaHi[i * 12 + c];
+    const tonal = clamp01((12 / (sum || 12) - ANALYSIS.lead.tonalMin) / ANALYSIS.lead.tonalRange);
+    leadLevel[i] = level * mel * tonal;
+    leadCurve[i] = d * level * mel * tonal * (fromSide ? Math.sqrt(attack) : attack);
+  }
+  // absolut skaliert (nicht am eigenen Maximum): ein Lied ohne Melodie bekommt so auch keine „lautesten“ Melodie-Toene
+  const leadRef = Math.max(percentile(leadCurve, 0.99), ANALYSIS.lead.curveFloor);
+  const leadN = new Float32Array(src.n);
+  for (let i = 0; i < src.n; i++) leadN[i] = Math.min(1, leadCurve[i] / leadRef);
+  const leadOnsets = pickPeaks(leadN, src, ANALYSIS.onset.leadMinGap).map((o) => ({ t: Math.round(o.t * 1000) / 1000, s: Math.round(o.s * 1000) / 1000 }));
+  const leadGrid: number[] = [];
   for (let k = 0; k < beats.length - 1; k++) {
     for (let s = 0; s < GRID_STEPS; s++) {
       const t = beats[k] + ((beats[k + 1] - beats[k]) * s) / GRID_STEPS, i = frame(t);
-      let m = 0; for (let j = i - win; j <= i + win; j++) if (j >= 0 && j < f.n) m = Math.max(m, vocN[j]);
-      vocalGrid.push(Math.round(Math.min(1, m) * 1000) / 1000);
+      let m = 0; for (let j = i - win; j <= i + win; j++) if (j >= 0 && j < src.n) m = Math.max(m, leadN[j]);
+      leadGrid.push(Math.round(Math.min(1, m) * 1000) / 1000);
     }
   }
-  grid.vocal = vocalGrid;
+  grid.lead = leadGrid;
+  // Melodie pro Beat (0..1): wie viel Melodie-Instrument klingt (ohne Gesang)
+  const melRaw: number[] = [];
+  for (let k = 0; k < beats.length - 1; k++) {
+    const a0 = frame(beats[k]), e = Math.max(a0 + 1, frame(beats[k + 1]));
+    let s = 0; for (let i = a0; i < e; i++) s += leadLevel[i];
+    melRaw.push(s / (e - a0));
+  }
+  if (beats.length > 1) melRaw.push(melRaw[melRaw.length - 1]);
+  // dazu: wie oft wirklich Melodie-Toene anschlagen (staerkster Ton je Beat, ueber ±2 Beats geglaettet)
+  const act = melRaw.map((_, k) => { let m = 0; for (let s = 0; s < GRID_STEPS; s++) m = Math.max(m, leadGrid[k * GRID_STEPS + s] ?? 0); return m; });
+  const actS = act.map((_, k) => { const w = act.slice(Math.max(0, k - 2), k + 3); return w.reduce((x, v) => x + v, 0) / w.length; });
+  const lvl = melRaw.map((v) => clamp01(v / ANALYSIS.lead.levelRef));
+  const melN = lvl.map((v, k) => clamp01(0.5 * v + 0.5 * Math.min(1, actS[k] * 1.5)));
   // Triolen-Neigung pro Beat: Onsets auf 1/3, 2/3 vs. 1/4, 1/2, 3/4
   const triplet: number[] = [];
   for (let k = 0; k < beats.length - 1; k++) {
@@ -154,7 +190,7 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     // Tonhoehe: Schwerpunkt der melodischen Frames, logarithmisch
     const a = frame(beats[k]), e = Math.max(a + 1, frame(beats[k + 1]));
     let num = 0, den = 0;
-    for (let i = a; i < e; i++) { const w = f.melodic[i] + 1e-3; num += Math.log2(Math.max(50, f.centroid[i])) * w; den += w; }
+    for (let i = a; i < e; i++) { const w = src.melodic[i] + 1e-3; num += Math.log2(Math.max(50, src.centroid[i])) * w; den += w; }
     pitchRaw.push(den ? num / den : 10);
   }
   // Tonhoehe auf 0..1 normieren (5.–95. Perzentil des Songs) und ueber 3 Beats glaetten
@@ -176,7 +212,7 @@ export function analyze(pcm: Float32Array, sr = ANALYSIS.sampleRate, onProgress?
     version: ANALYSIS_VERSION, duration, sampleRate: sr, bpm, bpmConfidence: Math.round(tempo.confidence * 100) / 100,
     beats: beats.map((t) => Math.round(t * 10000) / 10000), downbeatOffset: meter.offset, beatsPerBar: bpb,
     bars: bars.map((t) => Math.round(t * 10000) / 10000), barEnergy, melody: melN.map((v) => Math.round(v * 100) / 100),
-    onsets, vocalOnsets, fixedTempo: !!rigid, grid, triplet, sustain, pitch, sections, energyCurve: ec, took: Date.now() - t0,
+    onsets, leadOnsets, stereoWidth, fixedTempo: !!rigid, grid, triplet, sustain, pitch, sections, energyCurve: ec, took: Date.now() - t0,
   };
 }
 
