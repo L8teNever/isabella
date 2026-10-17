@@ -1,97 +1,193 @@
-// Partner im Duett: einfacher Avatar (leuchtender Kopf mit Namensschild, zwei Hand-Kugeln) auf einer virtuellen
-// Nachbarspur, dazu optional die Noten seiner Stimme halbtransparent (ohne Treffer-Logik).
+// Partner im Duett: Charakter (Kopf, Oberkoerper, zwei Haende mit seinen Schwertern bzw. Handkugeln) immer RECHTS
+// neben mir – in VR und MR, in der Lobby und im Song. Seine Noten laufen halbtransparent auf seiner eigenen,
+// verkleinerten Spur (nie ueberlappend mit meiner), in seinen Farben und mit seinen Skins.
 // Posen kommen mit ~15 Hz in Spielfeld-Koordinaten und werden mit PARTNER_DELAY Puffer weich interpoliert.
 import * as THREE from 'three';
-import type { Beatmap, MpPose, OrbitMap } from '@beatblade/core';
+import type { Beatmap, GameModeId, MpLook, MpPlayEvent, MpPose, OrbitMap } from '@beatblade/core';
 import { NoteView } from './notes';
 import { Slicer } from './slicer';
 import { Saber } from './sabers';
 import { Game } from './game';
 import { OrbitGame } from './orbit/orbit';
-import type { GameMode } from './mode';
+import { HIT_Z, rowY, LANE_W } from './layout';
+import { buildSaberVisual, type SaberVisual } from './sabervisuals';
+import type { HandOrbVisual } from './orbit/orbskins';
+import { buildSaberFor, buildHandOrbFor, loadBlockSkin, loadOrbNoteSkin } from '../look';
 
 // ---------- Stellschrauben ----------
-/** Nachbarspur: so weit rechts neben dem eigenen Spielfeld (m) */
-export const PARTNER_OFFSET = 2.2;
-/** leicht zu dir gedreht (rad) */
-export const PARTNER_TURN = 0.3;
+/** Mitte der Partnerspur: so weit rechts neben meiner Spielfeld-Mitte (m) */
+export const PARTNER_OFFSET = 1.6;
+/** Charakter leicht zu mir gedreht (rad) */
+export const PARTNER_YAW = 0.35;
+/** seitliche Bewegung des Partners: auf seiner Spur gehalten (m) */
+export const PARTNER_SIDE_MAX = 0.6;
+/** Haende nie naeher an meine Spur als das (x in m) */
+export const PARTNER_HAND_MIN_X = 1.0;
+/** Partnerspur verkleinert, damit sie meine nie beruehrt */
+export const PARTNER_LANE_SCALE = 0.55;
+/** Bildschirm-Debug: Charakter nach vorn ins Bild holen (m) */
+export const PARTNER_DESKTOP_FORWARD = 1.4;
 /** Interpolations-Puffer (ms) */
 export const PARTNER_DELAY = 100;
 /** Deckkraft der Partner-Noten */
-export const PARTNER_NOTE_OPACITY = 0.3;
-const COL_HEAD = 0xffe08a, COL_L = 0xff9d3d, COL_R = 0x7dffcf;
+export const PARTNER_NOTE_OPACITY = 0.35;
 
 interface Sample { t: number; head: number[]; hands: number[] }
+const parseHex = (c: string) => parseInt(c.slice(1), 16);
+
+/** Schrift-Schild (Name, „Verpasst“) */
+function label(text: string, color: string, w = 512): THREE.Sprite {
+  const c = document.createElement('canvas'); c.width = w; c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgba(20,12,40,0.75)'; g.beginPath(); g.roundRect?.(8, 8, w - 16, 112, 56); g.fill();
+  g.fillStyle = color; g.font = '800 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(text.slice(0, 18), w / 2, 66, w - 40);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, transparent: true, depthWrite: false }));
+  s.scale.set((0.6 * w) / 512, 0.15, 1);
+  return s;
+}
 
 export class Partner {
+  /** haengt an stage: wandert bei setDirection()/Neu-Zentrieren mit */
   group = new THREE.Group();
-  private avatar = new THREE.Group();
+  private char = new THREE.Group();
   private head: THREE.Mesh;
-  private hands: [THREE.Mesh, THREE.Mesh];
-  private tag: THREE.Sprite;
+  private torso: THREE.Mesh;
+  private hands: [THREE.Group, THREE.Group] = [new THREE.Group(), new THREE.Group()];
+  private handVis: [THREE.Object3D | null, THREE.Object3D | null] = [null, null];
+  private orbVis: [HandOrbVisual | null, HandOrbVisual | null] = [null, null];
+  private tag: THREE.Sprite | null = null;
+  private missTag: THREE.Sprite;
+  private missT = 0;
+  private flash: THREE.Mesh;
+  private flashT = 0;
   private buf: Sample[] = [];
-  private ghost: GameMode | null = null;
-  private ghostRoot = new THREE.Group();
+  private lane = new THREE.Group();
+  private ghost: Game | OrbitGame | null = null;
   private ghostSchnitt: Game;
   private ghostOrbit: OrbitGame;
-  private name = '';
+  private view: NoteView;
+  private slicer: Slicer;
+  private key = '';
+  private skinKey = '';
+  private fadeT = 0;
+  name = '';
+  colors: [number, number] = [0xff8a1a, 0x3dff7a];
+  mode: GameModeId = 'schnitt';
+  /** Bildschirm-Debug (Charakter weiter vorn, damit er im Bild ist) */
+  desktop = false;
 
-  constructor(root: THREE.Object3D) {
-    this.group.position.set(PARTNER_OFFSET, 0, 0);
-    this.group.rotation.y = PARTNER_TURN;
-    root.add(this.group);
+  constructor(stage: THREE.Object3D) {
+    stage.add(this.group);
     const glow = (c: number, o = 0.85) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, depthWrite: false });
-    this.head = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.06, 6, 16), glow(COL_HEAD));
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.05, 0.04), glow(0x1a1030, 0.9)); visor.position.set(0, 0.02, -0.1); this.head.add(visor);
-    this.hands = [new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), glow(COL_L)), new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 12), glow(COL_R))];
-    // kurze Klinge je Hand (vereinfachtes Schwert)
-    for (const [i, h] of this.hands.entries()) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.025, 0.7), glow(i ? COL_R : COL_L, 0.6)); b.position.z = -0.38; h.add(b); }
-    this.tag = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
-    this.tag.scale.set(0.6, 0.15, 1);
-    this.avatar.add(this.head, ...this.hands, this.tag);
-    this.avatar.visible = false;
-    this.group.add(this.avatar, this.ghostRoot);
+    this.head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 24, 16), glow(0xffffff, 0.9));
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.05), glow(0x140a28, 0.95)); visor.position.set(0, 0.015, -0.1); this.head.add(visor);
+    this.torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.15, 0.32, 6, 16), glow(0xffffff, 0.45));
+    this.char.add(this.head, this.torso, ...this.hands);
+    this.missTag = label('Verpasst', '#ff6b8a'); this.missTag.visible = false; this.char.add(this.missTag);
+    this.char.visible = false;
+    // Partnerspur: rechts, verkleinert um die Trefferebene (gleiche Hoehe/Tiefe wie meine)
+    const k = PARTNER_LANE_SCALE;
+    this.lane.position.set(PARTNER_OFFSET, rowY(1) * (1 - k), HIT_Z * (1 - k));
+    this.lane.scale.setScalar(k);
+    this.flash = new THREE.Mesh(new THREE.PlaneGeometry(LANE_W * 4.4, 30).rotateX(-Math.PI / 2).translate(0, 0.01, -15), new THREE.MeshBasicMaterial({ color: 0xff2040, transparent: true, opacity: 0, depthWrite: false }));
+    this.flash.visible = false; this.lane.add(this.flash);
+    this.group.add(this.char, this.lane);
     // Partner-Noten: eigene Spielmodi ohne Treffer (unsichtbare, inaktive Schwerter; Fehler-Funken aus)
-    const view = new NoteView(this.ghostRoot, false);
-    const slicer = new Slicer(this.ghostRoot, view.cubeGeo, view.arrows.geometry);
-    slicer.error = () => {};
-    const sabers: [Saber, Saber] = [new Saber(0, this.ghostRoot), new Saber(1, this.ghostRoot)];
+    this.view = new NoteView(this.lane, false);
+    this.slicer = new Slicer(this.lane, this.view.cubeGeo, this.view.arrows.geometry);
+    this.slicer.error = () => {};
+    const sabers: [Saber, Saber] = [new Saber(0, this.lane), new Saber(1, this.lane)];
     for (const s of sabers) s.hide();
     const noop = { haptic: () => {}, slice: () => {}, touch: () => {}, finished: () => {}, muteNow: () => {} };
-    this.ghostSchnitt = new Game(this.ghostRoot, view, slicer, sabers, noop);
-    this.ghostOrbit = new OrbitGame(this.ghostRoot, view, slicer, sabers, noop);
-    this.ghostRoot.visible = false;
+    this.ghostSchnitt = new Game(this.lane, this.view, this.slicer, sabers, noop);
+    this.ghostOrbit = new OrbitGame(this.lane, this.view, this.slicer, sabers, noop);
+    this.lane.visible = false;
+    this.setColors(this.colors);
   }
 
-  setName(name: string) {
-    if (name === this.name) return;
-    this.name = name;
-    const c = document.createElement('canvas'); c.width = 512; c.height = 128;
-    const g = c.getContext('2d')!;
-    g.fillStyle = 'rgba(20,12,40,0.75)'; g.beginPath(); g.roundRect?.(8, 8, 496, 112, 56); g.fill();
-    g.fillStyle = '#ffe08a'; g.font = '700 64px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.fillText(name.slice(0, 16), 256, 66);
-    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-    (this.tag.material as THREE.SpriteMaterial).map?.dispose();
-    (this.tag.material as THREE.SpriteMaterial).map = t; (this.tag.material as THREE.SpriteMaterial).needsUpdate = true;
+  /** Name, Farben, Skins und Modus des Partners; baut nur neu, was sich geaendert hat */
+  setInfo(name: string, colors: [string, string], look: MpLook | undefined, mode: GameModeId) {
+    const cols: [number, number] = [parseHex(colors[0]), parseHex(colors[1])];
+    if (name !== this.name) {
+      this.name = name;
+      if (this.tag) { this.char.remove(this.tag); this.tag.material.map?.dispose(); }
+      this.tag = label(name || 'Partner', '#ffffff'); this.char.add(this.tag);
+    }
+    const key = `${mode}|${cols.join(',')}|${look?.saberSkin}|${look?.saberSkinRight}|${look?.orbSkin}`;
+    if (key !== this.key) {
+      this.key = key; this.mode = mode;
+      this.setColors(cols);
+      this.buildHands(look);
+    }
+    const sk = `${look?.blockSkin}|${look?.orbNoteSkin}`;
+    if (sk !== this.skinKey) { this.skinKey = sk; this.loadNoteSkins(look); }
+  }
+
+  private setColors(c: [number, number]) {
+    this.colors = c;
+    (this.head.material as THREE.MeshBasicMaterial).color.setHex(new THREE.Color(c[0]).lerp(new THREE.Color(0xffffff), 0.55).getHex());
+    (this.torso.material as THREE.MeshBasicMaterial).color.setHex(new THREE.Color(c[0]).lerp(new THREE.Color(c[1]), 0.5).getHex());
+    this.ghostSchnitt.colorsOverride = c; this.ghostOrbit.colorsOverride = c;
+    this.ghostSchnitt.applyColors(); this.ghostOrbit.applyColors();
+  }
+
+  /** Haende: Schwerter (Schnitt) bzw. Handkugeln (Orbit) des Partners; erst Standard, dann seine Skins, wenn geladen */
+  private buildHands(look: MpLook | undefined) {
+    const key = this.key;
+    for (const h of [0, 1] as const) {
+      if (this.handVis[h]) this.hands[h].remove(this.handVis[h]!);
+      this.handVis[h] = null; this.orbVis[h] = null;
+      const color = this.colors[h];
+      if (this.mode === 'orbit') {
+        buildHandOrbFor(look?.orbSkin ?? '', color).then((v) => { if (this.key !== key) return; this.orbVis[h] = v; this.put(h, v.group); }).catch(() => {});
+      } else {
+        const std = buildSaberVisual('classic', 1, color); this.put(h, std.group);
+        const id = h === 1 && look?.saberSkinRight ? look.saberSkinRight : look?.saberSkin ?? '';
+        buildSaberFor(id, color).then((v: SaberVisual) => { if (this.key === key) this.put(h, v.group); }).catch(() => {});
+      }
+    }
+  }
+  private put(h: 0 | 1, o: THREE.Object3D) {
+    if (this.handVis[h]) this.hands[h].remove(this.handVis[h]!);
+    this.handVis[h] = o; this.hands[h].add(o);
+  }
+
+  /** Block- bzw. Notenkugel-Skin des Partners fuer seine Noten (eigene Materialien, meine bleiben unberuehrt) */
+  private loadNoteSkins(look: MpLook | undefined) {
+    loadBlockSkin(look?.blockSkin || undefined).then((s) => {
+      const own = { geo: s.geo, mat: s.mat.clone() };
+      this.view.setSkin(own); this.slicer.setSkin(own.geo, own.mat); this.fade();
+    }).catch(() => {});
+    loadOrbNoteSkin(look?.orbNoteSkin || undefined).then((s) => {
+      const mat = Array.isArray(s.mat) ? s.mat.map((m) => m.clone()) : s.mat.clone();
+      this.ghostOrbit.setNoteSkin({ ...s, mat } as typeof s); this.fade();
+    }).catch(() => {});
   }
 
   /** Noten der anderen Stimme zeigen (null = aus) */
   setGhost(map: Beatmap | OrbitMap | null) {
     if (this.ghost === this.ghostOrbit) this.ghostOrbit.stop();
-    this.ghost = null; this.ghostRoot.visible = false;
+    this.ghost = null; this.lane.visible = false;
     if (!map) return;
     if ('rails' in map) { this.ghostOrbit.start({ ...map, obstacles: [] }); this.ghost = this.ghostOrbit; }
     else { this.ghostSchnitt.start({ ...map, obstacles: [], bombs: [] }); this.ghost = this.ghostSchnitt; }
-    this.ghostRoot.visible = true;
-    // halbtransparent (einmal je Material)
-    this.ghostRoot.traverse((o) => {
-      const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-      for (const mat of Array.isArray(m) ? m : m ? [m] : []) {
-        if (mat.userData.ghost) continue;
-        mat.userData.ghost = true; mat.transparent = true; mat.depthWrite = false;
-        mat.opacity = (mat.opacity ?? 1) * PARTNER_NOTE_OPACITY;
-      }
+    this.lane.visible = true;
+    this.fade();
+  }
+
+  /** halbtransparent: jedes Material der Spur einmal kopieren und abschwaechen (meine Materialien bleiben) */
+  private fade() {
+    this.lane.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.material || o === this.flash) return;
+      const conv = (m: THREE.Material) => {
+        if (m.userData.ghost) return m;
+        const c = m.clone(); c.userData.ghost = true; c.transparent = true; c.depthWrite = false; c.opacity = (m.opacity ?? 1) * PARTNER_NOTE_OPACITY;
+        return c;
+      };
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(conv) : conv(mesh.material);
     });
   }
 
@@ -100,25 +196,61 @@ export class Partner {
     if (this.buf.length > 30) this.buf.shift();
   }
 
-  show(on: boolean) { this.avatar.visible = on && this.buf.length > 0; if (!on) this.buf = []; }
-  clear() { this.buf = []; this.avatar.visible = false; this.setGhost(null); }
+  clear() { this.buf = []; this.char.visible = false; this.setGhost(null); }
+  hideChar() { this.buf = []; this.char.visible = false; }
+
+  /** Ereignis des Partners sichtbar machen: Fehler -> Spur blinkt rot, „Verpasst“ ueber dem Kopf; Treffer -> Funken */
+  event(kind: MpPlayEvent, hand: number) {
+    if (kind === 'hit') {
+      const c = this.colors[hand === 1 ? 1 : 0];
+      this.slicer.burst(new THREE.Vector3((hand === 1 ? 0.4 : hand === 0 ? -0.4 : 0), rowY(1), HIT_Z), c, 18);
+    } else if (kind !== 'combo') {
+      this.flashT = 0.45; this.missT = 0.9;
+    }
+  }
+
+  /** Kopf des Partner-Charakters in Buehnen-Koordinaten (fuer den Raumklang) */
+  headPos(out: THREE.Vector3): THREE.Vector3 { return out.copy(this.head.position).applyMatrix4(this.char.matrix).applyMatrix4(this.group.matrix); }
+  get visible() { return this.char.visible; }
 
   update(songT: number, dt: number, head: THREE.Vector3, paused: boolean) {
-    if (this.ghost) this.ghost.update(songT, dt, head, paused);
-    if (!this.buf.length) return;
+    if (this.ghost && this.lane.visible) {
+      this.ghost.update(songT, dt, head, paused);
+      this.slicer.update(dt);
+      if ((this.fadeT += dt) > 1) { this.fadeT = 0; this.fade(); }   // dynamisch entstandene Teile (Rails, Labels)
+    }
+    // Fehler-Hinweise abklingen lassen
+    this.flashT = Math.max(0, this.flashT - dt); this.missT = Math.max(0, this.missT - dt);
+    (this.flash.material as THREE.MeshBasicMaterial).opacity = this.flashT * 0.5; this.flash.visible = this.flashT > 0;
+    this.missTag.visible = this.missT > 0;
+    for (const v of this.orbVis) v?.update(dt);
+    if (!this.buf.length) { this.char.visible = false; return; }
     const t = performance.now() - PARTNER_DELAY;
     let a = this.buf[0], b = this.buf[this.buf.length - 1];
     for (let i = 1; i < this.buf.length; i++) if (this.buf[i].t >= t) { a = this.buf[i - 1]; b = this.buf[i]; break; }
     const k = b.t > a.t ? Math.max(0, Math.min(1, (t - a.t) / (b.t - a.t))) : 1;
-    const pose = (o: THREE.Object3D, A: number[], B: number[], i: number) => {
+    const lerp = (A: number[], B: number[], i: number, o: THREE.Object3D) => {
       o.position.set(A[i] + (B[i] - A[i]) * k, A[i + 1] + (B[i + 1] - A[i + 1]) * k, A[i + 2] + (B[i + 2] - A[i + 2]) * k);
       o.quaternion.set(A[i + 3], A[i + 4], A[i + 5], A[i + 6]).slerp(new THREE.Quaternion(B[i + 3], B[i + 4], B[i + 5], B[i + 6]), k);
     };
-    pose(this.head, a.head, b.head, 0);
-    pose(this.hands[0], a.hands, b.hands, 0);
-    pose(this.hands[1], a.hands, b.hands, 7);
-    this.tag.position.copy(this.head.position).add(new THREE.Vector3(0, 0.3, 0));
-    // keine Daten mehr seit 2 s: ausblenden
-    this.avatar.visible = performance.now() - this.buf[this.buf.length - 1].t < 2000;
+    lerp(a.head, b.head, 0, this.head);
+    lerp(a.hands, b.hands, 0, this.hands[0]);
+    lerp(a.hands, b.hands, 7, this.hands[1]);
+    // auf seiner Spur halten: Kopf seitlich begrenzt, Haende nie Richtung meiner Spur
+    const hx = this.head.position.x, cx = Math.max(-PARTNER_SIDE_MAX, Math.min(PARTNER_SIDE_MAX, hx)), dx = cx - hx;
+    this.head.position.x = cx;
+    const fwd = this.desktop ? -PARTNER_DESKTOP_FORWARD : 0;
+    for (const h of this.hands) { h.position.x = Math.max(PARTNER_HAND_MIN_X - PARTNER_OFFSET, h.position.x + dx); h.position.z += fwd; }
+    this.head.position.z += fwd;
+    // Oberkoerper haengt unter dem Kopf und dreht sich nur um die Hochachse mit
+    const e = new THREE.Euler().setFromQuaternion(this.head.quaternion, 'YXZ');
+    this.torso.position.set(this.head.position.x, this.head.position.y - 0.42, this.head.position.z + 0.05);
+    this.torso.rotation.set(0, e.y, 0);
+    if (this.tag) this.tag.position.copy(this.head.position).add(new THREE.Vector3(0, 0.3, 0));
+    this.missTag.position.copy(this.head.position).add(new THREE.Vector3(0, 0.48, 0));
+    // Charakter rechts auf seiner Spur, leicht zu mir gedreht (Drehung um seine Spurmitte)
+    this.char.position.set(PARTNER_OFFSET, 0, 0);
+    this.char.rotation.y = PARTNER_YAW;
+    this.char.visible = performance.now() - this.buf[this.buf.length - 1].t < 2000;
   }
 }

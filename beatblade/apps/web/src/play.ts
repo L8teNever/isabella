@@ -1,10 +1,10 @@
 // BeatBlade – Spiel (WebXR VR/MR, Desktop-Debugmodus).
 import './style.css';
 import * as THREE from 'three';
-import type { Beatmap, Difficulty, MpServerMsg, MpSharedModifiers, OrbitMap, Song } from '@beatblade/core';
+import type { Beatmap, Difficulty, MpLook, MpPlayEvent, MpServerMsg, MpSharedModifiers, OrbitMap, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
 import { mrSafeBlending } from './game/mrblend';
-import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems, loadOrbNoteSkin, orbStyle, orbModel } from './look';
+import { loadLook, loadBlockSkin, buildSaber, currentSaber, currentBlock, currentOrb, currentOrbNote, colorPair, toHex, pickMap, mapStyle, wallFor, wallStyle, mapItems, loadOrbNoteSkin, orbStyle, orbModel } from './look';
 import { handOrbFromModel } from './game/orbit/orbskins';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
@@ -96,11 +96,11 @@ let gm: GameMode = game;
 
 // ---------- Zusammen spielen ----------
 const mp = new Mp(guessDevice());
-const partner = new Partner(root);
+const partner = new Partner(stage);
 /** laufendes Duett (null = Solo) */
 let duet: {
   song: Song; d: Difficulty; seed: number; mode: ModeId; part: 1 | 2; partnerName: string;
-  resumeAt?: number; pausedT?: number; lastPose: number; lastScore: number; lastSync: number; partnerCombo: number;
+  resumeAt?: number; pausedT?: number; lastScore: number; lastSync: number; partnerCombo: number;
   solo: boolean;
 } | null = null;
 // Modus per Adresse vorwaehlen (…/play.html?mode=orbit), sonst der zuletzt gespielte
@@ -126,7 +126,9 @@ const menus = new Menus(root, {
   setDirection: () => setDirection(),
   isMR: () => mode === 'ar',
   inXR: () => renderer.xr.isPresenting,
-  applySettings: () => { if (settings.name !== mp.name) mp.setName(settings.name); audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); orbit.applyColors(); applyLook(); },
+  applySettings: () => {
+    if (settings.name !== mp.name) mp.setName(settings.name); setTimeout(sendLook, 0);
+    if (mp.isHost && mp.lobby?.state === 'waiting' && mp.lobby.map !== settings.mapChoice) mp.send({ t: 'lobby.update', map: settings.mapChoice }); audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); orbit.applyColors(); applyLook(); },
 });
 
 // ---------- Eingaben (Controller / Haende / Maus) ----------
@@ -191,8 +193,9 @@ function lobbyMap() {
   if (env && list.length) env.setMap(mapStyle(list[Math.floor(Math.random() * list.length)]));
 }
 /** Map (gewaehlt oder zufaellig) und passende Waende setzen */
-function applyMap() {
-  const m = pickMap();
+/** mapId: im Duett die Map des Hosts (fuer beide gleich) */
+function applyMap(mapId?: string) {
+  const m = pickMap(mapId);
   env?.setMap(mapStyle(m));
   view.setWallSkin(wallStyle(wallFor(m)));
   // Themen-Maps (Halloween, Weihnachten) bringen eigene Bloecke und Farben mit
@@ -311,13 +314,47 @@ function presence(away = document.visibilityState === 'hidden') {
 }
 document.addEventListener('visibilitychange', () => presence());
 
-function duetEnd() { duet = null; partner.clear(); hud.setPartner(''); }
+function duetEnd() { duet = null; partner.setGhost(null); hud.setPartner(''); restoreColors(); }
+
+// ---------- Duett: Aussehen, Farben ----------
+/** eigenes Aussehen (Skins + eigene Farben) fuer den Partner */
+function myLook(): MpLook {
+  const [l, r] = savedColors ? [savedColors[0] ?? colorPair()[0], savedColors[1] ?? colorPair()[1]].map((c) => (typeof c === 'string' ? parseInt(c.slice(1), 16) : c)) : colorPair();
+  return { saberSkin: currentSaber(0)?.id ?? '', saberSkinRight: settings.saberSkinRight ? currentSaber(1)?.id ?? '' : '', blockSkin: currentBlock()?.id ?? '',
+    orbSkin: currentOrb()?.id ?? '', orbNoteSkin: currentOrbNote()?.id ?? '', colors: [toHex(l as number), toHex(r as number)] };
+}
+let lastLook = '';
+function sendLook() { const l = myLook(), k = JSON.stringify(l); if (k !== lastLook || !mp.lobby) { lastLook = k; mp.send({ t: 'look', ...l }); } }
+/** Duett-Farben (vom Server zugeteilt) voruebergehend als eigene Farben setzen – nicht gespeichert */
+let savedColors: [string | null, string | null] | null = null;
+function useDuetColors(c: [string, string]) {
+  if (!savedColors) savedColors = [settings.colorLeft, settings.colorRight];
+  settings.colorLeft = c[0]; settings.colorRight = c[1];
+  game.applyColors(); orbit.applyColors(); applyLook();
+}
+function restoreColors() {
+  if (!savedColors) return;
+  [settings.colorLeft, settings.colorRight] = savedColors; savedColors = null;
+  game.applyColors(); orbit.applyColors(); applyLook();
+}
+/** Partner-Charakter aus dem Lobby-Zustand (Name, Farben, Skins, Modus) */
+function syncPartner() {
+  const l = mp.lobby, p = mp.partner;
+  if (!l || !p) { partner.hideChar(); return; }
+  partner.setInfo(p.name, p.colors, p.look, l.mode);
+}
 
 /** gemeinsame Modifikatoren (Host) gelten fuer beide; persoenliche Einstellungen bleiben lokal */
 function withShared<T>(m: MpSharedModifiers, fn: () => T): T {
   const keep = { noWalls: settings.noWalls, noBombs: settings.noBombs, fastNotes: settings.fastNotes };
   Object.assign(settings, m);
   try { return fn(); } finally { Object.assign(settings, keep); }
+}
+
+/** Partner-Noten: ohne meine Linkshaender-Spiegelung (er spielt seine Seiten) */
+function unmirrored<T>(fn: () => T): T {
+  const lh = settings.leftHanded; settings.leftHanded = false;
+  try { return fn(); } finally { settings.leftHanded = lh; }
 }
 
 async function duetPrepare(m: Extract<MpServerMsg, { t: 'prepare' }>) {
@@ -335,7 +372,7 @@ async function duetPrepare(m: Extract<MpServerMsg, { t: 'prepare' }>) {
   try {
     const song = menus.songs.find((x) => x.id === m.song.id) ?? await api.song(m.song.id);
     const partnerM = mp.lobby?.members.find((x) => x.clientId !== mp.me);
-    duet = { song, d: m.difficulty, seed: m.seed, mode: m.mode, part: m.part, partnerName: partnerM?.name ?? 'Partner', lastPose: 0, lastScore: 0, lastSync: 0, partnerCombo: 0, solo: false };
+    duet = { song, d: m.difficulty, seed: m.seed, mode: m.mode, part: m.part, partnerName: partnerM?.name ?? 'Partner', lastScore: 0, lastSync: 0, partnerCombo: 0, solo: false };
     current = { song, d: m.difficulty, seed: m.seed, mode: m.mode };
     presence();
     await audio.resume();
@@ -349,16 +386,17 @@ async function duetPrepare(m: Extract<MpServerMsg, { t: 'prepare' }>) {
     if (!live()) return;
     const mine = dm.parts[m.part - 1], other = dm.parts[2 - m.part];
     if (m.mode === 'orbit') {
-      const [om, ghost] = withShared(m.sharedModifiers, () => [prepareOrbit(mine as OrbitMap), prepareOrbit(other as OrbitMap)]);
+      const [om, ghost] = withShared(m.sharedModifiers, () => [prepareOrbit(mine as OrbitMap), unmirrored(() => prepareOrbit(other as OrbitMap))]);
       orbit.start(om); gm = orbit;
       partner.setGhost(settings.partnerNotes ? ghost : null);
     } else {
-      const [bm, ghost] = withShared(m.sharedModifiers, () => [prepareMap(mine as Beatmap), prepareMap(other as Beatmap)]);
+      const [bm, ghost] = withShared(m.sharedModifiers, () => [prepareMap(mine as Beatmap), unmirrored(() => prepareMap(other as Beatmap))]);
       orbit.stop(); game.start(bm); gm = game;
       partner.setGhost(settings.partnerNotes ? ghost : null);
     }
-    partner.setName(duet.partnerName);
-    applyMap();
+    syncPartner();
+    const meM = mp.myMember; if (meM) useDuetColors(meM.colors);
+    applyMap(m.map);
     if (renderer.xr.isPresenting) setDirection();
     lastCombo = 0; env?.reset();
     state = 'mpready';
@@ -377,7 +415,6 @@ function duetStart(at: number, from: number) {
   audio.playAt(mp.toLocal(at), from);
   state = 'playing';
   menus.hide(); hud.show(true); hud.message('');
-  partner.show(true);
   presence();
 }
 
@@ -397,19 +434,48 @@ function duetFinish() {
 }
 
 /** pro Bild: Partner bewegen, eigene Pose/Wertung/Songzeit senden */
-function duetFrame(songT: number, dt: number, cam: THREE.Camera) {
-  const d = duet!;
-  partner.update(state === 'resuming' ? d.pausedT ?? songT : songT, state === 'playing' ? dt : 0, headLocal, state !== 'playing');
-  if (!mp.lobby || !['playing', 'resuming', 'paused'].includes(state)) return;
+let lastPoseLobby = 0;
+/** Lobby (auch ohne Song): Partner-Charakter bewegen, eigene Pose senden, Raumklang ausrichten */
+function lobbyFrame(songT: number, dt: number, cam: THREE.Camera) {
+  const d = duet;
+  partner.update(d && state === 'resuming' ? d.pausedT ?? songT : songT, state === 'playing' ? dt : 0, headLocal, state !== 'playing');
+  // Raumklang: ich hoere den Partner von seiner Position (rechts)
+  const q = new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld).premultiply(root.getWorldQuaternion(new THREE.Quaternion()).invert());
+  audio.setSpatial(headLocal, new THREE.Vector3(0, 0, -1).applyQuaternion(q), new THREE.Vector3(0, 1, 0).applyQuaternion(q), partner.headPos(new THREE.Vector3()));
+  if (!mp.lobby || mp.lobby.members.length < 2) return;
   const now = performance.now();
-  if (now - d.lastPose >= 1000 / MP_POSE_HZ) {
-    d.lastPose = now;
+  if (now - lastPoseLobby >= 1000 / MP_POSE_HZ) {
+    lastPoseLobby = now;
     const rq = root.getWorldQuaternion(new THREE.Quaternion()).invert();
     const hq = new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld).premultiply(rq);
     const r3 = (v: number) => Math.round(v * 1000) / 1000;
     const hand = (sb: Saber) => [sb.grip.x, sb.grip.y, sb.grip.z, sb.group.quaternion.x, sb.group.quaternion.y, sb.group.quaternion.z, sb.group.quaternion.w].map(r3);
-    mp.send({ t: 'pose', head: [headLocal.x, headLocal.y, headLocal.z, hq.x, hq.y, hq.z, hq.w].map(r3), hands: [...hand(sabers[0]), ...hand(sabers[1])] });
+    // Haende ohne aktuelle Pose (Menue am Bildschirm): locker neben dem Koerper
+    const rest = (h: 0 | 1) => [headLocal.x + (h ? 0.3 : -0.3), headLocal.y - 0.6, headLocal.z - 0.2, 0, 0, 0, 1].map(r3);
+    mp.send({ t: 'pose', head: [headLocal.x, headLocal.y, headLocal.z, hq.x, hq.y, hq.z, hq.w].map(r3), hands: [...(sabers[0].active ? hand(sabers[0]) : rest(0)), ...(sabers[1].active ? hand(sabers[1]) : rest(1))] });
   }
+  if (d) duetFrame(songT);
+}
+
+/** eigene Spiel-Ereignisse (aus den Zaehlern der Wertung) an den Partner */
+let evPrev: { hits: number; misses: number; bad: number; bombs: number; rails: number; wall: boolean; combo: number } | null = null;
+function sendEvents(songT: number) {
+  const s = gm.score as typeof gm.score & { railsLost?: number };
+  const cur = { hits: s.hits, misses: s.misses - (s.railsLost ?? 0), bad: s.badCuts, bombs: s.bombs, rails: s.railsLost ?? 0, wall: gm.inWall, combo: s.combo };
+  const p = evPrev; evPrev = cur;
+  if (!p || cur.hits < p.hits) return;          // neuer Song: nur merken
+  const send = (kind: MpPlayEvent, n: number, value = 0) => { for (let i = 0; i < Math.min(n, 4); i++) mp.send({ t: 'play.event', kind, at: Math.round(songT * 1000) / 1000, hand: -1, value }); };
+  send('hit', cur.hits - p.hits); send('miss', cur.misses - p.misses); send('badcut', cur.bad - p.bad);
+  send('bomb', cur.bombs - p.bombs); send('railLost', cur.rails - p.rails);
+  if (cur.wall && !p.wall) send('wall', 1);
+  const ms = COMBO_MILESTONES.find((x) => p.combo < x && cur.combo >= x); if (ms) send('combo', 1, ms);
+}
+
+function duetFrame(songT: number) {
+  const d = duet!;
+  if (!mp.lobby || !['playing', 'resuming', 'paused'].includes(state)) { evPrev = null; return; }
+  const now = performance.now();
+  if (state === 'playing') sendEvents(songT);
   if (now - d.lastScore >= MP_SCORE_EVERY) {
     d.lastScore = now;
     const s = gm.score;
@@ -435,6 +501,12 @@ mp.on('resume', (m) => {
   state = 'resuming'; menus.hide(); hud.show(true);
 });
 mp.on('pose', (m) => partner.push(m));
+mp.on('play.event', (m) => {
+  if (!duet) return;
+  partner.event(m.kind, m.hand);
+  // Musik bleibt an: „Verfehlt = stumm“ gilt nur fuer eigene Fehler
+  audio.partnerSound(m.kind, m.at, settings.partnerVolume);
+});
 mp.on('score', (m) => {
   if (!duet) return;
   hud.setPartner(`${duet.partnerName}: ${m.rating.toFixed(1)} % · ${m.combo}er Combo`);
@@ -446,7 +518,7 @@ mp.on('partner', (m) => {
   const txt = m.event === 'lost' ? `${m.name}: Verbindung verloren` : m.event === 'back' ? `${m.name} ist zurück` : `${m.name} hat die Lobby verlassen`;
   if (state === 'playing' || state === 'resuming') hud.popup(txt, m.event === 'back' ? '#9fe8c4' : '#ff9db0', 2);
   else { menus.mpNote = txt; menus.refresh(); }
-  if (m.event !== 'back') { partner.show(false); hud.setPartner(''); }
+  if (m.event !== 'back') { partner.hideChar(); hud.setPartner(''); }
   if (m.event === 'left' && duet) partner.setGhost(null);
 });
 mp.on('results', (m) => {
@@ -455,8 +527,13 @@ mp.on('results', (m) => {
   hud.show(false);
   menus.duetResults(m, d.song, d.d, d.mode);
 });
+let mapSentFor = '';
 mp.on('lobby.state', (m) => {
   const l = m.lobby;
+  syncPartner();
+  // neue Lobby: Map des Hosts gleich uebernehmen
+  if (l && mp.isHost && l.state === 'waiting' && mapSentFor !== l.id) { mapSentFor = l.id; if (l.map !== settings.mapChoice) mp.send({ t: 'lobby.update', map: settings.mapChoice }); }
+  if (l && !m.lobby?.members.some((x) => x.clientId === mp.me && x.look)) sendLook();
   // Host hat zurueck zur Lobby geschickt, oder Laden abgebrochen: Spiel beenden
   if (duet && l && l.state === 'waiting' && ['loading', 'mpready', 'playing', 'paused', 'resuming'].includes(state)) {
     duetEnd(); audio.stop(); orbit.stop(); gm = game; state = 'menu'; hud.show(false); menus.go('lobby', false); menus.show(); presence();
@@ -481,7 +558,7 @@ mp.on('invite.gone', (m) => menus.dropInvite(m.lobbyId));
 mp.on('error', (m) => { menus.mpNote = m.message; if (state === 'playing') hud.popup(m.message, '#ff9db0', 2); else if (menus.visible) menus.refresh(); });
 mp.on('outdated', () => { menus.mpNote = 'Bitte Seite neu laden (neue Version)'; $('hint').textContent = 'Zusammen spielen: Bitte Seite neu laden (neue Version).'; menus.refresh(); });
 mp.on('welcome', () => {
-  presence();
+  presence(); lastLook = ''; sendLook();
   // Lobby nach Neuverbindung weg (Server-Neustart)?
   const had = mp.hadLobby;
   if (had) setTimeout(() => { if (!mp.lobby) { menus.mpNote = 'Lobby wurde beendet'; if (duet && state === 'mpready') { duetEnd(); state = 'menu'; menus.go('songs', false); menus.show(); } menus.refresh(); } }, 1200);
@@ -549,6 +626,7 @@ async function startXR(m: 'vr' | 'ar') {
 
 function setup(m: XRMode) {
   mode = m;
+  partner.desktop = m === 'desktop';
   $('start').hidden = true; renderer.domElement.style.display = 'block';
   if (!env) { env = new Environment(scene, stage, m === 'ar'); lobbyMap(); }
   // MR-Bodenkorrektur auf der Buehne: Bodenmarkierung der Map und Spielfeld liegen auf demselben Boden
@@ -656,7 +734,7 @@ renderer.setAnimationLoop((_t, frame) => {
     hud.message(String(Math.max(1, left)));
     if (performance.now() >= resumeAt) { hud.message(''); audio.resumeFrom(0); state = 'playing'; }
   }
-  if (duet) duetFrame(songT, dt, cam);
+  if (duet || mp.lobby) lobbyFrame(songT, dt, cam);
   if (state === 'playing' || state === 'resuming') hud.update(gm.score, dt, gm.inWall);
   // Combo-Effekte: Staerke waechst mit der Serie, Meilensteine feiern, Fehler beendet sie sofort
   if (state === 'playing') {

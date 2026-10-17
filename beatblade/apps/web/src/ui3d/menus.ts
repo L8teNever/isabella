@@ -305,6 +305,7 @@ export class Menus {
       ...row('vol', 'Lautstärke', `${Math.round(settings.volume * 100)} %`),
       ...row('lat', 'Latenz', `${settings.latencyMs} ms`),
       full('calib', 'Latenz kalibrieren'),
+      ...row('pvol', 'Partner hören', settings.partnerVolume > 0 ? `${Math.round(settings.partnerVolume * 100)} %` : 'aus'),
     ];
     else if (this.tab === 'komfort') items = [
       tog('comfort', 'Komfortmodus'), tog('showFps', 'FPS-Anzeige'),
@@ -331,6 +332,7 @@ export class Menus {
       if (k === 'off') settings.saberOffsetCm = Math.max(-20, Math.min(30, settings.saberOffsetCm + d));
       if (k === 'ang') settings.saberAngle = Math.max(-45, Math.min(60, settings.saberAngle + d * 5));
       if (k === 'hgt') settings.playerHeight = Math.round(Math.max(1.2, Math.min(2.2, settings.playerHeight + d * 0.05)) * 100) / 100;
+      if (k === 'pvol') settings.partnerVolume = Math.round(Math.max(0, Math.min(1, settings.partnerVolume + d * 0.1)) * 10) / 10;
       if (k === 'vol') settings.volume = Math.round(Math.max(0, Math.min(1, settings.volume + d * 0.1)) * 10) / 10;
       if (k === 'cl') settings.colorLeft = toHex(shiftHue(colorPair()[0], d * HUE_STEP));
       if (k === 'cr') settings.colorRight = toHex(shiftHue(colorPair()[1], d * HUE_STEP));
@@ -648,10 +650,14 @@ export class Menus {
     for (const m of [...l.members].sort((a, b) => a.part - b.part)) {
       const conn = m.connected ? '' : ' · Verbindung weg';
       const extra = l.state === 'loading' ? ` · ${m.loaded ? 'geladen ✓' : `${Math.round(m.progress * 100)} %`}` : m.away ? ' · abwesend' : ` · ${m.ready ? 'bereit ✓' : 'nicht bereit'}`;
-      items.push({ type: 'text', text: `Stimme ${m.part} (${m.part === 1 ? 'Rhythmus' : 'Melodie'}) · ${mp.label(m)}${m.clientId === l.hostId ? ' · Host' : ''}${m.clientId === mp.me ? ' · du' : ''}${extra}${conn}`, size: 30, color: m.ready ? '#9fe8c4' : '#ffffff', span: C });
+      // Farben je Spieler als Farbfelder (Stimme 2 wird angepasst, wenn sie Stimme 1 zu aehnlich ist)
+      items.push({ type: 'image', img: this.swatch(parseInt(m.colors[0].slice(1), 16), parseInt(m.colors[1].slice(1), 16)), h: 56, span: 1 });
+      items.push({ type: 'text', text: `Stimme ${m.part} (${m.part === 1 ? 'Rhythmus' : 'Melodie'}) · ${mp.label(m)}${m.clientId === l.hostId ? ' · Host' : ''}${m.clientId === mp.me ? ' · du' : ''}${extra}${conn}`, size: 28, color: m.ready ? '#9fe8c4' : '#ffffff', span: C - 1 });
     }
+    if (l.members.some((m) => m.colorsAdjusted)) items.push({ type: 'text', text: 'Farben angepasst, damit ihr euch unterscheidet', size: 22, color: '#ffd9a0', align: 'center', span: C });
     if (l.members.length < 2) items.push({ type: 'text', text: 'Warte auf Mitspieler – einladen oder Code teilen.', size: 26, color: '#b8b0d6', span: C });
-    items.push({ type: 'text', text: l.song ? `Song: ${l.song.title} · ${MODE_LABEL[l.mode]} · ${DIFFICULTY_LABEL[l.difficulty]} · Variante ${l.seed}` : 'Noch kein Song gewählt', size: 28, align: 'center', color: '#ffd23c', span: C });
+    const mapLabel = l.map === 'zufall' ? 'Zufällig' : mapItems().find((x) => x.id === l.map)?.name ?? l.map;
+    items.push({ type: 'text', text: l.song ? `Song: ${l.song.title} · ${MODE_LABEL[l.mode]} · ${DIFFICULTY_LABEL[l.difficulty]} · Variante ${l.seed} · Map: ${mapLabel}` : `Noch kein Song gewählt · Map: ${mapLabel}`, size: 28, align: 'center', color: '#ffd23c', span: C });
     const mods: [keyof MpSharedModifiers, string][] = [['noWalls', 'Keine Wände'], ['noBombs', 'Keine Bomben'], ['fastNotes', 'Schneller']];
     for (const [k, lbl] of mods) items.push({ type: 'button', id: `mp:mod:${k}`, label: `${lbl} ${l.sharedModifiers[k] ? '✓' : ''}`, on: l.sharedModifiers[k], disabled: !host || l.state !== 'waiting', span: 2, h: 66 });
     const allReady = l.members.length >= 2 && l.members.every((m) => m.ready && m.connected);
@@ -768,7 +774,7 @@ export class Menus {
     if (id === 'songs') return this.go('songs');
     if (id.startsWith('mod:')) { const k = id.slice(4) as keyof MpSharedModifiers; return mp.send({ t: 'lobby.update', sharedModifiers: { ...l.sharedModifiers, [k]: !l.sharedModifiers[k] } }); }
     if (id === 'pick' && this.sel) {
-      mp.send({ t: 'lobby.update', song: { id: this.sel.id, title: this.sel.title, updatedAt: this.sel.updatedAt }, mode: this.mode, difficulty: this.diff, seed: this.seed ?? this.sel.seed });
+      mp.send({ t: 'lobby.update', song: { id: this.sel.id, title: this.sel.title, updatedAt: this.sel.updatedAt }, mode: this.mode, difficulty: this.diff, seed: this.seed ?? this.sel.seed, map: settings.mapChoice });
       return this.go('lobby');
     }
     if (id === 'start' || id === 'again') { mp.send({ t: id === 'again' ? 'restart' : 'lobby.start' }); return; }

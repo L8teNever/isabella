@@ -37,13 +37,15 @@ export interface Settings {
   gameMode: 'schnitt' | 'orbit';
   /** Duett: Noten der anderen Stimme halbtransparent auf der Partnerspur zeigen */
   partnerNotes: boolean;
+  /** Duett: Treffer und Fehler des Partners hoeren (0 = aus) */
+  partnerVolume: number;
 }
 
 const KEY = 'beatblade-settings';
 export const DEFAULTS: Settings = {
   latencyMs: 0, saberOffsetCm: 0, saberAngle: 0, playerHeight: 1.75, volume: 0.9, lightIntensity: 0.8,
   leftHanded: false, comfort: false, showFps: false, name: 'Spieler', difficulty: 'normal',
-  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', saberSkin: 'lichtschwert', saberSkinRight: '', mapChoice: 'neon-laufsteg', wallSkin: 'auto', floorOffset: 0, gameMode: 'schnitt', orbSkin: 'leuchten', orbNoteSkin: 'neon-kugel', partnerNotes: true,
+  fastNotes: false, noWalls: false, noBombs: false, arrows: 'pflicht', missMute: false, glow: true, colorSet: 'klassisch', colorLeft: null, colorRight: null, blockSkin: 'neon', saberSkin: 'lichtschwert', saberSkinRight: '', mapChoice: 'neon-laufsteg', wallSkin: 'auto', floorOffset: 0, gameMode: 'schnitt', orbSkin: 'leuchten', orbNoteSkin: 'neon-kugel', partnerNotes: true, partnerVolume: 0.8,
 };
 
 const SETTINGS_V = 2;

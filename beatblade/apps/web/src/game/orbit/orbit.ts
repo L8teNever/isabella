@@ -87,6 +87,8 @@ export class OrbitGame implements GameMode {
   inWall = false;
   ended = false;
   colors: [number, number] = [COLORS.left, COLORS.right];
+  /** feste Farben (Partner-Noten im Duett), null = eigene */
+  colorsOverride: [number, number] | null = null;
   private notes: NoteState[] = [];
   private rails: RailState[] = [];
   private i0 = 0;
@@ -237,8 +239,9 @@ export class OrbitGame implements GameMode {
   debugLog(): unknown[] { return this.log.slice(-60); }
 
   applyColors(setOverride?: string) {
-    const [l, r] = colorPair(setOverride);
-    this.colors = settings.leftHanded ? [r, l] : [l, r];
+    // feste Farben (Partner-Noten im Duett) gehen vor; sonst eigenes Farbset, Linkshaender tauscht
+    const [l, r] = this.colorsOverride ?? colorPair(setOverride);
+    this.colors = settings.leftHanded && !this.colorsOverride ? [r, l] : [l, r];
     for (const h of [0, 1] as const) {
       this.hands[h].tint(this.colors[h]);
       this.railMat[h].color.setHex(this.colors[h]);

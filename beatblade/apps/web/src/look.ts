@@ -5,7 +5,7 @@ import { api, contentUrl, type ContentItem, type ContentList } from './api';
 import { builtinBlock, blockFromModel, type BlockSkin } from './game/blockskins';
 import { buildSaberVisual, saberFromModel, type SaberVisual } from './game/sabervisuals';
 import { SABER_LEN, NOTE_SIZE } from './game/layout';
-import { builtinOrbNote, railLook, NOTE_R, type OrbNoteSkin } from './game/orbit/orbskins';
+import { builtinOrbNote, railLook, NOTE_R, buildHandOrb, handOrbFromModel, type OrbNoteSkin, type HandOrbVisual } from './game/orbit/orbskins';
 import { COLORS } from './game/layout';
 import { settings } from './settings';
 
@@ -94,7 +94,16 @@ export const saberName = (hand: 0 | 1 = 0) => currentSaber(hand)?.name ?? 'Licht
 
 /** Aussehen fuer ein Schwert bauen (pro Hand eigenes Objekt). Klingenlaenge nur optisch, Treffer-Zone bleibt. */
 export async function buildSaber(color: number, hand: 0 | 1 = 0): Promise<SaberVisual> {
-  const it = currentSaber(hand);
+  return saberVisualFor(currentSaber(hand), color);
+}
+
+/** Schwert fuer einen beliebigen Skin (z. B. des Partners): eigenes, unabhaengiges Objekt; unbekannt -> Standard */
+export function buildSaberFor(id: string, color: number): Promise<SaberVisual> {
+  const list = saberSkins();
+  return saberVisualFor(list.find((b) => b.id === id) ?? list[0], color);
+}
+
+async function saberVisualFor(it: ContentItem | undefined, color: number): Promise<SaberVisual> {
   const style = typeof it?.data.style === 'string' ? it.data.style : 'classic';
   const len = typeof it?.data.bladeLength === 'number' ? Math.max(0.5, Math.min(1.4, it.data.bladeLength)) : SABER_LEN;
   if (it?.model) {
@@ -114,8 +123,9 @@ const styleOf = (it: ContentItem | undefined, d: string) => (typeof it?.data.sty
 export const mapName = () => (settings.mapChoice === 'zufall' ? 'Zufällig' : mapItems().find((m) => m.id === settings.mapChoice)?.name ?? 'Neon-Laufsteg');
 
 /** Map fuer den naechsten Song: gewaehlte oder zufaellige */
-export function pickMap(): ContentItem | undefined {
+export function pickMap(override?: string): ContentItem | undefined {
   const list = mapItems();
+  if (override && override !== 'zufall') { const m = list.find((x) => x.id === override); if (m) return m; }
   if (settings.mapChoice === 'zufall' && list.length) return list[Math.floor(Math.random() * list.length)];
   return list.find((m) => m.id === settings.mapChoice) ?? list[0];
 }
@@ -145,6 +155,13 @@ export const orbName = () => currentOrb()?.name ?? 'Leuchtkugel';
 export const orbNoteName = () => currentOrbNote()?.name ?? 'Neon-Kugel';
 /** Stil der Handkugel (eingebaut: glow, ring, crystal) */
 export const orbStyle = () => styleOf(currentOrb(), 'glow');
+/** Handkugel fuer einen beliebigen Skin (Partner): Modell oder eingebauter Stil; unbekannt -> Standard */
+export async function buildHandOrbFor(id: string, color: number): Promise<HandOrbVisual> {
+  const l = orbItems(), o = l.find((x) => x.id === id) ?? l[0];
+  if (o?.model) { const v = await handOrbFromModel(contentUrl(o.model), color); if (v) return v; }
+  return buildHandOrb(styleOf(o, 'glow'), color);
+}
+
 /** eigenes Handkugel-Modell (model: datei.glb), sonst null */
 export function orbModel(): { key: string; url: string } | null {
   const o = currentOrb();

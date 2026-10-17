@@ -11,6 +11,13 @@ export const MUTE_BACK = 0.025;       // Zeitkonstante fuers Wiederkommen (s)
 /** Treffer-Sound auf den Notenzeitpunkt legen, solange der Treffer hoechstens so weit (s) daneben liegt */
 export const HIT_SOUND_SNAP = 0.1;
 
+// ---------- Duett: Spiel des Partners hoeren (Raumklang von seiner Position) ----------
+/** Treffer des Partners leiser als eigene, Fehler gut hoerbar (mal Einstellung „Partner hören“) */
+export const PARTNER_HIT_VOLUME = 0.3;
+export const PARTNER_MISS_VOLUME = 1;
+/** kommt ein Ereignis spaeter an als seine Songzeit: hoechstens so viel (s) zu spaet spielen, sonst verwerfen */
+export const PARTNER_LATE_MAX = 0.3;
+
 export class AudioPlayer {
   ctx: AudioContext;
   gain: GainNode;
@@ -22,12 +29,72 @@ export class AudioPlayer {
   private pausedAt = 0;
   playing = false;
   onEnded: (() => void) | null = null;
+  /** Partner-Kanal: GainNode + PannerNode (HRTF) */
+  partnerBus: GainNode;
+  partnerPan: PannerNode;
 
   constructor() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
     this.gain = this.ctx.createGain(); this.gain.connect(this.ctx.destination);
     this.music = this.ctx.createGain(); this.music.connect(this.gain);
     this.setVolume(settings.volume);
+    this.partnerPan = this.ctx.createPanner();
+    Object.assign(this.partnerPan, { panningModel: 'HRTF', distanceModel: 'inverse', refDistance: 1, maxDistance: 20, rolloffFactor: 0.6 });
+    this.partnerBus = this.ctx.createGain();
+    this.partnerBus.connect(this.partnerPan).connect(this.gain);
+  }
+
+  /** Zuhoerer = eigener Kopf (Spielfeld-Koordinaten), Quelle = Partner-Charakter */
+  setSpatial(head: { x: number; y: number; z: number }, fwd: { x: number; y: number; z: number }, up: { x: number; y: number; z: number }, src: { x: number; y: number; z: number }) {
+    const L = this.ctx.listener, t = this.ctx.currentTime;
+    if (L.positionX) {
+      L.positionX.setValueAtTime(head.x, t); L.positionY.setValueAtTime(head.y, t); L.positionZ.setValueAtTime(head.z, t);
+      L.forwardX.setValueAtTime(fwd.x, t); L.forwardY.setValueAtTime(fwd.y, t); L.forwardZ.setValueAtTime(fwd.z, t);
+      L.upX.setValueAtTime(up.x, t); L.upY.setValueAtTime(up.y, t); L.upZ.setValueAtTime(up.z, t);
+    } else { L.setPosition(head.x, head.y, head.z); L.setOrientation(fwd.x, fwd.y, fwd.z, up.x, up.y, up.z); }
+    const P = this.partnerPan;
+    if (P.positionX) { P.positionX.setValueAtTime(src.x, t); P.positionY.setValueAtTime(src.y, t); P.positionZ.setValueAtTime(src.z, t); }
+    else P.setPosition(src.x, src.y, src.z);
+  }
+
+  /**
+   * Ereignis des Partners (Treffer, Fehler ...) zu seiner Songzeit `at` abspielen: liegt sie noch vor uns, genau dann;
+   * ist sie hoechstens PARTNER_LATE_MAX vorbei, sofort; sonst verwerfen (keine Ton-Lawine nach einem Haenger).
+   * Gibt zurueck, ob gespielt wird.
+   */
+  partnerSound(kind: string, at: number, volume: number): boolean {
+    if (volume <= 0) return false;
+    const now = this.ctx.currentTime;
+    let t = this.playing ? this.startCtx + at : now;
+    if (t < now) { if (now - t > PARTNER_LATE_MAX) return false; t = now; }
+    const v = volume * (kind === 'hit' || kind === 'combo' ? PARTNER_HIT_VOLUME : PARTNER_MISS_VOLUME);
+    const out = this.partnerBus;
+    const tone = (type: OscillatorType, f0: number, f1: number, dur: number, g0: number, at0 = t) => {
+      const o = this.ctx.createOscillator(), g = this.ctx.createGain(), lp = this.ctx.createBiquadFilter();
+      o.type = type; o.frequency.setValueAtTime(f0, at0); o.frequency.exponentialRampToValueAtTime(f1, at0 + dur);
+      lp.type = 'lowpass'; lp.frequency.value = 900;
+      g.gain.setValueAtTime(g0 * v, at0); g.gain.exponentialRampToValueAtTime(0.0001, at0 + dur);
+      o.connect(lp).connect(g).connect(out); o.start(at0); o.stop(at0 + dur + 0.02);
+    };
+    const noise = (dur: number, freq: number, type: BiquadFilterType, g0: number) => {
+      const b = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * dur), this.ctx.sampleRate), d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (d.length * 0.3));
+      const src = this.ctx.createBufferSource(); src.buffer = b;
+      const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
+      const g = this.ctx.createGain(); g.gain.value = g0 * v;
+      src.connect(f).connect(g).connect(out); src.start(t);
+    };
+    switch (kind) {
+      case 'hit': noise(0.06, 3000, 'highpass', 0.5); break;
+      // dumpfer Fehl-Ton (anders als der eigene Combo-Bruch)
+      case 'miss': tone('sine', 150, 55, 0.28, 0.9); noise(0.12, 300, 'lowpass', 0.5); break;
+      case 'badcut': tone('square', 190, 120, 0.09, 0.35); tone('square', 160, 100, 0.12, 0.35, t + 0.11); break;
+      case 'bomb': noise(0.35, 380, 'lowpass', 1.2); break;
+      case 'wall': tone('sawtooth', 95, 70, 0.3, 0.45); break;
+      case 'railLost': tone('triangle', 420, 140, 0.35, 0.6); break;
+      case 'combo': tone('triangle', 660, 660, 0.14, 0.4); tone('triangle', 990, 990, 0.2, 0.35, t + 0.08); break;
+    }
+    return true;
   }
 
   setVolume(v: number) { this.gain.gain.value = Math.max(0, Math.min(1, v)); }

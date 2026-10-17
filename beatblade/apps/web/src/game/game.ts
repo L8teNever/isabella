@@ -60,6 +60,8 @@ export class Game implements GameMode {
   ended = false;
   lastT = 0;
   colors: [number, number] = [COLORS.left, COLORS.right];
+  /** feste Farben (Partner-Noten im Duett), null = eigene */
+  colorsOverride: [number, number] | null = null;
 
   constructor(public root: THREE.Object3D, public view: NoteView, public slicer: Slicer, public sabers: [Saber, Saber], public ev: GameEvents) {}
 
@@ -94,8 +96,9 @@ export class Game implements GameMode {
 
   /** Farben aus Farbset/eigener Wahl auf Bloecke und Schwerter (Linkshaender: Seiten getauscht) */
   applyColors(setOverride?: string) {
-    const [l, r] = colorPair(setOverride);
-    this.colors = settings.leftHanded ? [r, l] : [l, r];
+    // feste Farben (Partner-Noten im Duett) gehen vor; sonst eigenes Farbset, Linkshaender tauscht
+    const [l, r] = this.colorsOverride ?? colorPair(setOverride);
+    this.colors = settings.leftHanded && !this.colorsOverride ? [r, l] : [l, r];
     this.sabers[0].setColor(this.colors[0]); this.sabers[1].setColor(this.colors[1]);
   }
 
