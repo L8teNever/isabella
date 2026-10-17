@@ -5,13 +5,14 @@ import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { DIFFICULTIES, GAME_MODES, type Difficulty, type GameModeId } from '@beatblade/core';
+import { DIFFICULTIES, DUET_MAPPING_VERSION, GAME_MODES, type Difficulty, type GameModeId } from '@beatblade/core';
 import { config } from '../config.js';
 import { queueYoutube, cookiesFile, searchSoundcloud, getScProfile, setScProfile, scCollectionUrl, listSoundcloud, fetchScCover } from '../youtube.js';
-import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong } from '../db.js';
-import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir } from '../files.js';
+import { db, q, getSong, songRow, updateSong, rowToSong, topScores, bestScores, logSong, topDuetScores } from '../db.js';
+import { songDir, audioPath, coverPath, analysisPath, waveformPath, beatmapPath, tmpDir, duetPath, duetDir } from '../files.js';
 import { importFile } from '../songs-service.js';
-import { enqueue, mapOnDemand } from '../queue.js';
+import { enqueue, mapOnDemand, duetOnDemand } from '../queue.js';
+import { mpSongChanged } from '../multiplayer.js';
 import { songChanged, songDeleted, addClient } from '../events.js';
 import { saveCover, sniffImage } from '../media.js';
 
@@ -111,6 +112,7 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     q.deleteSong.run(s.id);
     fs.rmSync(songDir(s.id), { recursive: true, force: true });
     songDeleted(s.id);
+    mpSongChanged(s.id, true);
     return { ok: true };
   });
 
@@ -155,6 +157,35 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     return reply.type('application/json').send(fs.createReadStream(file));
   });
 
+  // ---------- Duett (Stimme 1 + 2), nur bei Bedarf erzeugt ----------
+  app.get<{ Params: { id: string }; Querystring: { difficulty?: string; seed?: string; mode?: string } }>(`${api}/songs/:id/duet`, async (req, reply) => {
+    const s = getSong(req.params.id); if (!s) return reply.code(404).send({ error: 'Song nicht gefunden' });
+    const d = (req.query.difficulty ?? 'normal') as Difficulty;
+    if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
+    const mode = modeOf(req.query.mode); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
+    const seed = req.query.seed !== undefined ? Math.max(0, Math.floor(+req.query.seed) || 0) : s.seed;
+    if (!['ready', 'outdated'].includes(s.status) || !fs.existsSync(analysisPath(s.id))) return reply.code(409).send({ error: 'Song wird noch verarbeitet' });
+    const file = duetPath(s.id, d, seed, mode);
+    // veraltete Duett-Levels (neuer Generator oder neue Analyse) wegwerfen
+    if (fs.existsSync(file)) {
+      try {
+        const head = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: number; analysisVersion?: number };
+        const av = (songRow(s.id)?.analysis_version as number) ?? 0;
+        if (head.version !== DUET_MAPPING_VERSION || (av && head.analysisVersion !== av)) fs.rmSync(duetDir(s.id), { recursive: true, force: true });
+      } catch { fs.rmSync(file, { force: true }); }
+    }
+    if (!fs.existsSync(file)) await duetOnDemand(s.id, d, seed, mode);
+    reply.header('Cache-Control', 'no-cache');
+    return reply.type('application/json').send(fs.createReadStream(file));
+  });
+  // Duett-Bestenliste (eingetragen wird vom Server selbst, wenn beide fertig sind – kein doppelter Eintrag)
+  app.get<{ Params: { id: string }; Querystring: { difficulty?: string; mode?: string } }>(`${api}/songs/:id/duet-scores`, async (req, reply) => {
+    const d = (req.query.difficulty ?? 'normal') as Difficulty;
+    if (!isDiff(d)) return reply.code(400).send({ error: 'Unbekannte Schwierigkeit' });
+    const mode = modeOf(req.query.mode); if (!mode) return reply.code(400).send({ error: 'Unbekannter Spielmodus' });
+    return topDuetScores(req.params.id, d, mode, 10);
+  });
+
   // Level-Import (eigene/angepasste Beatmap als JSON hochladen)
   app.put<{ Params: { id: string }; Querystring: { difficulty?: string; seed?: string } }>(`${api}/songs/:id/beatmap`, async (req, reply) => {
     const s = getSong(req.params.id); if (!s) return reply.code(404).send({ error: 'Song nicht gefunden' });
@@ -175,6 +206,7 @@ export function songRoutes(app: FastifyInstance, api: string): void {
     updateSong(s.id, { seed });
     logSong(s.id, b.reanalyze ? `Neu analysieren (Seed ${seed})` : `Neu generieren mit Seed ${seed}`);
     enqueue(s.id, b.reanalyze || !fs.existsSync(analysisPath(s.id)) ? 'full' : 'map');
+    mpSongChanged(s.id, false);
     return getSong(s.id);
   });
 

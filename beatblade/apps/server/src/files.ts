@@ -1,4 +1,4 @@
-// Dateiablage pro Song: <DATA_DIR>/songs/<id>/{audio.<ext>, cover.<jpg|png>, analysis.json, waveform.json, beatmaps/<diff>-<seed>.json, beatmaps/orbit-<diff>-<seed>.json}
+// Dateiablage pro Song: <DATA_DIR>/songs/<id>/{audio.<ext>, cover.<jpg|png>, analysis.json, waveform.json, beatmaps/<diff>-<seed>.json, beatmaps/orbit-<diff>-<seed>.json, beatmaps/duet/<mode>-<diff>-<seed>.json}
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
@@ -11,6 +11,9 @@ export const waveformPath = (id: string) => path.join(songDir(id), 'waveform.jso
 export const beatmapDir = (id: string) => path.join(songDir(id), 'beatmaps');
 export const beatmapPath = (id: string, d: Difficulty, seed: number, mode: GameModeId = 'schnitt') =>
   path.join(beatmapDir(id), `${mode === 'orbit' ? 'orbit-' : ''}${d}-${seed}.json`);
+/** Duett-Levels liegen getrennt: beatmaps/duet/<mode>-<d>-<seed>.json (eigenes Aufraeumen) */
+export const duetDir = (id: string) => path.join(beatmapDir(id), 'duet');
+export const duetPath = (id: string, d: Difficulty, seed: number, mode: GameModeId) => path.join(duetDir(id), `${mode}-${d}-${seed}.json`);
 export const tmpDir = () => { const p = path.join(config.dataDir, 'tmp'); fs.mkdirSync(p, { recursive: true }); return p; };
 
 export function coverPath(id: string): string | null {

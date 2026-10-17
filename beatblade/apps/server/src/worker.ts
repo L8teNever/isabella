@@ -2,12 +2,14 @@
 import { parentPort } from 'node:worker_threads';
 import fs from 'node:fs';
 import path from 'node:path';
-import { analyze, waveform, generate, generateOrbit, DIFFICULTIES, type SongAnalysis, type Difficulty, type GameModeId } from '@beatblade/core';
+import { analyze, waveform, generate, generateOrbit, generateDuet, generateOrbitDuet, DIFFICULTIES, type SongAnalysis, type Difficulty, type GameModeId } from '@beatblade/core';
 
 export type WorkerTask =
   | { task: 'full'; id: string; dir: string; seed: number; pcm: Float32Array; sr: number }
   /** mode fehlt = beide Modi */
-  | { task: 'map'; id: string; dir: string; seed: number; difficulties?: Difficulty[]; mode?: GameModeId };
+  | { task: 'map'; id: string; dir: string; seed: number; difficulties?: Difficulty[]; mode?: GameModeId }
+  /** Duett-Level (Stimme 1 + 2) fuer eine Schwierigkeit, nur bei Bedarf */
+  | { task: 'duet'; id: string; dir: string; seed: number; difficulty: Difficulty; mode: GameModeId };
 
 export type WorkerMsg =
   | { type: 'progress'; stage: 'analyzing' | 'mapping'; p: number }
@@ -51,11 +53,14 @@ function mapOrbit(a: SongAnalysis, dir: string, seed: number, list: readonly Dif
   return done;
 }
 
-/** alte Levels eines Modus entfernen (Schnitt: <d>-<seed>.json, Orbit: orbit-<d>-<seed>.json) */
+/** alte Levels eines Modus entfernen (Schnitt: <d>-<seed>.json, Orbit: orbit-<d>-<seed>.json); Duett-Ordner bleibt */
 function clearMaps(dir: string, mode: GameModeId): void {
   const bd = path.join(dir, 'beatmaps');
   if (!fs.existsSync(bd)) return;
-  for (const f of fs.readdirSync(bd)) if (f.startsWith('orbit-') === (mode === 'orbit')) fs.rmSync(path.join(bd, f), { force: true });
+  for (const f of fs.readdirSync(bd)) {
+    if (!f.endsWith('.json')) continue;
+    if (f.startsWith('orbit-') === (mode === 'orbit')) fs.rmSync(path.join(bd, f), { force: true });
+  }
 }
 
 parentPort!.on('message', (t: WorkerTask) => {
@@ -76,6 +81,13 @@ parentPort!.on('message', (t: WorkerTask) => {
       const diffs = mapAll(a, t.dir, t.seed, DIFFICULTIES);
       const orbit = mapOrbit(a, t.dir, t.seed, DIFFICULTIES);
       post({ type: 'done', bpm: a.bpm, duration: a.duration, difficulties: diffs, orbitDifficulties: orbit });
+    } else if (t.task === 'duet') {
+      const a = JSON.parse(fs.readFileSync(path.join(t.dir, 'analysis.json'), 'utf8')) as SongAnalysis;
+      const t0 = Date.now();
+      const dm = t.mode === 'orbit' ? generateOrbitDuet(a, t.difficulty, t.seed) : generateDuet(a, t.difficulty, t.seed);
+      write(path.join(t.dir, 'beatmaps', 'duet', `${t.mode}-${t.difficulty}-${t.seed}.json`), dm);
+      post({ type: 'log', msg: `Duett ${t.mode} ${t.difficulty}: Stimme 1 ${dm.parts[0].notes.length}, Stimme 2 ${dm.parts[1].notes.length} Noten, Anteil ${dm.stats.share.map((x) => Math.round(x * 100)).join('/')} %, ${dm.stats.unison} gemeinsam (${Date.now() - t0} ms)` });
+      post({ type: 'done', bpm: a.bpm, duration: a.duration });
     } else {
       const a = JSON.parse(fs.readFileSync(path.join(t.dir, 'analysis.json'), 'utf8')) as SongAnalysis;
       const list = t.difficulties ?? DIFFICULTIES;

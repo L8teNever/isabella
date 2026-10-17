@@ -16,3 +16,4 @@ export { timingReport, type TimingReport } from './mapping/report.js';
 export { toReach, goldToReach, outOfReach, reachRadius } from './mapping/orbit/reach.js';
 export { duckAt } from './mapping/orbit/validate.js';
 export { pickTiming } from './mapping/timing.js';
+export * from './multiplayer.js';

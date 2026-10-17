@@ -6,11 +6,13 @@ import fastifyStatic from '@fastify/static';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import cookie from '@fastify/cookie';
+import websocket from '@fastify/websocket';
 import { ANALYSIS_VERSION, MAPPING_VERSION } from '@beatblade/core';
 import { config } from './config.js';
 import { registerAuth, loggedIn } from './auth.js';
 import { contentByKind, contentFile, CONTENT_MIME } from './content.js';
 import { songRoutes } from './routes/songs.js';
+import { multiplayerRoutes, MP_MAX_BYTES } from './multiplayer.js';
 import { resumeAndUpgrade } from './queue.js';
 import { importSeeds, readCredits } from './seed.js';
 import { initYoutube } from './youtube.js';
@@ -20,6 +22,8 @@ const B = config.basePath, api = `${B}/api`;
 
 await app.register(cookie);
 await app.register(rateLimit, { global: true, max: 600, timeWindow: '1 minute' });
+// Echtzeitkanal fuer „Zusammen spielen“ (Nachrichten max. 16 KB)
+await app.register(websocket, { options: { maxPayload: MP_MAX_BYTES } });
 await app.register(multipart, { limits: { fileSize: config.maxUploadMb * 1024 * 1024 } });
 // Web-App (Vite-Build) unter BASE_PATH; ausserdem fuer reply.sendFile
 await app.register(fastifyStatic, { root: fs.existsSync(config.webDir) ? config.webDir : process.cwd(), prefix: `${B}/`, index: ['index.html'], wildcard: true });
@@ -52,6 +56,7 @@ app.post(`${api}/debug`, { config: { rateLimit: { max: 30, timeWindow: '1 minute
 app.get(`${api}/debug`, async () => debugLog.slice(-50));
 
 songRoutes(app, api);
+multiplayerRoutes(app, api);
 
 if (B) {
   app.get(B, async (_req, reply) => reply.redirect(`${B}/`));

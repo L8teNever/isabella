@@ -127,6 +127,19 @@ export async function mapOnDemand(id: string, d: Difficulty, seed: number, mode:
   await pool.run({ task: 'map', id, dir: songDir(id), seed, difficulties: [d], mode }, () => {});
 }
 
+/** Duett-Level bei Bedarf erzeugen; parallele Anfragen fuer dieselbe Datei teilen sich einen Worker-Lauf */
+const duetRuns = new Map<string, Promise<void>>();
+export function duetOnDemand(id: string, d: Difficulty, seed: number, mode: GameModeId): Promise<void> {
+  const key = `${id}:${mode}:${d}:${seed}`;
+  let p = duetRuns.get(key);
+  if (!p) {
+    p = pool.run({ task: 'duet', id, dir: songDir(id), seed, difficulty: d, mode }, (m) => { if (m.type === 'log') logSong(id, m.msg, m.level ?? 'info'); })
+      .then(() => undefined).finally(() => duetRuns.delete(key));
+    duetRuns.set(key, p);
+  }
+  return p;
+}
+
 /** Beim Start: unterbrochene Jobs fortsetzen, veraltete Analysen/Levels neu erzeugen */
 export function resumeAndUpgrade(): void {
   db.prepare(`UPDATE jobs SET status = 'queued' WHERE status = 'running'`).run();

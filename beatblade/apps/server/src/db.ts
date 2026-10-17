@@ -81,6 +81,24 @@ addColumn('songs', 'orbit_difficulties', `TEXT NOT NULL DEFAULT '[]'`);
 addColumn('songs', 'orbit_version', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('scores', 'mode', `TEXT NOT NULL DEFAULT 'schnitt'`);
 db.exec(`CREATE INDEX IF NOT EXISTS scores_song_mode ON scores(song_id, mode, difficulty)`);
+// Duett-Bestenliste (Solo-Highscores bleiben unberuehrt: halbe Notenzahl waere dort unfair)
+db.exec(`
+CREATE TABLE IF NOT EXISTS duet_scores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL,
+  difficulty TEXT NOT NULL,
+  name1 TEXT NOT NULL,
+  name2 TEXT NOT NULL,
+  accuracy1 REAL NOT NULL,
+  accuracy2 REAL NOT NULL,
+  team_accuracy REAL NOT NULL,
+  team_score INTEGER NOT NULL,
+  modifiers TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS duet_scores_song ON duet_scores(song_id, mode, difficulty, team_accuracy DESC);
+`);
 
 type Row = Record<string, unknown>;
 
@@ -115,6 +133,32 @@ export const q = {
   insertScore: db.prepare(`INSERT INTO scores (song_id, mode, difficulty, name, score, accuracy, rank, max_combo, misses, modifiers, created_at)
     VALUES (@songId, @mode, @difficulty, @name, @score, @accuracy, @rank, @maxCombo, @misses, @modifiers, @createdAt)`),
 };
+
+const duetQ = {
+  insert: db.prepare(`INSERT INTO duet_scores (song_id, mode, difficulty, name1, name2, accuracy1, accuracy2, team_accuracy, team_score, modifiers, created_at)
+    VALUES (@songId, @mode, @difficulty, @name1, @name2, @accuracy1, @accuracy2, @teamAccuracy, @teamScore, @modifiers, @createdAt)`),
+  top: db.prepare(`SELECT * FROM duet_scores WHERE song_id = ? AND mode = ? AND difficulty = ? ORDER BY team_accuracy DESC, team_score DESC, created_at ASC LIMIT ?`),
+};
+
+export interface DuetScore {
+  songId: string; mode: GameModeId; difficulty: Difficulty; name1: string; name2: string;
+  accuracy1: number; accuracy2: number; teamAccuracy: number; teamScore: number; modifiers: string; createdAt: number;
+}
+
+/** Duett-Ergebnis eintragen (Stimme 1 zuerst) */
+export function insertDuetScore(r: { songId: string; mode: GameModeId; difficulty: Difficulty; results: { name: string; accuracy: number; part: number }[]; team: { accuracy: number; score: number }; modifiers: string }): void {
+  const [a, b] = [...r.results].sort((x, y) => x.part - y.part);
+  duetQ.insert.run({ songId: r.songId, mode: r.mode, difficulty: r.difficulty, name1: a.name, name2: b.name, accuracy1: a.accuracy, accuracy2: b.accuracy,
+    teamAccuracy: r.team.accuracy, teamScore: Math.round(r.team.score), modifiers: r.modifiers.slice(0, 100), createdAt: Date.now() });
+}
+
+export function topDuetScores(songId: string, difficulty: Difficulty, mode: GameModeId, limit = 10): DuetScore[] {
+  return (duetQ.top.all(songId, mode, difficulty, limit) as Row[]).map((r) => ({
+    songId: r.song_id as string, mode: r.mode as GameModeId, difficulty: r.difficulty as Difficulty, name1: r.name1 as string, name2: r.name2 as string,
+    accuracy1: r.accuracy1 as number, accuracy2: r.accuracy2 as number, teamAccuracy: r.team_accuracy as number, teamScore: r.team_score as number,
+    modifiers: r.modifiers as string, createdAt: r.created_at as number,
+  }));
+}
 
 /** Teil-Update eines Songs (nur erlaubte Spalten) */
 const COLS = new Set(['title', 'artist', 'album', 'duration', 'bpm', 'status', 'progress', 'error', 'hidden', 'has_cover', 'difficulties', 'seed', 'analysis_version', 'mapping_version', 'orbit_difficulties', 'orbit_version']);
