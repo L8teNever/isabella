@@ -51,6 +51,29 @@ export class AudioPlayer {
     this.src = src; this.playing = true;
   }
 
+  /**
+   * Gemeinsamer Start (Duett): Songposition `from` soll zur lokalen Zeit `perfMs` (performance.now) ZU HOEREN sein.
+   * Ausgabe-Latenz (outputDelay) und Kalibrierung (latencyMs) werden vorgezogen, damit zwei Geraete denselben Takt
+   * gleichzeitig hoeren. Liegt der Zeitpunkt schon in der Vergangenheit (Wiedereinstieg), geht es an der passenden
+   * Stelle weiter.
+   */
+  playAt(perfMs: number, from = 0) {
+    if (!this.buffer) return;
+    this.stopSource();
+    const now = this.ctx.currentTime;
+    // Kontextzeit, deren Sample zu perfMs am Ausgang ankommt
+    let when = now + (perfMs - performance.now()) / 1000 - this.outputDelay() - settings.latencyMs / 1000;
+    let off = from;
+    if (when < now + 0.02) { off += now + 0.02 - when; when = now + 0.02; }
+    this.startCtx = when - off;
+    const src = this.ctx.createBufferSource(); src.buffer = this.buffer; src.connect(this.music);
+    this.unmute(true);
+    // vor Songbeginn (off < 0): erst spaeter einsetzen, Songzeit laeuft solange negativ
+    src.start(Math.max(when, this.startCtx), Math.max(0, off));
+    src.onended = () => { if (this.src === src && this.playing) { this.playing = false; this.onEnded?.(); } };
+    this.src = src; this.playing = true;
+  }
+
   pause() { if (!this.playing) return; this.unmute(true); this.pausedAt = this.rawTime(); this.stopSource(); this.playing = false; }
   /** nach Pause: kurzer Vorlauf (Countdown) */
   resumeFrom(lead = 3) { this.play(this.pausedAt, lead); }

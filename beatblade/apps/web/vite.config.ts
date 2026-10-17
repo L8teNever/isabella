@@ -26,6 +26,6 @@ export default defineConfig({
     },
   },
   server: {
-    proxy: { [`${base}api`]: { target: process.env.API || 'http://localhost:3901', changeOrigin: true } },
+    proxy: { [`${base}api`]: { target: process.env.API || 'http://localhost:3901', changeOrigin: true, ws: true } },
   },
 });

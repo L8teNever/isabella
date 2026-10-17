@@ -373,6 +373,7 @@ function handle(s: Session, raw: string, req: FastifyRequest) {
     case 'status': {
       if (!['menu', 'playing', 'away'].includes(m.status)) return;
       s.status = m.status; s.song = m.status === 'playing' ? songRef(m.song) : undefined;
+      if (m.device && DEVICES.includes(m.device)) s.device = m.device;
       if (l) {
         const mb = l.members.find((x) => x.clientId === s.clientId);
         if (mb) { mb.away = m.status === 'away'; if (mb.away) mb.ready = false; pushState(l); }

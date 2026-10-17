@@ -1,5 +1,5 @@
 // Lokaler Cache im Headset (Cache API): Audio und Beatmaps, damit erneutes Spielen sofort startet.
-import type { Beatmap, Difficulty, OrbitMap, Song } from '@beatblade/core';
+import { DUET_MAPPING_VERSION, type Beatmap, type Difficulty, type DuetMap, type GameModeId, type OrbitMap, type Song } from '@beatblade/core';
 import { api } from '../api';
 
 const NAME = 'beatblade-v1';
@@ -39,6 +39,18 @@ export async function loadOrbitMap(song: Song, d: Difficulty, seed = song.seed):
   const key = `/beatmap/${song.id}/orbit-${d}/${seed}/${song.updatedAt}`;
   const r = await cached(key, async () => new Response(JSON.stringify(await api.orbitmap(song.id, d, seed)), { headers: { 'Content-Type': 'application/json' } }));
   return r.json();
+}
+
+/** Duett-Level (Schluessel mit updatedAt und Duett-Version -> neuer Generator/neue Levels werden neu geladen) */
+export async function loadDuet<P = Beatmap | OrbitMap>(song: { id: string; updatedAt: number }, mode: GameModeId, d: Difficulty, seed: number, version = DUET_MAPPING_VERSION): Promise<DuetMap<P>> {
+  const key = `/beatmap/${song.id}/duet-${mode}-${d}/${seed}-v${version}/${song.updatedAt}`;
+  const r = await cached(key, async () => new Response(JSON.stringify(await api.duet<P>(song.id, mode, d, seed)), { headers: { 'Content-Type': 'application/json' } }));
+  const dm = await r.json() as DuetMap<P>;
+  if (dm.version !== version) {   // Server hat eine andere Version: Cache-Eintrag verwerfen und frisch holen
+    const c = await open().catch(() => null); await c?.delete(key);
+    return api.duet<P>(song.id, mode, d, seed);
+  }
+  return dm;
 }
 
 /** alte Eintraege eines Songs entfernen (z. B. nach Neu-Generierung) */

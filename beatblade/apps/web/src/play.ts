@@ -1,14 +1,16 @@
 // BeatBlade – Spiel (WebXR VR/MR, Desktop-Debugmodus).
 import './style.css';
 import * as THREE from 'three';
-import type { Difficulty, Song } from '@beatblade/core';
+import type { Beatmap, Difficulty, MpServerMsg, MpSharedModifiers, OrbitMap, Song } from '@beatblade/core';
 import { api, subscribe } from './api';
 import { mrSafeBlending } from './game/mrblend';
 import { loadLook, loadBlockSkin, buildSaber, currentSaber, pickMap, mapStyle, wallFor, wallStyle, mapItems, loadOrbNoteSkin, orbStyle, orbModel } from './look';
 import { handOrbFromModel } from './game/orbit/orbskins';
 import { settings, saveSettings } from './settings';
 import { AudioPlayer } from './audio/player';
-import { loadAudio, loadBeatmap, loadOrbitMap, pruneSong } from './storage/cache';
+import { loadAudio, loadBeatmap, loadOrbitMap, loadDuet, pruneSong } from './storage/cache';
+import { Mp, guessDevice } from './net/mp';
+import { Partner } from './game/partner';
 import { Environment } from './game/environment';
 import { NoteView } from './game/notes';
 import { Slicer } from './game/slicer';
@@ -21,7 +23,8 @@ import { Menus } from './ui3d/menus';
 import { Hud } from './ui3d/hud';
 import { COMBO_MILESTONES, COMBO_BREAK_MIN, comboLevel, comboColor } from './game/combo';
 
-type State = 'menu' | 'loading' | 'playing' | 'paused' | 'resuming' | 'results' | 'calibrating' | 'floor';
+/** mpready = Duett geladen, wartet auf den gemeinsamen Start */
+type State = 'menu' | 'loading' | 'playing' | 'paused' | 'resuming' | 'results' | 'calibrating' | 'floor' | 'mpready';
 type XRMode = 'vr' | 'ar' | 'desktop';
 
 const app = document.getElementById('app')!;
@@ -90,6 +93,16 @@ const orbit = new OrbitGame(root, view, slicer, sabers, {
 });
 /** laufender Spielmodus (Schnitt oder Orbit) */
 let gm: GameMode = game;
+
+// ---------- Zusammen spielen ----------
+const mp = new Mp(guessDevice());
+const partner = new Partner(root);
+/** laufendes Duett (null = Solo) */
+let duet: {
+  song: Song; d: Difficulty; seed: number; mode: ModeId; part: 1 | 2; partnerName: string;
+  resumeAt?: number; pausedT?: number; lastPose: number; lastScore: number; lastSync: number; partnerCombo: number;
+  solo: boolean;
+} | null = null;
 // Modus per Adresse vorwaehlen (…/play.html?mode=orbit), sonst der zuletzt gespielte
 { const m = new URLSearchParams(location.search).get('mode'); if (m === 'orbit' || m === 'schnitt') { settings.gameMode = m; saveSettings(); } }
 
@@ -97,16 +110,23 @@ let gm: GameMode = game;
 const menus = new Menus(root, {
   play: (s, d, seed) => startSong(s, d, seed),
   // nach der Pause nicht neu ausrichten: Map und Noten sollen mitten im Song nicht springen
-  resume: () => { state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true); },
-  restart: () => { if (current) { settings.gameMode = current.mode; startSong(current.song, current.d, current.seed); } },
-  quitToMenu: () => { audio.stop(); toMenu(); },
+  resume: () => {
+    if (duet && mp.lobby) { mp.send({ t: 'resume' }); menus.loading('Warte auf deinen Partner …', 1); return; }
+    state = 'resuming'; resumeAt = performance.now() + 3000; menus.hide(); hud.show(true);
+  },
+  restart: () => {
+    if (duet && mp.lobby) { if (mp.isHost) mp.send({ t: 'restart' }); return; }
+    if (current) { settings.gameMode = current.mode; startSong(current.song, current.d, current.seed); }
+  },
+  quitToMenu: () => { if (duet && mp.lobby) mp.send({ t: 'lobby.leave' }); duetEnd(); audio.stop(); toMenu(); },
+  toLobby: () => { if (duet) { duetEnd(); audio.stop(); orbit.stop(); gm = game; state = 'menu'; hud.show(false); menus.show(); } },
   exitXR: () => renderer.xr.getSession()?.end(),
   calibrateLatency: () => calibrate(),
   setFloor: () => { state = 'floor'; floorMin = Infinity; floorUntil = performance.now() + 4000; },
   setDirection: () => setDirection(),
   isMR: () => mode === 'ar',
   inXR: () => renderer.xr.isPresenting,
-  applySettings: () => { audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); orbit.applyColors(); applyLook(); },
+  applySettings: () => { if (settings.name !== mp.name) mp.setName(settings.name); audio.setVolume(settings.volume); hud.fps.visible = settings.showFps; game.applyColors(); orbit.applyColors(); applyLook(); },
 });
 
 // ---------- Eingaben (Controller / Haende / Maus) ----------
@@ -247,6 +267,7 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
     // Vorlauf: Noten der ersten Sekunden sind schon unterwegs, bevor die Musik einsetzt
     audio.play(0, lead);
     state = 'playing';
+    presence();
   } catch (e) {
     if (run !== startRun) return;
     state = 'menu';
@@ -258,6 +279,7 @@ async function startSong(song: Song, d: Difficulty, seed: number) {
 /** Pause; why landet im Debug-Protokoll (Knopf, Brille abgesetzt, Esc ...) */
 function pauseGame(why = 'knopf') {
   if (state !== 'playing') return;
+  if (duet && mp.lobby) mp.send({ t: 'pause', songTime: audio.songTime() });   // Partner pausiert mit
   audio.pause(); state = 'paused'; hud.message(''); menus.pause(); sendLog(`pause:${why}`);
 }
 
@@ -268,6 +290,7 @@ function sendLog(reason: string) {
 
 function finish() {
   sendLog('end');
+  if (duet) return duetFinish();
   // Musik ausblenden, dann Ergebnis (kein Game Over – jeder Song laeuft bis zum Ende)
   const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
   setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500);
@@ -275,7 +298,201 @@ function finish() {
   setTimeout(() => { hud.show(false); if (current) menus.results(gm.score, current.song, current.d, gm.id); }, 800);
 }
 
-function toMenu() { orbit.stop(); gm = game; state = 'menu'; hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
+function toMenu() { orbit.stop(); gm = game; state = 'menu'; partner.clear(); hud.setPartner(''); presence(); hud.show(false); for (const s of sabers) if (!renderer.xr.isPresenting && mode !== 'desktop') s.hide(); menus.go('songs', false); menus.show(); lobbyMap(); game.applyColors(); applyLook(); }
+
+// ---------- Zusammen spielen: Ablauf ----------
+// Stellschrauben (Senderaten)
+const MP_POSE_HZ = 15, MP_SCORE_EVERY = 500, MP_SYNC_EVERY = 2000;
+
+/** eigenen Status an alle (Presence): im Menue, spielt Song X, abwesend */
+function presence(away = document.visibilityState === 'hidden') {
+  const playing = state === 'playing' || state === 'paused' || state === 'resuming' || state === 'mpready';
+  mp.send({ t: 'status', status: away ? 'away' : playing ? 'playing' : 'menu', song: playing && current ? { id: current.song.id, title: current.song.title } : undefined, device: mp.device });
+}
+document.addEventListener('visibilitychange', () => presence());
+
+function duetEnd() { duet = null; partner.clear(); hud.setPartner(''); }
+
+/** gemeinsame Modifikatoren (Host) gelten fuer beide; persoenliche Einstellungen bleiben lokal */
+function withShared<T>(m: MpSharedModifiers, fn: () => T): T {
+  const keep = { noWalls: settings.noWalls, noBombs: settings.noBombs, fastNotes: settings.fastNotes };
+  Object.assign(settings, m);
+  try { return fn(); } finally { Object.assign(settings, keep); }
+}
+
+async function duetPrepare(m: Extract<MpServerMsg, { t: 'prepare' }>) {
+  audio.stop(); hud.show(false); slicer.clear(); partner.clear();
+  const run = ++startRun;
+  const live = () => run === startRun && state === 'loading';
+  state = 'loading';
+  let lastSent = 0;
+  const progress = (text: string, p: number) => {
+    if (!live()) return;
+    const others = mp.lobby?.members.filter((x) => x.clientId !== mp.me).map((x) => `${x.name}: ${x.loaded ? 'fertig ✓' : `${Math.round(x.progress * 100)} %`}`).join(' · ') ?? '';
+    menus.loading(`${text}${others ? `\n${others}` : ''}`, p);
+    if (performance.now() - lastSent > 300) { lastSent = performance.now(); mp.send({ t: 'loading', p: Math.round(p * 100) / 100 }); }
+  };
+  try {
+    const song = menus.songs.find((x) => x.id === m.song.id) ?? await api.song(m.song.id);
+    const partnerM = mp.lobby?.members.find((x) => x.clientId !== mp.me);
+    duet = { song, d: m.difficulty, seed: m.seed, mode: m.mode, part: m.part, partnerName: partnerM?.name ?? 'Partner', lastPose: 0, lastScore: 0, lastSync: 0, partnerCombo: 0, solo: false };
+    current = { song, d: m.difficulty, seed: m.seed, mode: m.mode };
+    presence();
+    await audio.resume();
+    const data = await loadAudio(song, (p) => progress('Audio laden …', p * 0.7));
+    if (!live()) return;
+    progress('Dekodieren …', 0.75);
+    await audio.decode(data);
+    if (!live()) return;
+    progress('Duett-Level laden …', 0.85);
+    const dm = await loadDuet<Beatmap | OrbitMap>(song, m.mode, m.difficulty, m.seed, m.duetVersion);
+    if (!live()) return;
+    const mine = dm.parts[m.part - 1], other = dm.parts[2 - m.part];
+    if (m.mode === 'orbit') {
+      const [om, ghost] = withShared(m.sharedModifiers, () => [prepareOrbit(mine as OrbitMap), prepareOrbit(other as OrbitMap)]);
+      orbit.start(om); gm = orbit;
+      partner.setGhost(settings.partnerNotes ? ghost : null);
+    } else {
+      const [bm, ghost] = withShared(m.sharedModifiers, () => [prepareMap(mine as Beatmap), prepareMap(other as Beatmap)]);
+      orbit.stop(); game.start(bm); gm = game;
+      partner.setGhost(settings.partnerNotes ? ghost : null);
+    }
+    partner.setName(duet.partnerName);
+    applyMap();
+    if (renderer.xr.isPresenting) setDirection();
+    lastCombo = 0; env?.reset();
+    state = 'mpready';
+    menus.loading(`Bereit – Stimme ${m.part}. Warte auf ${duet.partnerName} …`, 1);
+    mp.send({ t: 'loaded', ok: true });
+  } catch (e) {
+    if (run !== startRun) return;
+    mp.send({ t: 'loaded', ok: false, error: (e as Error).message });
+    duetEnd(); state = 'menu'; menus.go('lobby', false); menus.show();
+  }
+}
+
+/** gemeinsamer Start (auch Wiedereinstieg mitten im Song): Serverzeit -> eigene Audio-Uhr */
+function duetStart(at: number, from: number) {
+  if (!duet || !['mpready', 'playing', 'paused', 'resuming'].includes(state)) return;
+  audio.playAt(mp.toLocal(at), from);
+  state = 'playing';
+  menus.hide(); hud.show(true); hud.message('');
+  partner.show(true);
+  presence();
+}
+
+function duetFinish() {
+  const s = gm.score;
+  const result = { accuracy: Math.round(s.rating * 100) / 100, score: s.score, maxCombo: s.maxCombo, hits: s.hits, misses: s.misses + s.badCuts, notes: s.total, rank: `${s.stars}★` };
+  const g = audio.gain.gain; g.setTargetAtTime(0, audio.ctx.currentTime, 0.4);
+  setTimeout(() => { audio.stop(); audio.setVolume(settings.volume); }, 1500);
+  state = 'results';
+  if (mp.lobby && !duet!.solo) { mp.send({ t: 'finished', result }); setTimeout(() => { if (state === 'results' && duet && menus.screen !== 'duetresults') { hud.show(false); menus.loading(`Warte auf das Ergebnis von ${duet.partnerName} …`, 1); } }, 800); }
+  else {
+    // ohne Lobby (Server-Neustart, Partner weg): eigenes Ergebnis, ohne Bestenliste
+    const d = duet!; const me = { ...result, clientId: mp.me, name: settings.name, part: d.part };
+    setTimeout(() => { hud.show(false); menus.duetResults({ results: [me], team: { accuracy: result.accuracy, score: result.score }, ranked: false }, d.song, d.d, d.mode); }, 800);
+  }
+  presence();
+}
+
+/** pro Bild: Partner bewegen, eigene Pose/Wertung/Songzeit senden */
+function duetFrame(songT: number, dt: number, cam: THREE.Camera) {
+  const d = duet!;
+  partner.update(state === 'resuming' ? d.pausedT ?? songT : songT, state === 'playing' ? dt : 0, headLocal, state !== 'playing');
+  if (!mp.lobby || !['playing', 'resuming', 'paused'].includes(state)) return;
+  const now = performance.now();
+  if (now - d.lastPose >= 1000 / MP_POSE_HZ) {
+    d.lastPose = now;
+    const rq = root.getWorldQuaternion(new THREE.Quaternion()).invert();
+    const hq = new THREE.Quaternion().setFromRotationMatrix(cam.matrixWorld).premultiply(rq);
+    const r3 = (v: number) => Math.round(v * 1000) / 1000;
+    const hand = (sb: Saber) => [sb.grip.x, sb.grip.y, sb.grip.z, sb.group.quaternion.x, sb.group.quaternion.y, sb.group.quaternion.z, sb.group.quaternion.w].map(r3);
+    mp.send({ t: 'pose', head: [headLocal.x, headLocal.y, headLocal.z, hq.x, hq.y, hq.z, hq.w].map(r3), hands: [...hand(sabers[0]), ...hand(sabers[1])] });
+  }
+  if (now - d.lastScore >= MP_SCORE_EVERY) {
+    d.lastScore = now;
+    const s = gm.score;
+    mp.send({ t: 'score', rating: Math.round(s.rating * 10) / 10, score: s.score, combo: s.combo, hits: s.hits, misses: s.misses + s.badCuts });
+  }
+  if (state === 'playing' && now - d.lastSync >= MP_SYNC_EVERY) { d.lastSync = now; mp.send({ t: 'sync', songTime: Math.round(audio.songTime() * 1000) / 1000 }); }
+}
+
+// Nachrichten vom Server
+mp.on('prepare', (m) => { duetPrepare(m); });
+mp.on('start', (m) => duetStart(m.at, m.from));
+mp.on('pause', (m) => {
+  if (!duet) return;
+  duet.pausedT = m.songTime;
+  if (state === 'playing' || state === 'resuming') { audio.pause(); state = 'paused'; hud.message(''); }
+  if (state === 'paused') menus.pause();
+  if (m.by !== mp.me) for (const h of [0, 1] as const) pulse(h, 0.5, 80);
+});
+mp.on('resume', (m) => {
+  if (!duet || (state !== 'paused' && state !== 'playing')) return;
+  duet.resumeAt = mp.toLocal(m.at); duet.pausedT = m.songTime;
+  audio.playAt(duet.resumeAt, m.songTime);
+  state = 'resuming'; menus.hide(); hud.show(true);
+});
+mp.on('pose', (m) => partner.push(m));
+mp.on('score', (m) => {
+  if (!duet) return;
+  hud.setPartner(`${duet.partnerName}: ${m.rating.toFixed(1)} % · ${m.combo}er Combo`);
+  const ms = COMBO_MILESTONES.find((x) => duet!.partnerCombo < x && m.combo >= x);
+  if (ms && state === 'playing') hud.popup(`${duet.partnerName}: ${ms}er Combo!`, '#ffe08a', 1.2);
+  duet.partnerCombo = m.combo;
+});
+mp.on('partner', (m) => {
+  const txt = m.event === 'lost' ? `${m.name}: Verbindung verloren` : m.event === 'back' ? `${m.name} ist zurück` : `${m.name} hat die Lobby verlassen`;
+  if (state === 'playing' || state === 'resuming') hud.popup(txt, m.event === 'back' ? '#9fe8c4' : '#ff9db0', 2);
+  else { menus.mpNote = txt; menus.refresh(); }
+  if (m.event !== 'back') { partner.show(false); hud.setPartner(''); }
+  if (m.event === 'left' && duet) partner.setGhost(null);
+});
+mp.on('results', (m) => {
+  if (!duet) return;
+  const d = duet;
+  hud.show(false);
+  menus.duetResults(m, d.song, d.d, d.mode);
+});
+mp.on('lobby.state', (m) => {
+  const l = m.lobby;
+  // Host hat zurueck zur Lobby geschickt, oder Laden abgebrochen: Spiel beenden
+  if (duet && l && l.state === 'waiting' && ['loading', 'mpready', 'playing', 'paused', 'resuming'].includes(state)) {
+    duetEnd(); audio.stop(); orbit.stop(); gm = game; state = 'menu'; hud.show(false); menus.go('lobby', false); menus.show(); presence();
+  }
+  // Lobby weg mitten im Song: lokal zu Ende spielen
+  if (!l && duet && ['playing', 'paused', 'resuming', 'mpready'].includes(state)) {
+    duet.solo = true;
+    if (state === 'mpready') { duetEnd(); state = 'menu'; menus.go('songs', false); menus.show(); }
+    else if (state === 'paused') menus.pause(); else hud.popup('Lobby beendet – du spielst allein weiter', '#ffd9a0', 2.5);
+  }
+  if (!l && m.reason && !['verlassen', 'neue Lobby', 'gewechselt'].includes(m.reason)) menus.mpNote = `Lobby beendet (${m.reason})`;
+  if (menus.visible && !['loading'].includes(menus.screen)) menus.refresh();
+});
+mp.on('presence', () => { if (menus.visible && ['online', 'lobby', 'songs'].includes(menus.screen)) menus.refresh(); });
+mp.on('invite', (m) => {
+  const busy = m.quiet || ['playing', 'paused', 'resuming', 'mpready', 'loading'].includes(state);
+  menus.addInvite({ from: m.from, lobbyId: m.lobbyId, expiresAt: m.expiresAt }, !busy);
+  if (!busy) { pulse(0, 0.6, 120); pulse(1, 0.6, 120); }
+  else if (state === 'playing') hud.popup(`✉ ${m.from.name} lädt dich ein`, '#ffe08a', 1.6);
+});
+mp.on('invite.gone', (m) => menus.dropInvite(m.lobbyId));
+mp.on('error', (m) => { menus.mpNote = m.message; if (state === 'playing') hud.popup(m.message, '#ff9db0', 2); else if (menus.visible) menus.refresh(); });
+mp.on('outdated', () => { menus.mpNote = 'Bitte Seite neu laden (neue Version)'; $('hint').textContent = 'Zusammen spielen: Bitte Seite neu laden (neue Version).'; menus.refresh(); });
+mp.on('welcome', () => {
+  presence();
+  // Lobby nach Neuverbindung weg (Server-Neustart)?
+  const had = mp.hadLobby;
+  if (had) setTimeout(() => { if (!mp.lobby) { menus.mpNote = 'Lobby wurde beendet'; if (duet && state === 'mpready') { duetEnd(); state = 'menu'; menus.go('songs', false); menus.show(); } menus.refresh(); } }, 1200);
+  // Link mit ?lobby=CODE oder ?invite=<clientId> (aus der Bibliothek)
+  const q = new URLSearchParams(location.search);
+  const code = q.get('lobby'), inv = q.get('invite');
+  if (code && !mp.lobby) { mp.send({ t: 'lobby.join', code }); history.replaceState(null, '', location.pathname); if (menus.visible) menus.go('lobby'); }
+  if (inv) { mp.send({ t: 'lobby.invite', to: inv }); history.replaceState(null, '', location.pathname); if (menus.visible) menus.go('lobby'); }
+});
+menus.mp = mp;
+mp.start();
 
 // ---------- Latenz-Kalibrierung ----------
 let tapTimes: number[] = [];
@@ -319,13 +536,14 @@ async function startXR(m: 'vr' | 'ar') {
     requiredFeatures: ['local-floor'], optionalFeatures: ['hand-tracking', 'plane-detection', 'hit-test'],
   });
   setup(m);
+  mp.device = m === 'ar' ? 'mr' : 'vr'; presence();
   await renderer.xr.setSession(session);
   // Neu-Zentrieren (Meta-Taste halten) verschiebt den Referenzraum: im naechsten Bild Map und Spielfeld gemeinsam neu vor den Spieler stellen
   renderer.xr.getReferenceSpace()?.addEventListener('reset', () => { recenter = true; });
   session.addEventListener('end', () => { audio.stop(); state = 'menu'; $('start').hidden = false; renderer.domElement.style.display = 'none'; });
   // 'visible-blurred' = Quest blendet kurz etwas ein (Spielbereich-Grenze, Benachrichtigung): weiterspielen.
   // Nur 'hidden' (Brille abgesetzt, Systemmenue offen) pausiert.
-  session.addEventListener('visibilitychange', () => { if (session.visibilityState === 'hidden') pauseGame(`brille:${session.visibilityState}`); });
+  session.addEventListener('visibilitychange', () => { if (session.visibilityState === 'hidden') pauseGame(`brille:${session.visibilityState}`); presence(session.visibilityState === 'hidden'); });
   if (m === 'ar') { renderer.setClearAlpha(0); scene.background = null; scene.fog = null; }
 }
 
@@ -338,6 +556,8 @@ function setup(m: XRMode) {
   hud.fps.visible = settings.showFps;
   audio.resume();
   menus.go('main', false); menus.show();
+  if (mp.lobby) menus.go('lobby', false);
+  else if (menus.invites.length) menus.go('invite', false);
 }
 
 $('b-vr').addEventListener('click', () => startXR('vr').catch((e) => alert(`VR ging nicht: ${e.message}`)));
@@ -425,12 +645,18 @@ renderer.setAnimationLoop((_t, frame) => {
 
   // Spiel
   if (state === 'playing') gm.update(songT, dt, headLocal, false);
-  else if (state === 'paused' || state === 'resuming') gm.update(songT, 0, headLocal, true);
-  if (state === 'resuming') {
+  else if (state === 'paused' || state === 'resuming') gm.update(duet && state === 'resuming' ? duet.pausedT ?? songT : songT, 0, headLocal, true);
+  if (state === 'resuming' && duet) {
+    // Duett: Audio ist schon fuer resumeAt eingeplant (playAt), hier nur Countdown
+    const left = Math.ceil(((duet.resumeAt ?? 0) - performance.now()) / 1000);
+    hud.message(String(Math.max(1, left)));
+    if (performance.now() >= (duet.resumeAt ?? 0)) { hud.message(''); state = 'playing'; }
+  } else if (state === 'resuming') {
     const left = Math.ceil((resumeAt - performance.now()) / 1000);
     hud.message(String(Math.max(1, left)));
     if (performance.now() >= resumeAt) { hud.message(''); audio.resumeFrom(0); state = 'playing'; }
   }
+  if (duet) duetFrame(songT, dt, cam);
   if (state === 'playing' || state === 'resuming') hud.update(gm.score, dt, gm.inWall);
   // Combo-Effekte: Staerke waechst mit der Serie, Meilensteine feiern, Fehler beendet sie sofort
   if (state === 'playing') {
@@ -502,4 +728,4 @@ function desktopSabers(t: number) {
 }
 
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
-(window as unknown as { __bb: unknown }).__bb = { game, orbit, get gm() { return gm; }, menus, audio, settings, sabers, camera, renderer, view, slicer, root, stage, hud, get env() { return env; }, get state() { return state; } };
+(window as unknown as { __bb: unknown }).__bb = { mp, get duet() { return duet; }, partner, game, orbit, get gm() { return gm; }, menus, audio, settings, sabers, camera, renderer, view, slicer, root, stage, hud, get env() { return env; }, get state() { return state; } };

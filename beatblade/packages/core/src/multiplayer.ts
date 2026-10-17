@@ -83,7 +83,7 @@ export interface MpPose { head: number[]; hands: number[] }
 // ---------- Spiel -> Server ----------
 export type MpClientMsg =
   | { t: 'hello'; clientId: string; name: string; device: MpDevice; protocol: number }
-  | { t: 'status'; status: 'menu' | 'playing' | 'away'; song?: MpSongRef }
+  | { t: 'status'; status: 'menu' | 'playing' | 'away'; song?: MpSongRef; device?: MpDevice }
   | { t: 'name'; name: string }
   | { t: 'ping'; c: number }
   | { t: 'lobby.create' }

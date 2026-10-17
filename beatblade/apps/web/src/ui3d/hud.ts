@@ -24,6 +24,9 @@ export class Hud {
   private pop = new Label(1.6, 0.4, 1024);
   private popT = 0; private popDur = 1;
   fps = new Label(0.24, 0.08, 256);
+  /** Duett: Live-Wertung des Partners unter der eigenen Wertung */
+  private partner = new Label(1.0, 0.16, 768);
+  private partnerText = '';
   vignette: THREE.Mesh;
   private last = '';
   private t = 0;
@@ -33,7 +36,8 @@ export class Hud {
     this.right.position.set(1.75, 1.2, -3.2); this.right.rotation.y = -0.35;
     this.center.position.set(0, 1.5, -3);
     this.pop.position.set(0, 2.05, -3.2); this.pop.visible = false;
-    this.group.add(this.left, this.right, this.center, this.pop);
+    this.partner.position.set(1.75, 0.82, -3.2); this.partner.rotation.y = -0.35; this.partner.visible = false;
+    this.group.add(this.left, this.right, this.center, this.pop, this.partner);
     this.group.visible = false; scene.add(this.group);
     this.fps.position.set(-0.22, -0.16, -0.6); this.fps.visible = false; camera.add(this.fps);
     // Vignette: Kugel um den Kopf, rot, nur sichtbar in Waenden
@@ -94,6 +98,18 @@ export class Hud {
     c.font = '900 150px system-ui'; c.fillText(text, W / 2, H * 0.55);
     if (sub) { c.font = '600 40px system-ui'; c.fillStyle = '#b8b0d6'; c.fillText(sub, W / 2, H * 0.85); }
     this.center.tex.needsUpdate = true;
+  }
+
+  /** Duett: „Partner: 96 % · 42er Combo“ (leer = ausblenden) */
+  setPartner(text: string) {
+    this.partner.visible = !!text;
+    if (!text || text === this.partnerText) return;
+    this.partnerText = text;
+    const c = this.partner.ctx, W = this.partner.canvas.width, H = this.partner.canvas.height;
+    c.clearRect(0, 0, W, H); c.fillStyle = 'rgba(20,12,40,0.6)'; c.beginPath(); c.roundRect?.(0, 0, W, H, H / 2); c.fill();
+    c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillStyle = '#ffe08a'; c.font = '700 52px system-ui';
+    c.fillText(text, W / 2, H / 2, W - 30);
+    this.partner.tex.needsUpdate = true;
   }
 
   setFps(v: number) {

@@ -1,5 +1,5 @@
 // API-Zugriff und Live-Updates (SSE). Basis-Pfad kommt aus Vite (BASE_PATH).
-import type { Beatmap, Difficulty, GameModeId, Highscore, OrbitMap, Song, SongAnalysis, Waveform } from '@beatblade/core';
+import type { Beatmap, Difficulty, DuetMap, GameModeId, Highscore, OrbitMap, Song, SongAnalysis, Waveform } from '@beatblade/core';
 
 export const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 export const API = `${BASE}/api`;
@@ -59,6 +59,9 @@ export const api = {
   /** Bestwert je Song (Prozent, Rang, Punkte) fuer eine Schwierigkeit */
   best: (d: Difficulty, mode: GameModeId = 'schnitt') => j<Record<string, { accuracy: number; rank: string; score: number }>>(`/best?difficulty=${d}&mode=${mode}`),
   postScore: (id: string, s: Omit<Highscore, 'songId' | 'createdAt'>) => j<Highscore[]>(`/songs/${id}/scores`, json('POST', s)),
+  /** Duett-Level (Stimme 1 + 2), wird auf dem Server bei Bedarf erzeugt */
+  duet: <P = Beatmap | OrbitMap>(id: string, mode: GameModeId, d: Difficulty, seed: number) => j<DuetMap<P>>(`/songs/${id}/duet?mode=${mode}&difficulty=${d}&seed=${seed}`),
+  duetScores: (id: string, d: Difficulty, mode: GameModeId) => j<DuetScore[]>(`/songs/${id}/duet-scores?difficulty=${d}&mode=${mode}`),
   credits: () => j<Credit[]>('/credits'),
   debug: (data: unknown) => fetch(`${API}/debug`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), credentials: 'same-origin', keepalive: true }).catch(() => {}),
   audioUrl: (id: string) => `${API}/songs/${id}/audio`,
@@ -85,6 +88,9 @@ export const api = {
 };
 
 /** Live-Updates: song (neu/geaendert) und deleted */
+/** Eintrag der Duett-Bestenliste */
+export interface DuetScore { songId: string; mode: GameModeId; difficulty: Difficulty; name1: string; name2: string; accuracy1: number; accuracy2: number; teamAccuracy: number; teamScore: number; modifiers: string; createdAt: number }
+
 /** Treffer aus SoundCloud (Suche, Likes, Playlist) */
 export interface ScItem { url: string; title: string; artist: string; duration: number; cover: string | null; tooLong?: boolean }
 

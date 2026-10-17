@@ -3,6 +3,7 @@ import '../style.css';
 import { DIFFICULTY_LABEL, type Song } from '@beatblade/core';
 import { api, subscribe, STATUS_LABEL, playable, fmtTime, BASE, type YtStatus, type ScItem } from '../api';
 import { BUILD_INFO } from '../version';
+import { Mp, guessDevice, DEVICE_LABEL, STATUS_TEXT } from '../net/mp';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -19,7 +20,22 @@ async function boot() {
   showTab(location.hash === '#credits' ? 'credits' : 'lib');
   await load();
   subscribe({ song: upsert, deleted: (id) => { songs.delete(id); render(); }, open: () => load(), yt: ytUpdate });
+  if (!mpStarted) { mpStarted = true; mp.start(); }
 }
+
+// ---------- Gerade online (Zusammen spielen) ----------
+// Die Bibliothek zaehlt als „BeatBlade offen“; eingeladen wird aus dem Spiel heraus (play.html?invite=<id>).
+const mp = new Mp(guessDevice());
+let mpStarted = false;
+function renderOnline() {
+  const others = mp.online.filter((p) => p.clientId !== mp.me);
+  $('online-card').hidden = !mp.connected;
+  $('online').innerHTML = others.length ? others.map((p) => `<div class="up"><div class="name">${esc(mp.label(p))} <span class="hint">· ${DEVICE_LABEL[p.device]} · ${STATUS_TEXT[p.status]}${p.song && p.status === 'playing' ? ` „${esc(p.song.title)}“` : ''}</span></div>
+    <div class="row"><a href="./play.html?invite=${encodeURIComponent(p.clientId)}"><button type="button" class="primary">Einladen ▸</button></a></div></div>`).join('')
+    : '<p class="hint">Gerade ist sonst niemand online.</p>';
+}
+mp.on('welcome', renderOnline); mp.on('presence', renderOnline); mp.on('disconnected', renderOnline);
+mp.on('outdated', () => { $('online').innerHTML = '<p class="hint">Bitte Seite neu laden (neue Version).</p>'; });
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try { await api.login($<HTMLInputElement>('pw').value); $('login').hidden = true; boot(); }
